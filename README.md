@@ -18,7 +18,7 @@ The current LinkedIn adapter imports Playwright accessibility snapshots saved to
 3. Add named LinkedIn sources with `node src/cli.js add-source "<Label>" "<LinkedIn URL>"`.
 4. Either:
    - save Playwright snapshots under `output/playwright/<source-id>-snapshot.md` and run `npm run capture:all`, or
-   - run `npm run capture:all:live` to have the app drive the browser via the local Playwright CLI bridge.
+   - start `npm run bridge` in one terminal, then run `npm run capture:all:live` in another.
 5. Run `npm run run`.
 
 ## Commands
@@ -27,6 +27,7 @@ The current LinkedIn adapter imports Playwright accessibility snapshots saved to
 - `npm run sources`
 - `npm run capture -- <source-id-or-label> [snapshot-path]`
 - `npm run capture:all`
+- `npm run bridge`
 - `npm run capture:live -- <source-id-or-label> [snapshot-path]`
 - `npm run capture:all:live`
 - `npm run sync`
@@ -43,10 +44,17 @@ Suggested statuses: `new`, `viewed`, `applied`, `rejected`.
 
 ## Live Capture Notes
 
-The live capture commands require:
+The live capture commands require a running browser bridge service:
 
-- the Playwright MCP Bridge browser extension to be connected
+- Start it with `node src/cli.js bridge-server [port] [provider]`
+- Default port: `4315`
+- Default provider: `noop`
+- Temporary fallback provider: `playwright_cli`
+
+The `playwright_cli` provider still depends on:
+
+- the Playwright MCP Bridge browser extension being connected
 - a valid `PLAYWRIGHT_MCP_EXTENSION_TOKEN` in your environment or `~/.codex/config.toml`
-- the local Playwright CLI wrapper installed at `~/.codex/skills/playwright/scripts/playwright_cli.sh`
+- the local Playwright CLI wrapper at `~/.codex/skills/playwright/scripts/playwright_cli.sh`
 
-If the CLI bridge is unavailable, use the snapshot import flow instead.
+If the browser bridge or provider is unavailable, use the snapshot import flow instead.

@@ -2,7 +2,8 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-import { captureLinkedInSourceLive } from "./capture/playwright-cli.js";
+import { captureLinkedInSourceViaBridge } from "./browser-bridge/client.js";
+import { startBrowserBridgeServer } from "./browser-bridge/server.js";
 import {
   addLinkedInCaptureSource,
   getSourceByIdOrName,
@@ -329,7 +330,7 @@ function runCaptureAll(snapshotDirArg) {
   );
 }
 
-function runCaptureSourceLive(sourceIdOrName, snapshotPathArg) {
+async function runCaptureSourceLive(sourceIdOrName, snapshotPathArg) {
   if (!sourceIdOrName) {
     throw new Error(
       "Usage: node src/cli.js capture-source-live <source-id-or-label> [snapshot-path]"
@@ -338,14 +339,14 @@ function runCaptureSourceLive(sourceIdOrName, snapshotPathArg) {
 
   const source = getSourceByIdOrName(sourceIdOrName);
   const snapshotPath = path.resolve(snapshotPathArg || getDefaultSnapshotPath(source));
-  const result = captureLinkedInSourceLive(source, snapshotPath);
+  const result = await captureLinkedInSourceViaBridge(source, snapshotPath);
 
   console.log(
     `Live-captured ${result.jobsImported} job(s) for "${source.name}" from ${result.snapshotPath}`
   );
 }
 
-function runCaptureAllLive(snapshotDirArg) {
+async function runCaptureAllLive(snapshotDirArg) {
   const sources = loadSources().sources.filter(
     (source) => source.enabled && source.type === "linkedin_capture_file"
   );
@@ -360,7 +361,7 @@ function runCaptureAllLive(snapshotDirArg) {
 
   for (const source of sources) {
     const snapshotPath = getDefaultSnapshotPath(source, snapshotDir);
-    const result = captureLinkedInSourceLive(source, snapshotPath);
+    const result = await captureLinkedInSourceViaBridge(source, snapshotPath);
     completed += 1;
     console.log(
       `Live-captured ${result.jobsImported} job(s) for "${source.name}" from ${result.snapshotPath}`
@@ -368,6 +369,23 @@ function runCaptureAllLive(snapshotDirArg) {
   }
 
   console.log(`capture-all-live imported ${completed} source(s).`);
+}
+
+async function runBridgeServer(portArg, providerArg) {
+  const port = portArg ? Number(portArg) : 4315;
+  if (!Number.isFinite(port) || port <= 0) {
+    throw new Error("Bridge port must be a positive number.");
+  }
+
+  const providerName = String(providerArg || process.env.JOB_FINDER_BRIDGE_PROVIDER || "noop");
+  const { provider } = await startBrowserBridgeServer({
+    port,
+    providerName
+  });
+
+  console.log(`Browser bridge running at http://127.0.0.1:${port}`);
+  console.log(`Provider: ${provider}`);
+  console.log("Keep this process running while capture-source-live or capture-all-live are in use.");
 }
 
 async function runReview(portArg) {
@@ -415,6 +433,7 @@ Usage:
   node src/cli.js capture-all [snapshot-dir]
   node src/cli.js capture-source-live <source-id-or-label> [snapshot-path]
   node src/cli.js capture-all-live [snapshot-dir]
+  node src/cli.js bridge-server [port] [provider]
   node src/cli.js import-linkedin-snapshot <source-id-or-label> <snapshot-path>
   node src/cli.js mark <job-id> <status>
   node src/cli.js review [port]
@@ -466,10 +485,13 @@ async function main() {
       runCaptureAll(args[0]);
       break;
     case "capture-source-live":
-      runCaptureSourceLive(args[0], args[1]);
+      await runCaptureSourceLive(args[0], args[1]);
       break;
     case "capture-all-live":
-      runCaptureAllLive(args[0]);
+      await runCaptureAllLive(args[0]);
+      break;
+    case "bridge-server":
+      await runBridgeServer(args[0], args[1]);
       break;
     case "import-linkedin-snapshot":
       runImportLinkedInSnapshot(args[0], args[1]);

@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
-import { importLinkedInSnapshot } from "../sources/linkedin-saved-search.js";
+import { importLinkedInSnapshot } from "../../sources/linkedin-saved-search.js";
 
 function resolveCodexHome() {
   return process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
@@ -92,7 +92,7 @@ function writeSnapshotFile(snapshotPath, snapshotText) {
   fs.writeFileSync(snapshotPath, snapshotText, "utf8");
 }
 
-export function captureLinkedInSourceLive(
+export function captureLinkedInSourceWithPlaywrightCli(
   source,
   snapshotPath,
   options = {}
@@ -126,6 +126,7 @@ export function captureLinkedInSourceLive(
   return {
     ...importResult,
     snapshotPath: resolvedSnapshotPath,
-    sessionName
+    sessionName,
+    provider: "playwright_cli"
   };
 }
