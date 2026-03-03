@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
+import { captureLinkedInSourceLive } from "./capture/playwright-cli.js";
 import {
   addLinkedInCaptureSource,
   getSourceByIdOrName,
@@ -328,6 +329,47 @@ function runCaptureAll(snapshotDirArg) {
   );
 }
 
+function runCaptureSourceLive(sourceIdOrName, snapshotPathArg) {
+  if (!sourceIdOrName) {
+    throw new Error(
+      "Usage: node src/cli.js capture-source-live <source-id-or-label> [snapshot-path]"
+    );
+  }
+
+  const source = getSourceByIdOrName(sourceIdOrName);
+  const snapshotPath = path.resolve(snapshotPathArg || getDefaultSnapshotPath(source));
+  const result = captureLinkedInSourceLive(source, snapshotPath);
+
+  console.log(
+    `Live-captured ${result.jobsImported} job(s) for "${source.name}" from ${result.snapshotPath}`
+  );
+}
+
+function runCaptureAllLive(snapshotDirArg) {
+  const sources = loadSources().sources.filter(
+    (source) => source.enabled && source.type === "linkedin_capture_file"
+  );
+
+  if (sources.length === 0) {
+    console.log("No enabled linkedin_capture_file sources.");
+    return;
+  }
+
+  const snapshotDir = path.resolve(snapshotDirArg || "output/playwright");
+  let completed = 0;
+
+  for (const source of sources) {
+    const snapshotPath = getDefaultSnapshotPath(source, snapshotDir);
+    const result = captureLinkedInSourceLive(source, snapshotPath);
+    completed += 1;
+    console.log(
+      `Live-captured ${result.jobsImported} job(s) for "${source.name}" from ${result.snapshotPath}`
+    );
+  }
+
+  console.log(`capture-all-live imported ${completed} source(s).`);
+}
+
 async function runReview(portArg) {
   const port = portArg ? Number(portArg) : 4311;
   if (!Number.isFinite(port) || port <= 0) {
@@ -371,6 +413,8 @@ Usage:
   node src/cli.js open-sources
   node src/cli.js capture-source <source-id-or-label> [snapshot-path]
   node src/cli.js capture-all [snapshot-dir]
+  node src/cli.js capture-source-live <source-id-or-label> [snapshot-path]
+  node src/cli.js capture-all-live [snapshot-dir]
   node src/cli.js import-linkedin-snapshot <source-id-or-label> <snapshot-path>
   node src/cli.js mark <job-id> <status>
   node src/cli.js review [port]
@@ -420,6 +464,12 @@ async function main() {
       break;
     case "capture-all":
       runCaptureAll(args[0]);
+      break;
+    case "capture-source-live":
+      runCaptureSourceLive(args[0], args[1]);
+      break;
+    case "capture-all-live":
+      runCaptureAllLive(args[0]);
       break;
     case "import-linkedin-snapshot":
       runImportLinkedInSnapshot(args[0], args[1]);

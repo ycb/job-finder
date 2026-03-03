@@ -12,6 +12,8 @@
     "sources": "node src/cli.js sources",
     "capture": "node src/cli.js capture-source",
     "capture:all": "node src/cli.js capture-all",
+    "capture:live": "node src/cli.js capture-source-live",
+    "capture:all:live": "node src/cli.js capture-all-live",
     "mark": "node src/cli.js mark",
     "review": "node src/cli.js review",
     "run": "node src/cli.js run"
