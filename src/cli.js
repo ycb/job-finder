@@ -351,7 +351,7 @@ async function runCaptureSourceLive(sourceIdOrName, snapshotPathArg) {
   }
 
   console.log(
-    `Live-captured ${result.jobsImported} job(s) for "${source.name}" from ${result.snapshotPath}`
+    `Live-captured ${result.jobsImported} job(s) for "${source.name}" via ${result.provider || "bridge"}`
   );
 }
 
@@ -384,7 +384,7 @@ async function runCaptureAllLive(snapshotDirArg) {
 
     completed += 1;
     console.log(
-      `Live-captured ${result.jobsImported} job(s) for "${source.name}" from ${result.snapshotPath}`
+      `Live-captured ${result.jobsImported} job(s) for "${source.name}" via ${result.provider || "bridge"}`
     );
   }
 

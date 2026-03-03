@@ -187,6 +187,38 @@ export function parseLinkedInSnapshot(snapshotText) {
   return jobs;
 }
 
+export function writeLinkedInCaptureFile(
+  source,
+  jobs,
+  options = {}
+) {
+  if (!source || source.type !== "linkedin_capture_file") {
+    throw new Error("LinkedIn capture write requires a linkedin_capture_file source.");
+  }
+
+  const payload = {
+    sourceId: source.id,
+    sourceName: source.name,
+    searchUrl: source.searchUrl,
+    capturedAt: options.capturedAt || new Date().toISOString(),
+    jobs: Array.isArray(jobs) ? jobs : []
+  };
+
+  if (options.pageUrl) {
+    payload.pageUrl = options.pageUrl;
+  }
+
+  fs.writeFileSync(source.capturePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+
+  return {
+    source,
+    capturePath: source.capturePath,
+    jobsImported: payload.jobs.length,
+    capturedAt: payload.capturedAt,
+    pageUrl: payload.pageUrl || null
+  };
+}
+
 export function importLinkedInSnapshot(source, snapshotPath) {
   if (!source || source.type !== "linkedin_capture_file") {
     throw new Error("LinkedIn snapshot import requires a linkedin_capture_file source.");
@@ -194,22 +226,7 @@ export function importLinkedInSnapshot(source, snapshotPath) {
 
   const snapshotText = readSourceText(snapshotPath, "LinkedIn snapshot file");
   const jobs = parseLinkedInSnapshot(snapshotText);
-
-  const payload = {
-    sourceId: source.id,
-    sourceName: source.name,
-    searchUrl: source.searchUrl,
-    capturedAt: new Date().toISOString(),
-    jobs
-  };
-
-  fs.writeFileSync(source.capturePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
-
-  return {
-    source,
-    capturePath: source.capturePath,
-    jobsImported: jobs.length
-  };
+  return writeLinkedInCaptureFile(source, jobs);
 }
 
 export function collectMockLinkedInSavedSearch(source) {

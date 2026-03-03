@@ -48,8 +48,18 @@ The live capture commands require a running browser bridge service:
 
 - Start it with `node src/cli.js bridge-server [port] [provider]`
 - Default port: `4315`
-- Default provider: `persistent_scaffold`
+- Default provider: `chrome_applescript`
+- Fastest automation on macOS: `chrome_applescript`
 - Temporary fallback provider: `playwright_cli`
+- Manual handoff fallback provider: `persistent_scaffold`
+
+`chrome_applescript` captures directly from the active Chrome tab and does not require Playwright snapshots.
+
+One-time Chrome setup:
+
+1. In Chrome, open `View`
+2. Open `Developer`
+3. Enable `Allow JavaScript from Apple Events`
 
 `persistent_scaffold` is a stateful handoff flow:
 

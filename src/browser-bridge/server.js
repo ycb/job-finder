@@ -1,5 +1,6 @@
 import http from "node:http";
 
+import { captureLinkedInSourceWithChromeAppleScript } from "./providers/chrome-applescript.js";
 import { captureLinkedInSourceWithNoop } from "./providers/noop.js";
 import { captureLinkedInSourceWithPersistentScaffold } from "./providers/persistent-scaffold.js";
 import { captureLinkedInSourceWithPlaywrightCli } from "./providers/playwright-cli.js";
@@ -40,6 +41,13 @@ function readRequestBody(request) {
 }
 
 function resolveProvider(providerName = "noop") {
+  if (providerName === "chrome_applescript") {
+    return {
+      name: providerName,
+      captureLinkedInSource: captureLinkedInSourceWithChromeAppleScript
+    };
+  }
+
   if (providerName === "persistent_scaffold") {
     return {
       name: providerName,
@@ -62,7 +70,7 @@ function resolveProvider(providerName = "noop") {
 
 export async function startBrowserBridgeServer({
   port = 4315,
-  providerName = process.env.JOB_FINDER_BRIDGE_PROVIDER || "persistent_scaffold"
+  providerName = process.env.JOB_FINDER_BRIDGE_PROVIDER || "chrome_applescript"
 } = {}) {
   const provider = resolveProvider(providerName);
 
