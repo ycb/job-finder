@@ -1,0 +1,12 @@
+{
+  "sources": [
+    {
+      "id": "linkedin-live-capture",
+      "name": "LinkedIn Lead Product Manager Search",
+      "type": "linkedin_capture_file",
+      "enabled": true,
+      "searchUrl": "https://www.linkedin.com/jobs/search-results/?keywords=lead%20product%20manager&geoId=90000084&distance=25",
+      "capturePath": "data/captures/linkedin-live-capture.json"
+    }
+  ]
+}

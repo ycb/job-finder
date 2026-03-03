@@ -1,0 +1,19 @@
+{
+  "name": "job-finder",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "init": "node src/cli.js init",
+    "sync": "node src/cli.js sync",
+    "score": "node src/cli.js score",
+    "shortlist": "node src/cli.js shortlist",
+    "list": "node src/cli.js list",
+    "sources": "node src/cli.js sources",
+    "capture": "node src/cli.js capture-source",
+    "capture:all": "node src/cli.js capture-all",
+    "mark": "node src/cli.js mark",
+    "review": "node src/cli.js review",
+    "run": "node src/cli.js run"
+  }
+}

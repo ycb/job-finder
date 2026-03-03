@@ -1,0 +1,12 @@
+.codex/
+config/profile.json
+config/sources.json
+data/
+output/
+node_modules/
+.DS_Store
+Resume-Peter-Spannagle.pdf
+fixtures/ai-pm.json
+fixtures/founding-pm.json
+fixtures/growth-pm.json
+fixtures/linkedin-live-capture.json

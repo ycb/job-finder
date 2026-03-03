@@ -1,0 +1,40 @@
+{
+  "candidateName": "Your Name",
+  "resumePath": "resume.pdf",
+  "targetTitles": [
+    "product manager",
+    "senior product manager"
+  ],
+  "targetLocations": [
+    "remote",
+    "new york",
+    "san francisco"
+  ],
+  "remotePreference": "remote_friendly",
+  "salaryFloor": 180000,
+  "seniorityLevels": [
+    "senior",
+    "staff",
+    "lead"
+  ],
+  "preferredIndustries": [
+    "ai",
+    "developer tools",
+    "b2b saas"
+  ],
+  "targetCompanies": [
+    "OpenAI",
+    "Stripe",
+    "Figma"
+  ],
+  "includeKeywords": [
+    "platform",
+    "growth",
+    "developer"
+  ],
+  "excludeKeywords": [
+    "principal engineer",
+    "java developer",
+    "onsite daily"
+  ]
+}

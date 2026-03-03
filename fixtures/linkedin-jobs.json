@@ -1,0 +1,39 @@
+[
+  {
+    "externalId": "LI-1001",
+    "title": "Senior Product Manager, Platform",
+    "company": "OpenAI",
+    "location": "Remote (US)",
+    "postedAt": "2026-03-02T13:00:00.000Z",
+    "employmentType": "Full-time",
+    "easyApply": true,
+    "salaryText": "$210,000 - $260,000",
+    "description": "Lead platform product strategy for developer-facing systems with strong cross-functional execution.",
+    "url": "https://www.linkedin.com/jobs/view/1001"
+  },
+  {
+    "externalId": "LI-1002",
+    "title": "Product Manager, Growth",
+    "company": "Acme Health",
+    "location": "New York, NY",
+    "postedAt": "2026-03-02T14:15:00.000Z",
+    "employmentType": "Full-time",
+    "easyApply": false,
+    "salaryText": "$170,000 - $190,000",
+    "description": "Own growth loops and onboarding experiments across a consumer healthcare app.",
+    "url": "https://www.linkedin.com/jobs/view/1002"
+  },
+  {
+    "externalId": "LI-1003",
+    "title": "Principal Engineer",
+    "company": "Legacy Systems Inc.",
+    "location": "Chicago, IL",
+    "postedAt": "2026-03-01T10:00:00.000Z",
+    "employmentType": "Full-time",
+    "easyApply": false,
+    "salaryText": "$190,000 - $220,000",
+    "description": "Hands-on architecture and Java platform ownership for a regulated enterprise stack.",
+    "url": "https://www.linkedin.com/jobs/view/1003"
+  }
+]
+
