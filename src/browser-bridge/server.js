@@ -1,6 +1,7 @@
 import http from "node:http";
 
 import { captureLinkedInSourceWithNoop } from "./providers/noop.js";
+import { captureLinkedInSourceWithPersistentScaffold } from "./providers/persistent-scaffold.js";
 import { captureLinkedInSourceWithPlaywrightCli } from "./providers/playwright-cli.js";
 
 function createJsonResponse(response, statusCode, payload) {
@@ -39,6 +40,13 @@ function readRequestBody(request) {
 }
 
 function resolveProvider(providerName = "noop") {
+  if (providerName === "persistent_scaffold") {
+    return {
+      name: providerName,
+      captureLinkedInSource: captureLinkedInSourceWithPersistentScaffold
+    };
+  }
+
   if (providerName === "playwright_cli") {
     return {
       name: providerName,
@@ -54,7 +62,7 @@ function resolveProvider(providerName = "noop") {
 
 export async function startBrowserBridgeServer({
   port = 4315,
-  providerName = process.env.JOB_FINDER_BRIDGE_PROVIDER || "noop"
+  providerName = process.env.JOB_FINDER_BRIDGE_PROVIDER || "persistent_scaffold"
 } = {}) {
   const provider = resolveProvider(providerName);
 

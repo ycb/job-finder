@@ -48,8 +48,15 @@ The live capture commands require a running browser bridge service:
 
 - Start it with `node src/cli.js bridge-server [port] [provider]`
 - Default port: `4315`
-- Default provider: `noop`
+- Default provider: `persistent_scaffold`
 - Temporary fallback provider: `playwright_cli`
+
+`persistent_scaffold` is a stateful handoff flow:
+
+1. `capture-source-live` opens the saved search and writes a pending request file.
+2. You save a fresh Playwright snapshot to the requested path.
+3. You rerun the same capture command.
+4. The bridge detects the fresh snapshot, imports it, and completes the capture.
 
 The `playwright_cli` provider still depends on:
 

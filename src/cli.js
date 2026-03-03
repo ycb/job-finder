@@ -341,6 +341,15 @@ async function runCaptureSourceLive(sourceIdOrName, snapshotPathArg) {
   const snapshotPath = path.resolve(snapshotPathArg || getDefaultSnapshotPath(source));
   const result = await captureLinkedInSourceViaBridge(source, snapshotPath);
 
+  if (result.status === "pending") {
+    console.log(result.message || `Capture queued for "${source.name}".`);
+    if (result.requestPath) {
+      console.log(`Request file: ${result.requestPath}`);
+    }
+    console.log(`Snapshot path: ${result.snapshotPath}`);
+    return;
+  }
+
   console.log(
     `Live-captured ${result.jobsImported} job(s) for "${source.name}" from ${result.snapshotPath}`
   );
@@ -362,6 +371,17 @@ async function runCaptureAllLive(snapshotDirArg) {
   for (const source of sources) {
     const snapshotPath = getDefaultSnapshotPath(source, snapshotDir);
     const result = await captureLinkedInSourceViaBridge(source, snapshotPath);
+
+    if (result.status === "pending") {
+      console.log(result.message || `Capture queued for "${source.name}".`);
+      if (result.requestPath) {
+        console.log(`Request file: ${result.requestPath}`);
+      }
+      console.log(`Snapshot path: ${result.snapshotPath}`);
+      console.log("Paused capture-all-live at the first source awaiting a fresh snapshot.");
+      return;
+    }
+
     completed += 1;
     console.log(
       `Live-captured ${result.jobsImported} job(s) for "${source.name}" from ${result.snapshotPath}`
