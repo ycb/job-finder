@@ -1375,7 +1375,7 @@ function renderDashboardPage(dashboard) {
             : "") ,
           "        </div>",
           "      </div>",
-          '      <div class="subhead" style="margin-top: 12px;">Edit search labels and URLs here. Profile preferences stay file-based for now.</div>",
+          '      <div class="subhead" style="margin-top: 12px;">Edit search labels and URLs here. Profile preferences stay file-based for now.</div>',
           '      <div style="margin-top: 16px; overflow-x: auto;">',
           '        <table>',
           '          <thead><tr><th>Name / URL</th><th>Last Run</th><th>Status</th><th>Jobs Found</th><th>High Signal</th><th>Actions</th></tr></thead>',
