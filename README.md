@@ -21,6 +21,13 @@ The current LinkedIn adapter imports Playwright accessibility snapshots saved to
    - start `npm run bridge` in one terminal, then run `npm run capture:all:live` in another.
 5. Run `npm run run`.
 
+For the full automated daily path with a running browser bridge:
+
+```bash
+npm run bridge
+npm run run:live
+```
+
 ## Commands
 
 - `npm run init`
@@ -37,6 +44,7 @@ The current LinkedIn adapter imports Playwright accessibility snapshots saved to
 - `npm run mark -- <job-id> <status>`
 - `npm run review`
 - `npm run run`
+- `npm run run:live`
 
 ## Status values
 

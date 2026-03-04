@@ -435,6 +435,14 @@ function runPipeline() {
   runList(10);
 }
 
+async function runLivePipeline() {
+  await runCaptureAllLive();
+  runSync();
+  runScore();
+  runShortlist();
+  runList(10);
+}
+
 function printHelp() {
   console.log(`
 Usage:
@@ -458,6 +466,7 @@ Usage:
   node src/cli.js mark <job-id> <status>
   node src/cli.js review [port]
   node src/cli.js run
+  node src/cli.js run-live
   `.trim());
 }
 
@@ -524,6 +533,9 @@ async function main() {
       break;
     case "run":
       runPipeline();
+      break;
+    case "run-live":
+      await runLivePipeline();
       break;
     case "help":
     default:

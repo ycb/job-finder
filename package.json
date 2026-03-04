@@ -17,6 +17,7 @@
     "bridge": "node src/cli.js bridge-server",
     "mark": "node src/cli.js mark",
     "review": "node src/cli.js review",
-    "run": "node src/cli.js run"
+    "run": "node src/cli.js run",
+    "run:live": "node src/cli.js run-live"
   }
 }

@@ -87,83 +87,127 @@ function buildExtractionScript() {
     });
   };
 
-  let cards = Array.from(document.querySelectorAll(".job-card-container"));
-  if (!cards.length) {
-    cards = Array.from(document.querySelectorAll("li.jobs-search-results__list-item, li.scaffold-layout__list-item"));
-  }
-
   const jobs = [];
   const seenJobs = new Set();
+  const dismissButtons = Array.from(
+    document.querySelectorAll('[aria-label^="Dismiss "][aria-label$=" job"]')
+  );
 
-  for (const card of cards) {
-    const link = card.querySelector('a[href*="/jobs/view/"]');
-    const href = link?.href ? new URL(link.href, location.origin).toString() : "";
-    const externalIdMatch = href.match(/\\/jobs\\/view\\/(\\d+)/);
+  const findTextContainer = (dismissButton) => {
+    let current = dismissButton?.parentElement || null;
 
-    const title = unique([
-      card.querySelector(".job-card-list__title")?.textContent,
-      card.querySelector(".job-card-container__link")?.textContent,
-      link?.textContent
-    ])[0] || "";
+    while (current) {
+      const text = normalize(current.innerText || current.textContent || "");
+      if (text) {
+        return current;
+      }
 
-    const company = unique([
-      card.querySelector(".artdeco-entity-lockup__subtitle")?.textContent,
-      card.querySelector(".job-card-container__company-name")?.textContent,
-      card.querySelector(".job-card-container__primary-description")?.textContent
-    ])[0] || "";
+      current = current.parentElement;
+    }
 
-    const location = unique([
-      card.querySelector(".job-card-container__metadata-item")?.textContent,
-      card.querySelector(".artdeco-entity-lockup__caption")?.textContent,
-      Array.from(card.querySelectorAll("li, span"))
-        .map((node) => normalize(node.textContent))
-        .find((text) => /(remote|hybrid|on-site|onsite|,\\s*[A-Z]{2}|bay area)/i.test(text))
-    ])[0] || "";
+    return null;
+  };
 
-    const postedAt = unique([
-      card.querySelector(".job-card-container__footer-item")?.textContent,
-      card.querySelector(".job-card-container__listed-time")?.textContent,
-      Array.from(card.querySelectorAll("time, span"))
-        .map((node) => normalize(node.textContent))
-        .find((text) => /(hour|day|week|month)s? ago|reposted|active/i.test(text))
-    ])[0] || null;
-
-    const allTexts = unique(
-      Array.from(card.querySelectorAll("*"))
-        .map((node) => normalize(node.textContent))
+  const parseCardLines = (text) => {
+    const lines = unique(
+      String(text || "")
+        .split(/\\n+/)
+        .map((line) => normalize(line))
         .filter(Boolean)
     );
 
-    const salaryText =
-      allTexts.find((text) => /[$€£]\\s*\\d|\\b\\d+[Kk]\\b.*\\/yr|\\/hr/i.test(text)) || null;
+    const filtered = [];
 
-    const employmentType =
-      allTexts.find((text) => /^(full-time|part-time|contract|temporary|internship)$/i.test(text)) || null;
+    for (const line of lines) {
+      if (
+        !line ||
+        line === "·" ||
+        line === "Easy Apply" ||
+        line === "Viewed" ||
+        line === "Saved" ||
+        line === "Applied" ||
+        line === "Actively reviewing applicants" ||
+        line === "Be an early applicant" ||
+        /school alumni work here/i.test(line) ||
+        /connection works here/i.test(line)
+      ) {
+        continue;
+      }
 
-    const easyApply = allTexts.some((text) => /easy apply/i.test(text));
+      filtered.push(line);
+    }
+
+    return filtered;
+  };
+
+  const normalizeTitle = (value) =>
+    normalize(value).replace(/\\s*\\(Verified job\\)\\s*/gi, " ");
+
+  const buildSearchUrl = (title, company) => {
+    const params = new URLSearchParams({
+      keywords: [title, company].filter(Boolean).join(" ")
+    });
+
+    return "https://www.linkedin.com/jobs/search-results/?" + params.toString();
+  };
+
+  for (const dismissButton of dismissButtons) {
+    const card = findTextContainer(dismissButton);
+    if (!card) {
+      continue;
+    }
+
+    const cardLines = parseCardLines(card.innerText || card.textContent || "");
+    if (cardLines.length < 2) {
+      continue;
+    }
+
+    let title = normalizeTitle(cardLines[0]);
+    let company = normalize(cardLines[1]);
+    let location = normalize(cardLines[2] || "");
+
+    if (company && normalizeTitle(company) === title) {
+      company = normalize(cardLines[2] || "");
+      location = normalize(cardLines[3] || "");
+    }
 
     if (!title || !company) {
       continue;
     }
 
-    const dedupeKey = [title, company, location, href].join("|");
+    const salaryText =
+      cardLines.find((line) => /[$€£]\\s*\\d|\\b\\d+(?:\\.\\d+)?[Kk]\\b.*\\/yr|\\/hr/i.test(line)) || null;
+
+    const postedLine =
+      cardLines.find((line) => /^Posted on /i.test(line)) ||
+      cardLines.find((line) => /(hour|day|week|month)s? ago/i.test(line)) ||
+      null;
+
+    const employmentType =
+      cardLines.find((line) => /^(full-time|part-time|contract|temporary|internship)$/i.test(line)) || null;
+
+    const easyApply = /easy apply/i.test(card.innerText || "");
+
+    const href = buildSearchUrl(title, company);
+    const dedupeKey = [title, company, location].join("|");
+
     if (seenJobs.has(dedupeKey)) {
       continue;
     }
     seenJobs.add(dedupeKey);
 
     jobs.push({
-      externalId: externalIdMatch ? externalIdMatch[1] : null,
+      externalId: null,
       title,
       company,
       location,
-      postedAt,
+      postedAt: postedLine ? postedLine.replace(/^Posted on /i, "").trim() : null,
       employmentType,
       easyApply,
       salaryText,
-      summary: normalize(card.textContent).slice(0, 500),
-      description: normalize(card.textContent),
-      url: href || location.href
+      summary: normalize((card.innerText || card.textContent || "")).slice(0, 500),
+      description: normalize(cardLines.join(" · ")),
+      url: href
     });
   }
 
