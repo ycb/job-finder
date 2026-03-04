@@ -1,6 +1,6 @@
 # Job Finder
 
-*Local-first job intelligence agent that turns LinkedIn saved searches into a ranked action queue.*
+*Job intelligence agent that turns LinkedIn saved searches into a ranked action queue.*
 
 ## Dashboard Preview
 
@@ -12,7 +12,7 @@ The dashboard is designed around the actual workflow:
 - review one de-duped, prioritized queue instead of duplicate listings
 - move completed applications out of the work queue and into a separate applied list
 
-Job Finder is a local-first job intelligence agent for turning noisy job discovery into a ranked action queue.
+Job Finder is an intelligence agent for turning noisy job discovery into a ranked action queue. Runs locally, uses Codex and Playwrght MCP.
 
 Instead of acting like another job board, generic scraper, or chat wrapper, it models your search as a repeatable system:
 
