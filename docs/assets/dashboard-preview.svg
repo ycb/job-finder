@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">Job Finder dashboard preview</title>
+  <desc id="desc">Illustrated preview of the Job Finder dashboard showing saved searches, ranked jobs, and an applied list.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f7f2e5" />
+      <stop offset="100%" stop-color="#e8dcc3" />
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="760" fill="url(#bg)" />
+  <rect x="36" y="28" width="1128" height="704" rx="28" fill="#fffaf0" stroke="#d5c7ab" stroke-width="2" />
+
+  <text x="72" y="84" font-family="Georgia, serif" font-size="20" fill="#66736d" letter-spacing="2">JOB FINDER</text>
+  <text x="72" y="132" font-family="Georgia, serif" font-size="46" font-weight="700" fill="#1f2c28">Local-first job intelligence</text>
+  <text x="72" y="168" font-family="Georgia, serif" font-size="20" fill="#66736d">Run saved searches, de-dupe results, and work a ranked action queue.</text>
+
+  <rect x="928" y="86" width="170" height="44" rx="14" fill="#1f2c28" />
+  <text x="1013" y="114" text-anchor="middle" font-family="Georgia, serif" font-size="18" fill="#fffaf0">Run All</text>
+
+  <rect x="72" y="208" width="520" height="468" rx="22" fill="#ffffff" stroke="#dccfb7" />
+  <text x="98" y="246" font-family="Georgia, serif" font-size="18" fill="#66736d" letter-spacing="1.5">MY JOB SEARCHES</text>
+
+  <rect x="98" y="276" width="468" height="58" rx="14" fill="#f6f1e6" stroke="#e0d5c0" />
+  <text x="118" y="311" font-family="Georgia, serif" font-size="18" fill="#1f2c28">AI PM</text>
+  <text x="330" y="311" font-family="Georgia, serif" font-size="14" fill="#66736d">25 jobs</text>
+  <rect x="448" y="289" width="102" height="32" rx="10" fill="#1f2c28" />
+  <text x="499" y="310" text-anchor="middle" font-family="Georgia, serif" font-size="15" fill="#fffaf0">See Results</text>
+
+  <rect x="98" y="350" width="468" height="58" rx="14" fill="#f6f1e6" stroke="#e0d5c0" />
+  <text x="118" y="385" font-family="Georgia, serif" font-size="18" fill="#1f2c28">Founding PM</text>
+  <text x="330" y="385" font-family="Georgia, serif" font-size="14" fill="#66736d">24 jobs</text>
+  <rect x="448" y="363" width="102" height="32" rx="10" fill="#ffffff" stroke="#d0c1a4" />
+  <text x="499" y="384" text-anchor="middle" font-family="Georgia, serif" font-size="15" fill="#1f2c28">Run</text>
+
+  <rect x="98" y="424" width="468" height="58" rx="14" fill="#f6f1e6" stroke="#e0d5c0" />
+  <text x="118" y="459" font-family="Georgia, serif" font-size="18" fill="#1f2c28">Growth PM</text>
+  <text x="330" y="459" font-family="Georgia, serif" font-size="14" fill="#66736d">25 jobs</text>
+  <rect x="448" y="437" width="102" height="32" rx="10" fill="#ffffff" stroke="#d0c1a4" />
+  <text x="499" y="458" text-anchor="middle" font-family="Georgia, serif" font-size="15" fill="#1f2c28">Edit</text>
+
+  <rect x="98" y="522" width="220" height="118" rx="18" fill="#f2ece0" stroke="#e0d5c0" />
+  <text x="118" y="556" font-family="Georgia, serif" font-size="15" fill="#66736d" letter-spacing="1.2">PROFILE</text>
+  <text x="118" y="588" font-family="Georgia, serif" font-size="16" fill="#1f2c28">Applied: 9</text>
+  <text x="118" y="616" font-family="Georgia, serif" font-size="16" fill="#1f2c28">Active: 119</text>
+
+  <rect x="628" y="208" width="500" height="308" rx="22" fill="#ffffff" stroke="#dccfb7" />
+  <text x="654" y="246" font-family="Georgia, serif" font-size="18" fill="#66736d" letter-spacing="1.5">RANKED JOBS</text>
+
+  <rect x="654" y="274" width="448" height="80" rx="16" fill="#f6f1e6" stroke="#e0d5c0" />
+  <text x="676" y="308" font-family="Georgia, serif" font-size="22" font-weight="700" fill="#1f2c28">Product Manager, ChatGPT Business Growth</text>
+  <text x="676" y="334" font-family="Georgia, serif" font-size="15" fill="#66736d">Score 86  ·  Found via AI PM, Growth PM</text>
+
+  <rect x="654" y="368" width="448" height="80" rx="16" fill="#f6f1e6" stroke="#e0d5c0" />
+  <text x="676" y="402" font-family="Georgia, serif" font-size="22" font-weight="700" fill="#1f2c28">Lead Product Manager, AI Platform</text>
+  <text x="676" y="428" font-family="Georgia, serif" font-size="15" fill="#66736d">Score 82  ·  Seen in 2 searches</text>
+
+  <rect x="628" y="544" width="500" height="132" rx="22" fill="#ffffff" stroke="#dccfb7" />
+  <text x="654" y="582" font-family="Georgia, serif" font-size="18" fill="#66736d" letter-spacing="1.5">APPLIED</text>
+  <rect x="654" y="602" width="448" height="52" rx="14" fill="#f6f1e6" stroke="#e0d5c0" />
+  <text x="676" y="634" font-family="Georgia, serif" font-size="18" fill="#1f2c28">Staff Product Manager - Marketplace</text>
+  <text x="1048" y="634" text-anchor="end" font-family="Georgia, serif" font-size="15" fill="#66736d">Applied</text>
+</svg>

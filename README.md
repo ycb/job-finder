@@ -1,25 +1,79 @@
-# Job Finder MVP
+# Job Finder
 
-Local-first CLI scaffold for a job search agent. This first cut focuses on:
+*Local-first job intelligence agent that turns LinkedIn saved searches into a ranked action queue.*
+
+## Dashboard Preview
+
+![Job Finder dashboard preview](docs/assets/dashboard-preview.svg)
+
+The dashboard is designed around the actual workflow:
+
+- manage named searches and rerun them on demand
+- review one de-duped, prioritized queue instead of duplicate listings
+- move completed applications out of the work queue and into a separate applied list
+
+Job Finder is a local-first job intelligence agent for turning noisy job discovery into a ranked action queue.
+
+Instead of acting like another job board, generic scraper, or chat wrapper, it models your search as a repeatable system:
+
+- structured profile and preference inputs
+- named LinkedIn saved searches as reusable sources
+- browser-driven intake into a local database
+- deterministic fit scoring against your target criteria
+- a de-duped review queue with lightweight application tracking
+
+This repo is intentionally opinionated about the workflow: automate the repetitive intake and triage, keep the decision-making local, and preserve human review before anything high-stakes.
+
+The current implementation focuses on:
 
 - profile and source configuration
-- LinkedIn snapshot import by named saved search
+- LinkedIn capture by named saved search
 - job intake into SQLite
 - deterministic scoring
 - shortlist generation
-- application status tracking
+- de-duped review and application tracking
 
-The current LinkedIn adapter imports Playwright accessibility snapshots saved to `output/playwright/<source-id>-snapshot.md`. The rest of the pipeline stays stable while the browser capture backend evolves.
+The current LinkedIn adapter supports two intake paths:
+
+- live capture through the local browser bridge (`chrome_applescript` by default on macOS)
+- snapshot import from `output/playwright/<source-id>-snapshot.md` as a fallback
+
+The scoring and review pipeline stays stable across both.
+
+## Why This Is Different
+
+The useful part of this project is not "AI chat for jobs." The differentiation is the system design:
+
+- local-first control over profile data, source configuration, and application history
+- browser automation tied to real saved searches instead of a generic feed
+- structured, inspectable scoring instead of opaque ranking
+- de-dupe across overlapping searches so the review queue stays actionable
+- a human-in-the-loop review loop that is fast enough to use daily
+
+That makes it a stronger demonstration of AI-native product thinking than a thin wrapper around an LLM prompt. The current ranking is deterministic by design; the architecture leaves room for LLM-assisted drafting or orchestration later without making the core workflow depend on it.
+
+## Current Workflow
+
+1. Define your profile and preferences in `config/profile.json`.
+2. Add labeled LinkedIn saved searches in `config/sources.json` or with the CLI.
+3. Run live capture against those saved searches.
+4. Score and de-dupe the results.
+5. Review the ranked queue, then mark jobs as applied or rejected with notes.
 
 ## Setup
 
 1. Copy and edit `config/profile.example.json` to `config/profile.json`.
 2. Copy and edit `config/sources.example.json` to `config/sources.json`.
 3. Add named LinkedIn sources with `node src/cli.js add-source "<Label>" "<LinkedIn URL>"`.
-4. Either:
-   - save Playwright snapshots under `output/playwright/<source-id>-snapshot.md` and run `npm run capture:all`, or
-   - start `npm run bridge` in one terminal, then run `npm run capture:all:live` in another.
-5. Run `npm run run`.
+4. For the normal live workflow, start `npm run bridge` in one terminal.
+5. In another terminal, run `npm run run:live`.
+6. Open `npm run review` when you want the dashboard UI.
+
+Fallback snapshot workflow:
+
+- save Playwright snapshots under `output/playwright/<source-id>-snapshot.md`
+- run `npm run capture:all`
+- then run `npm run run`
 
 For the full automated daily path with a running browser bridge:
 
@@ -46,9 +100,28 @@ npm run run:live
 - `npm run run`
 - `npm run run:live`
 
+## Review Dashboard
+
+`npm run review` starts the local dashboard for search management and job review.
+
+The dashboard includes:
+
+- a profile summary with active and applied counts
+- a searchable list of named LinkedIn saved searches
+- per-search run controls (`Run`, `Run All`, `See Results`, `Edit`)
+- a de-duped ranked queue of actionable jobs (`new` and `viewed`)
+- a separate `Applied` list
+
+Jobs found in multiple searches are grouped into one review row and show which searches surfaced them.
+
 ## Status values
 
-Suggested statuses: `new`, `viewed`, `applied`, `rejected`.
+Supported statuses: `new`, `viewed`, `applied`, `rejected`.
+
+- `new` and `viewed` stay in the actionable queue
+- `applied` moves into the separate `Applied` list
+- `rejected` is removed from the actionable queue
+- rejecting a job requires a reason, which is stored as a note
 
 ## Live Capture Notes
 

@@ -15,7 +15,7 @@ import { normalizeJobRecord } from "../jobs/normalize.js";
 import {
   listAllJobs,
   listReviewQueue,
-  markApplicationStatus,
+  markApplicationStatusByNormalizedHash,
   upsertEvaluations,
   upsertJobs
 } from "../jobs/repository.js";
@@ -71,8 +71,10 @@ function getReviewQueue(limit = 200) {
   return withDatabase((db) => listReviewQueue(db, limit));
 }
 
-function updateStatus(jobId, status) {
-  return withDatabase((db) => markApplicationStatus(db, jobId, status));
+function updateStatus(jobKey, status, reason = "") {
+  return withDatabase((db) =>
+    markApplicationStatusByNormalizedHash(db, jobKey, status, reason)
+  );
 }
 
 function buildLinkedInSearchUrl(job) {
@@ -151,13 +153,89 @@ function parseReasons(rawReasons) {
   }
 }
 
+function pickStatus(statuses) {
+  const normalized = statuses.map((status) => normalizeStatus(status));
+
+  if (normalized.includes("applied")) {
+    return "applied";
+  }
+
+  if (normalized.includes("rejected")) {
+    return "rejected";
+  }
+
+  if (normalized.includes("viewed")) {
+    return "viewed";
+  }
+
+  return "new";
+}
+
 function hydrateQueue(queue) {
-  return queue.map((job) => ({
-    ...job,
-    status: normalizeStatus(job.status),
-    reasons: parseReasons(job.reasons),
-    reviewTarget: resolveReviewTarget(job)
-  }));
+  const groups = new Map();
+
+  for (const rawJob of queue) {
+    const groupKey =
+      typeof rawJob.normalizedHash === "string" && rawJob.normalizedHash.trim()
+        ? rawJob.normalizedHash
+        : rawJob.id;
+
+    const existing = groups.get(groupKey);
+    const status = normalizeStatus(rawJob.status);
+    const reasons = parseReasons(rawJob.reasons);
+    const note =
+      typeof rawJob.notes === "string" && rawJob.notes.trim().length > 0
+        ? rawJob.notes.trim()
+        : "";
+
+    if (!existing) {
+      groups.set(groupKey, {
+        ...rawJob,
+        id: groupKey,
+        groupKey,
+        primaryJobId: rawJob.id,
+        status,
+        reasons: [...reasons],
+        reviewTarget: resolveReviewTarget(rawJob),
+        sourceIds: rawJob.sourceId ? [rawJob.sourceId] : [],
+        duplicateCount: 1,
+        notes: note,
+        _statuses: [status]
+      });
+      continue;
+    }
+
+    existing.duplicateCount += 1;
+
+    if (rawJob.sourceId && !existing.sourceIds.includes(rawJob.sourceId)) {
+      existing.sourceIds.push(rawJob.sourceId);
+    }
+
+    for (const reasonItem of reasons) {
+      if (!existing.reasons.includes(reasonItem)) {
+        existing.reasons.push(reasonItem);
+      }
+    }
+
+    if (note && !existing.notes) {
+      existing.notes = note;
+    }
+
+    const reviewTarget = resolveReviewTarget(rawJob);
+    if (existing.reviewTarget.mode !== "direct" && reviewTarget.mode === "direct") {
+      existing.reviewTarget = reviewTarget;
+    }
+
+    existing._statuses.push(status);
+    existing.status = pickStatus(existing._statuses);
+  }
+
+  return [...groups.values()]
+    .map((job) => {
+      delete job._statuses;
+      return job;
+    })
+    .filter((job) => job.status !== "rejected");
 }
 
 function readCaptureSummary(source) {
@@ -275,27 +353,27 @@ async function runAllCaptures() {
 function buildDashboardData(limit = 200) {
   const profile = loadProfile();
   const sources = loadSources().sources;
-  const queue = hydrateQueue(getReviewQueue(limit));
+  const groupedQueue = hydrateQueue(getReviewQueue(limit));
+  const queue = groupedQueue.filter((job) => job.status !== "applied");
+  const appliedQueue = groupedQueue.filter((job) => job.status === "applied");
 
   const countsBySourceId = new Map();
 
   for (const job of queue) {
-    const sourceId = typeof job.sourceId === "string" ? job.sourceId : "";
-    if (!sourceId) {
-      continue;
+    const sourceIds = Array.isArray(job.sourceIds) ? job.sourceIds : [];
+    for (const sourceId of sourceIds) {
+      const current = countsBySourceId.get(sourceId) || {
+        activeCount: 0,
+        highSignalCount: 0
+      };
+
+      current.activeCount += 1;
+      if (job.bucket === "high_signal") {
+        current.highSignalCount += 1;
+      }
+
+      countsBySourceId.set(sourceId, current);
     }
-
-    const current = countsBySourceId.get(sourceId) || {
-      activeCount: 0,
-      highSignalCount: 0
-    };
-
-    current.activeCount += 1;
-    if (job.bucket === "high_signal") {
-      current.highSignalCount += 1;
-    }
-
-    countsBySourceId.set(sourceId, current);
   }
 
   return {
@@ -303,6 +381,8 @@ function buildDashboardData(limit = 200) {
       candidateName: profile.candidateName,
       remotePreference: profile.remotePreference,
       salaryFloor: profile.salaryFloor,
+      appliedCount: appliedQueue.length,
+      activeCount: queue.length,
       profilePath: path.resolve("config/profile.json"),
       sourcesPath: path.resolve("config/sources.json")
     },
@@ -328,7 +408,8 @@ function buildDashboardData(limit = 200) {
         highSignalCount: counts.highSignalCount
       };
     }),
-    queue
+    queue,
+    appliedQueue
   };
 }
 
@@ -760,8 +841,16 @@ function renderDashboardPage(dashboard) {
 
       function filteredQueue() {
         return selectedSourceId
-          ? dashboard.queue.filter((job) => job.sourceId === selectedSourceId)
+          ? dashboard.queue.filter((job) => Array.isArray(job.sourceIds) && job.sourceIds.includes(selectedSourceId))
           : dashboard.queue;
+      }
+
+      function filteredAppliedQueue() {
+        return selectedSourceId
+          ? (dashboard.appliedQueue || []).filter(
+              (job) => Array.isArray(job.sourceIds) && job.sourceIds.includes(selectedSourceId)
+            )
+          : (dashboard.appliedQueue || []);
       }
 
       function ensureSelectedJob() {
@@ -793,6 +882,24 @@ function renderDashboardPage(dashboard) {
         return typeof value === "string" && value.trim() ? value : fallback;
       }
 
+      function formatRemotePreference(value) {
+        const normalized = typeof value === "string" ? value.trim() : "";
+
+        if (normalized === "onsite_ok") {
+          return "Any arrangement";
+        }
+
+        if (normalized === "remote_friendly") {
+          return "Remote-friendly";
+        }
+
+        if (!normalized) {
+          return "Not set";
+        }
+
+        return normalized.replaceAll("_", " ");
+      }
+
       function formatStatus(status) {
         if (status === "viewed" || status === "applied" || status === "rejected") {
           return status;
@@ -802,7 +909,9 @@ function renderDashboardPage(dashboard) {
       }
 
       function reviewLinkLabel(job) {
-        return job.reviewTarget && job.reviewTarget.mode === "search" ? "Find on LinkedIn" : "Open Job";
+        return job.reviewTarget && job.reviewTarget.mode === "search"
+          ? "Open Search"
+          : "Open Job";
       }
 
       function formatTime(value) {
@@ -946,11 +1055,28 @@ function renderDashboardPage(dashboard) {
       }
 
       async function persistStatus(jobId, status) {
+        let reason = "";
+
+        if (status === "rejected") {
+          const promptedReason = window.prompt("Why reject this job?", "");
+          if (promptedReason === null) {
+            return false;
+          }
+
+          reason = promptedReason.trim();
+          if (!reason) {
+            setFeedback("Reject reason is required.", true);
+            return false;
+          }
+        }
+
         await getJson("/api/jobs/" + encodeURIComponent(jobId) + "/status", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status })
+          body: JSON.stringify({ status, reason })
         });
+
+        return true;
       }
 
       async function updateStatus(status) {
@@ -960,9 +1086,19 @@ function renderDashboardPage(dashboard) {
         }
 
         try {
-          await persistStatus(job.id, status);
+          const updated = await persistStatus(job.id, status);
+          if (!updated) {
+            return;
+          }
+
           await refreshDashboard();
-          setFeedback("Job status updated.");
+          setFeedback(
+            status === "rejected"
+              ? "Job rejected."
+              : status === "applied"
+                ? "Marked applied."
+                : "Job status updated."
+          );
         } catch (error) {
           setFeedback(error.message, true);
         }
@@ -1022,6 +1158,7 @@ function renderDashboardPage(dashboard) {
 
       function render() {
         const queue = filteredQueue();
+        const appliedQueue = filteredAppliedQueue();
         const job = currentJob();
         const formState = sourceFormValues();
 
@@ -1058,7 +1195,10 @@ function renderDashboardPage(dashboard) {
         const queueItems = queue.length
           ? queue
               .map((item) => {
-                const source = sourceById(item.sourceId);
+                const sources = (Array.isArray(item.sourceIds) ? item.sourceIds : [])
+                  .map((sourceId) => sourceById(sourceId))
+                  .filter(Boolean);
+                const sourceNames = sources.map((source) => source.name);
                 const activeClass = item.id === selectedJobId ? " active" : "";
 
                 return [
@@ -1075,8 +1215,11 @@ function renderDashboardPage(dashboard) {
                     escapeHtml(formatBucket(item.bucket)) +
                     "</div>",
                   '  <div class="queue-item-summary">' + escapeHtml(item.summary || "No summary available.") + "</div>",
-                  source
-                    ? '  <div class="queue-item-meta">Found via ' + escapeHtml(source.name) + "</div>"
+                  sourceNames.length
+                    ? '  <div class="queue-item-meta">Found via ' + escapeHtml(sourceNames.join(", ")) + "</div>"
+                    : "",
+                  item.duplicateCount > 1
+                    ? '  <div class="queue-item-meta">Seen in ' + escapeHtml(item.duplicateCount) + " searches</div>"
                     : "",
                   "</button>"
                 ].join("");
@@ -1092,52 +1235,104 @@ function renderDashboardPage(dashboard) {
           })
         ].join("");
 
+        const appliedItems = appliedQueue.length
+          ? appliedQueue
+              .map((item) => {
+                const sources = (Array.isArray(item.sourceIds) ? item.sourceIds : [])
+                  .map((sourceId) => sourceById(sourceId))
+                  .filter(Boolean);
+                const sourceNames = sources.map((source) => source.name);
+
+                return [
+                  '<div class="queue-item">',
+                  '  <div class="queue-item-header">',
+                  '    <span class="queue-item-title">' + escapeHtml(item.title) + '</span>',
+                  '    <span class="queue-item-score">Applied</span>',
+                  "  </div>",
+                  '  <div class="queue-item-meta">' +
+                    escapeHtml(item.company) +
+                    " · " +
+                    escapeHtml(formatValue(item.location, "Location unknown")) +
+                    "</div>",
+                  sourceNames.length
+                    ? '  <div class="queue-item-meta">Found via ' + escapeHtml(sourceNames.join(", ")) + "</div>"
+                    : "",
+                  item.notes
+                    ? '  <div class="queue-item-summary">' + escapeHtml(item.notes) + "</div>"
+                    : "",
+                  '  <div class="queue-item-meta" style="margin-top: 8px;"><a href="' +
+                    encodeURI(item.reviewTarget.url) +
+                    '" target="job-review-target" rel="noreferrer">' +
+                    escapeHtml(reviewLinkLabel(item)) +
+                    "</a></div>",
+                  "</div>"
+                ].join("");
+              })
+              .join("")
+          : '<p class="muted">No applied jobs in this view.</p>';
+
         const detailMarkup = job
           ? [
-              '<div class="eyebrow">Review</div>',
-              '<h1 style="font-size: 30px;">' + escapeHtml(job.title) + "</h1>",
-              '<div class="subhead">' +
-                escapeHtml(job.company) +
-                " · " +
-                escapeHtml(formatValue(job.location, "Location unknown")) +
-                "</div>",
-              '<div class="filter-row" style="margin-top: 14px;">',
-              '  <span class="pill" data-bucket="' + escapeHtml(job.bucket || "unscored") + '">Bucket: ' + escapeHtml(formatBucket(job.bucket)) + "</span>",
-              '  <span class="pill">Score: ' + escapeHtml(job.score ?? "n/a") + "</span>",
-              '  <span class="pill">Status: ' + escapeHtml(formatStatus(job.status)) + "</span>",
-              sourceById(job.sourceId)
-                ? '  <span class="pill">Search: ' + escapeHtml(sourceById(job.sourceId).name) + "</span>"
-                : "",
-              "</div>",
-              '<div class="inline-actions" style="margin-top: 16px;">',
-              '  <button class="primary" id="open-current">' + escapeHtml(reviewLinkLabel(job)) + "</button>",
-              "</div>",
-              '<div class="status-row" style="margin-top: 16px;">',
-              '  <button class="' + (formatStatus(job.status) === "new" ? "active" : "") + '" data-status="new">New</button>',
-              '  <button class="' + (formatStatus(job.status) === "viewed" ? "active" : "") + '" data-status="viewed">Viewed</button>',
-              '  <button class="' + (formatStatus(job.status) === "applied" ? "active" : "") + '" data-status="applied">I Applied</button>',
-              '  <button class="' + (formatStatus(job.status) === "rejected" ? "active" : "") + '" data-status="rejected">Reject</button>',
-              "</div>",
-              '<div class="card" style="margin-top: 16px;">',
-              '  <p class="section-label">Why It Fits</p>',
-              '  <div>' + escapeHtml(job.summary || "No summary available.") + "</div>",
-              '  <ul class="reason-list">' +
-                (
-                  job.reasons && job.reasons.length
-                    ? job.reasons.map((reason) => "<li>" + escapeHtml(reason) + "</li>").join("")
-                    : "<li>No specific fit reasons recorded yet.</li>"
-                ) +
-                "</ul>",
-              "</div>",
-              '<div class="card" style="margin-top: 16px;">',
-              '  <p class="section-label">Role Snapshot</p>',
-              '  <dl class="meta-grid">',
-              '    <div class="meta-item"><dt>Salary</dt><dd>' + escapeHtml(formatValue(job.salaryText, "Unknown")) + "</dd></div>",
-              '    <div class="meta-item"><dt>Employment</dt><dd>' + escapeHtml(formatValue(job.employmentType, "Unknown")) + "</dd></div>",
-              '    <div class="meta-item"><dt>Posted</dt><dd>' + escapeHtml(formatValue(job.postedAt, "Unknown")) + "</dd></div>",
-              '    <div class="meta-item"><dt>Link</dt><dd><a href="' + encodeURI(job.reviewTarget.url) + '" target="job-review-target" rel="noreferrer">' + escapeHtml(reviewLinkLabel(job)) + "</a></dd></div>",
-              "  </dl>",
-              "</div>"
+              (() => {
+                const sourceNames = (Array.isArray(job.sourceIds) ? job.sourceIds : [])
+                  .map((sourceId) => sourceById(sourceId))
+                  .filter(Boolean)
+                  .map((source) => source.name);
+                const sourceSummary = sourceNames.length
+                  ? sourceNames.join(", ")
+                  : "No saved search linked";
+
+                return [
+                  '<div class="eyebrow">Review</div>',
+                  '<h1 style="font-size: 30px;">' + escapeHtml(job.title) + "</h1>",
+                  '<div class="subhead">' +
+                    escapeHtml(job.company) +
+                    " · " +
+                    escapeHtml(formatValue(job.location, "Location unknown")) +
+                    "</div>",
+                  '<div class="filter-row" style="margin-top: 14px;">',
+                  '  <span class="pill" data-bucket="' + escapeHtml(job.bucket || "unscored") + '">Bucket: ' + escapeHtml(formatBucket(job.bucket)) + "</span>",
+                  '  <span class="pill">Score: ' + escapeHtml(job.score ?? "n/a") + "</span>",
+                  '  <span class="pill">Status: ' + escapeHtml(formatStatus(job.status)) + "</span>",
+                  '  <span class="pill">Searches: ' + escapeHtml(sourceSummary) + "</span>",
+                  job.duplicateCount > 1
+                    ? '  <span class="pill">Seen in ' + escapeHtml(job.duplicateCount) + " searches</span>"
+                    : "",
+                  "</div>",
+                  '<div class="inline-actions" style="margin-top: 16px;">',
+                  '  <button class="primary" id="open-current">' + escapeHtml(reviewLinkLabel(job)) + "</button>",
+                  "</div>",
+                  '<div class="status-row" style="margin-top: 16px;">',
+                  '  <button class="' + (formatStatus(job.status) === "new" ? "active" : "") + '" data-status="new">New</button>',
+                  '  <button class="' + (formatStatus(job.status) === "viewed" ? "active" : "") + '" data-status="viewed">Viewed</button>',
+                  '  <button class="' + (formatStatus(job.status) === "applied" ? "active" : "") + '" data-status="applied">I Applied</button>',
+                  '  <button class="' + (formatStatus(job.status) === "rejected" ? "active" : "") + '" data-status="rejected">Reject</button>',
+                  "</div>",
+                  '<div class="card" style="margin-top: 16px;">',
+                  '  <p class="section-label">Why It Fits</p>',
+                  '  <div>' + escapeHtml(job.summary || "No summary available.") + "</div>",
+                  '  <ul class="reason-list">' +
+                    (
+                      job.reasons && job.reasons.length
+                        ? job.reasons.map((reason) => "<li>" + escapeHtml(reason) + "</li>").join("")
+                        : "<li>No specific fit reasons recorded yet.</li>"
+                    ) +
+                    "</ul>",
+                  job.notes
+                    ? '  <p class="muted" style="margin-top: 12px;">Latest note: ' + escapeHtml(job.notes) + "</p>"
+                    : "",
+                  "</div>",
+                  '<div class="card" style="margin-top: 16px;">',
+                  '  <p class="section-label">Role Snapshot</p>',
+                  '  <dl class="meta-grid">',
+                  '    <div class="meta-item"><dt>Salary</dt><dd>' + escapeHtml(formatValue(job.salaryText, "Unknown")) + "</dd></div>",
+                  '    <div class="meta-item"><dt>Employment</dt><dd>' + escapeHtml(formatValue(job.employmentType, "Unknown")) + "</dd></div>",
+                  '    <div class="meta-item"><dt>Posted</dt><dd>' + escapeHtml(formatValue(job.postedAt, "Unknown")) + "</dd></div>",
+                  '    <div class="meta-item"><dt>Link</dt><dd><a href="' + encodeURI(job.reviewTarget.url) + '" target="job-review-target" rel="noreferrer">' + escapeHtml(reviewLinkLabel(job)) + "</a></dd></div>",
+                  "  </dl>",
+                  "</div>"
+                ].join("");
+              })()
             ].join("")
           : '<div class="eyebrow">Review</div><p class="muted">No jobs are available for the current filter.</p>';
 
@@ -1159,9 +1354,12 @@ function renderDashboardPage(dashboard) {
           '      <p class="section-label">Profile</p>',
           '      <dl class="meta-grid">',
           '        <div class="meta-item"><dt>Candidate</dt><dd>' + escapeHtml(dashboard.profile.candidateName) + "</dd></div>",
-          '        <div class="meta-item"><dt>Remote Preference</dt><dd>' + escapeHtml(dashboard.profile.remotePreference) + "</dd></div>",
+          '        <div class="meta-item"><dt>Remote Preference</dt><dd>' + escapeHtml(formatRemotePreference(dashboard.profile.remotePreference)) + "</dd></div>",
           '        <div class="meta-item"><dt>Salary Floor</dt><dd>$' + escapeHtml(Number(dashboard.profile.salaryFloor || 0).toLocaleString()) + "</dd></div>",
-          '        <div class="meta-item"><dt>Profile File</dt><dd>' + escapeHtml(dashboard.profile.profilePath) + "</dd></div>",
+          '        <div class="meta-item"><dt>Applied</dt><dd>' + escapeHtml(dashboard.profile.appliedCount) + "</dd></div>",
+          '        <div class="meta-item"><dt>Active</dt><dd>' + escapeHtml(dashboard.profile.activeCount) + "</dd></div>",
+          '        <div class="meta-item"><dt>Configuration</dt><dd>File-based prototype</dd></div>',
+          '        <div class="meta-item"><dt>Settings</dt><dd>Edit profile and source files locally</dd></div>',
           "      </dl>",
           '      <div class="feedback' + (feedbackError ? " error" : "") + '">' + escapeHtml(feedback) + "</div>",
           "    </section>",
@@ -1177,7 +1375,7 @@ function renderDashboardPage(dashboard) {
             : "") ,
           "        </div>",
           "      </div>",
-          '      <div class="subhead" style="margin-top: 12px;">Edit search labels and URLs here. Profile preferences stay file-based for now: ' + escapeHtml(dashboard.profile.sourcesPath) + "</div>",
+          '      <div class="subhead" style="margin-top: 12px;">Edit search labels and URLs here. Profile preferences stay file-based for now.</div>",
           '      <div style="margin-top: 16px; overflow-x: auto;">',
           '        <table>',
           '          <thead><tr><th>Name / URL</th><th>Last Run</th><th>Status</th><th>Jobs Found</th><th>High Signal</th><th>Actions</th></tr></thead>',
@@ -1195,6 +1393,11 @@ function renderDashboardPage(dashboard) {
           '      <div class="filter-row">' + sourceFilterPills + "</div>",
           '      <div class="subhead" style="margin-top: 10px;">' + escapeHtml(String(queue.length)) + ' active job(s) in this view.</div>',
           '      <div class="queue-list" style="margin-top: 14px;">' + queueItems + "</div>",
+          "    </section>",
+          '    <section class="card">',
+          '      <p class="section-label">Applied</p>',
+          '      <div class="subhead">' + escapeHtml(String(appliedQueue.length)) + ' applied job(s) in this view.</div>',
+          '      <div class="queue-list" style="margin-top: 14px; max-height: 28vh;">' + appliedItems + "</div>",
           "    </section>",
           "  </div>",
           "</div>"
@@ -1258,9 +1461,11 @@ export function startReviewServer({ port = 4311, limit = 200 } = {}) {
       }
 
       if (request.method === "GET" && url.pathname === "/api/queue") {
-        const queue = hydrateQueue(getReviewQueue(limit));
+        const groupedQueue = hydrateQueue(getReviewQueue(limit));
+        const queue = groupedQueue.filter((job) => job.status !== "applied");
+        const appliedQueue = groupedQueue.filter((job) => job.status === "applied");
         response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
-        response.end(JSON.stringify({ jobs: queue }));
+        response.end(JSON.stringify({ jobs: queue, appliedJobs: appliedQueue }));
         return;
       }
 
@@ -1315,6 +1520,8 @@ export function startReviewServer({ port = 4311, limit = 200 } = {}) {
         const rawBody = await readRequestBody(request);
         const parsedBody = rawBody ? JSON.parse(rawBody) : {};
         const status = typeof parsedBody.status === "string" ? parsedBody.status.trim() : "";
+        const reason =
+          typeof parsedBody.reason === "string" ? parsedBody.reason.trim() : "";
 
         if (!status) {
           response.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
@@ -1322,7 +1529,13 @@ export function startReviewServer({ port = 4311, limit = 200 } = {}) {
           return;
         }
 
-        updateStatus(decodeURIComponent(match[1]), status);
+        if (status === "rejected" && !reason) {
+          response.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+          response.end(JSON.stringify({ error: "reason is required for rejected jobs" }));
+          return;
+        }
+
+        updateStatus(decodeURIComponent(match[1]), status, reason);
         response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
         response.end(JSON.stringify({ ok: true }));
         return;

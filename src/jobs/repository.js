@@ -113,6 +113,7 @@ export function listReviewQueue(db, limit = 100) {
       `
       SELECT
         j.id,
+        j.normalized_hash AS normalizedHash,
         j.source,
         j.source_id AS sourceId,
         j.title,
@@ -127,7 +128,8 @@ export function listReviewQueue(db, limit = 100) {
         e.bucket,
         e.summary,
         e.reasons,
-        COALESCE(a.status, 'new') AS status
+        COALESCE(a.status, 'new') AS status,
+        COALESCE(a.notes, '') AS notes
       FROM jobs j
       LEFT JOIN evaluations e ON e.job_id = j.id
       LEFT JOIN applications a ON a.job_id = j.id
@@ -172,7 +174,7 @@ export function upsertEvaluations(db, evaluations) {
   }
 }
 
-export function markApplicationStatus(db, jobId, status) {
+function upsertApplicationStatus(db, jobId, status, notes = "") {
   const now = new Date().toISOString();
   const statement = db.prepare(`
     INSERT INTO applications (
@@ -182,17 +184,50 @@ export function markApplicationStatus(db, jobId, status) {
       draft_path,
       last_action_at,
       submitted_at
-    ) VALUES (?, ?, '', NULL, ?, ?)
+    ) VALUES (?, ?, ?, NULL, ?, ?)
     ON CONFLICT(job_id) DO UPDATE SET
       status = excluded.status,
+      notes = excluded.notes,
       last_action_at = excluded.last_action_at,
-      submitted_at = excluded.submitted_at;
+      submitted_at = COALESCE(excluded.submitted_at, applications.submitted_at);
   `);
 
   statement.run(
     jobId,
     status,
+    notes,
     now,
     status === "applied" ? now : null
   );
+}
+
+export function markApplicationStatus(db, jobId, status, notes = "") {
+  upsertApplicationStatus(db, jobId, status, notes);
+}
+
+export function markApplicationStatusByNormalizedHash(
+  db,
+  normalizedHash,
+  status,
+  notes = ""
+) {
+  const rows = db
+    .prepare(
+      `
+      SELECT id
+      FROM jobs
+      WHERE normalized_hash = ?
+        AND source = 'linkedin_capture_file';
+    `
+    )
+    .all(normalizedHash);
+
+  if (!rows.length) {
+    upsertApplicationStatus(db, normalizedHash, status, notes);
+    return;
+  }
+
+  for (const row of rows) {
+    upsertApplicationStatus(db, row.id, status, notes);
+  }
 }
