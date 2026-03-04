@@ -114,6 +114,7 @@ export function listReviewQueue(db, limit = 100) {
       SELECT
         j.id,
         j.source,
+        j.source_id AS sourceId,
         j.title,
         j.company,
         j.location,

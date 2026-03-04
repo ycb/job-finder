@@ -154,14 +154,37 @@ export function updateSourceSearchUrl(
   searchUrl,
   sourcesPath = "config/sources.json"
 ) {
+  return updateSourceDefinition(
+    sourceIdOrName,
+    {
+      searchUrl
+    },
+    sourcesPath
+  );
+}
+
+export function updateSourceDefinition(
+  sourceIdOrName,
+  updates,
+  sourcesPath = "config/sources.json"
+) {
   const normalizedSourceIdOrName = String(sourceIdOrName || "").trim();
-  const normalizedSearchUrl = normalizeLinkedInSearchUrl(searchUrl);
+  const nextName =
+    updates && typeof updates.name === "string" ? String(updates.name).trim() : null;
+  const nextSearchUrl =
+    updates && typeof updates.searchUrl === "string"
+      ? normalizeLinkedInSearchUrl(updates.searchUrl)
+      : null;
 
   if (!normalizedSourceIdOrName) {
     throw new Error("Source id or label is required.");
   }
 
-  if (!normalizedSearchUrl) {
+  if (nextName !== null && !nextName) {
+    throw new Error("Source label is required.");
+  }
+
+  if (nextSearchUrl !== null && !nextSearchUrl) {
     throw new Error("Search URL is required.");
   }
 
@@ -174,7 +197,28 @@ export function updateSourceSearchUrl(
     throw new Error(`Source not found: ${normalizedSourceIdOrName}`);
   }
 
-  sources[sourceIndex].searchUrl = normalizedSearchUrl;
+  const source = sources[sourceIndex];
+
+  if (nextName !== null) {
+    const duplicateNameIndex = sources.findIndex((candidate, candidateIndex) => {
+      if (candidateIndex === sourceIndex) {
+        return false;
+      }
+
+      return String(candidate?.name || "").toLowerCase() === nextName.toLowerCase();
+    });
+
+    if (duplicateNameIndex !== -1) {
+      throw new Error(`A source with that label already exists: ${nextName}`);
+    }
+
+    source.name = nextName;
+  }
+
+  if (nextSearchUrl !== null) {
+    source.searchUrl = nextSearchUrl;
+  }
+
   syncCaptureFileMetadata(sources[sourceIndex]);
   const validated = validateSources(data);
   fs.writeFileSync(resolvedPath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
