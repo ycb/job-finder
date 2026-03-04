@@ -4,7 +4,7 @@
 
 ## Dashboard Preview
 
-![Job Finder dashboard preview](docs/assets/dashboard-preview.svg)
+<img width="1532" height="1496" alt="image" src="https://github.com/user-attachments/assets/207ebb5b-288e-4db6-9e03-180afd3b1927" />
 
 The dashboard is designed around the actual workflow:
 
