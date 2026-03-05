@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
 
 function decodeHtmlEntities(value) {
   const input = String(value || "");
@@ -300,18 +299,6 @@ export function parseWellfoundSearchHtml(html, searchUrl) {
   return [...merged.values()];
 }
 
-function fetchWellfoundSearchHtml(searchUrl, timeoutMs = 30_000) {
-  const timeoutSeconds = Math.max(5, Math.ceil(timeoutMs / 1000));
-  return execFileSync(
-    "curl",
-    ["-sS", "-L", "--max-time", String(timeoutSeconds), String(searchUrl)],
-    {
-      encoding: "utf8",
-      maxBuffer: 10 * 1024 * 1024
-    }
-  );
-}
-
 export function writeWellfoundCaptureFile(source, jobs, options = {}) {
   if (!source || source.type !== "wellfound_search") {
     throw new Error("Wellfound capture write requires a wellfound_search source.");
@@ -384,24 +371,9 @@ export function collectWellfoundCaptureFile(source) {
 
 export function collectWellfoundJobsFromSearch(source) {
   const capturedJobs = collectWellfoundCaptureFile(source);
-  if (capturedJobs.length > 0) {
-    if (Number.isInteger(source.maxJobs) && source.maxJobs > 0) {
-      return capturedJobs.slice(0, source.maxJobs);
-    }
-    return capturedJobs;
-  }
-
-  const html = fetchWellfoundSearchHtml(source.searchUrl, source.requestTimeoutMs || 30_000);
-  const jobs = parseWellfoundSearchHtml(html, source.searchUrl);
-  const retrievedAt = new Date().toISOString();
-  const jobsWithMetadata = jobs.map((job) => ({
-    ...job,
-    retrievedAt
-  }));
-
   if (Number.isInteger(source.maxJobs) && source.maxJobs > 0) {
-    return jobsWithMetadata.slice(0, source.maxJobs);
+    return capturedJobs.slice(0, source.maxJobs);
   }
 
-  return jobsWithMetadata;
+  return capturedJobs;
 }
