@@ -636,11 +636,22 @@ export function addBuiltinSearchSource(
   searchUrl,
   sourcesPath = "config/sources.json"
 ) {
+  return addLiveFetchSource(name, searchUrl, "builtin_search", sourcesPath);
+}
+
+function addLiveFetchSource(
+  name,
+  searchUrl,
+  type,
+  sourcesPath = "config/sources.json"
+) {
+  const allowedTypes = new Set(["builtin_search", "wellfound_search", "ashby_search"]);
+  if (!allowedTypes.has(type)) {
+    throw new Error(`Unsupported live-fetch source type: ${type}`);
+  }
+
   const normalizedName = String(name || "").trim();
-  const normalizedSearchUrl = normalizeSearchUrlForSourceType(
-    searchUrl,
-    "builtin_search"
-  );
+  const normalizedSearchUrl = normalizeSearchUrlForSourceType(searchUrl, type);
 
   if (!normalizedName) {
     throw new Error("Source label is required.");
@@ -670,7 +681,7 @@ export function addBuiltinSearchSource(
   sources.push({
     id: sourceId,
     name: normalizedName,
-    type: "builtin_search",
+    type,
     enabled: true,
     searchUrl: normalizedSearchUrl
   });
@@ -679,6 +690,22 @@ export function addBuiltinSearchSource(
   fs.writeFileSync(resolvedPath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
 
   return validated.sources[validated.sources.length - 1];
+}
+
+export function addWellfoundSearchSource(
+  name,
+  searchUrl,
+  sourcesPath = "config/sources.json"
+) {
+  return addLiveFetchSource(name, searchUrl, "wellfound_search", sourcesPath);
+}
+
+export function addAshbySearchSource(
+  name,
+  searchUrl,
+  sourcesPath = "config/sources.json"
+) {
+  return addLiveFetchSource(name, searchUrl, "ashby_search", sourcesPath);
 }
 
 export function normalizeAllSourceSearchUrls(sourcesPath = "config/sources.json") {

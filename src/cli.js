@@ -8,8 +8,10 @@ import {
 } from "./browser-bridge/client.js";
 import { startBrowserBridgeServer } from "./browser-bridge/server.js";
 import {
+  addAshbySearchSource,
   addBuiltinSearchSource,
   addLinkedInCaptureSource,
+  addWellfoundSearchSource,
   connectNarrataGoalsFile,
   connectNarrataSupabase,
   getSourceByIdOrName,
@@ -220,7 +222,11 @@ function runListSources() {
       } catch {
         captureStatus = "capture-unreadable";
       }
-    } else if (source.type === "builtin_search") {
+    } else if (
+      source.type === "builtin_search" ||
+      source.type === "wellfound_search" ||
+      source.type === "ashby_search"
+    ) {
       captureStatus = "live-fetch";
     }
 
@@ -255,6 +261,24 @@ function runAddBuiltinSource(label, searchUrl) {
 
   const source = addBuiltinSearchSource(label, searchUrl);
   console.log(`Added Built In source "${source.name}" with id=${source.id}`);
+}
+
+function runAddWellfoundSource(label, searchUrl) {
+  if (!label || !searchUrl) {
+    throw new Error("Usage: node src/cli.js add-wellfound-source <label> <url>");
+  }
+
+  const source = addWellfoundSearchSource(label, searchUrl);
+  console.log(`Added Wellfound source "${source.name}" with id=${source.id}`);
+}
+
+function runAddAshbySource(label, searchUrl) {
+  if (!label || !searchUrl) {
+    throw new Error("Usage: node src/cli.js add-ashby-source <label> <url>");
+  }
+
+  const source = addAshbySearchSource(label, searchUrl);
+  console.log(`Added Ashby source "${source.name}" with id=${source.id}`);
 }
 
 function runSetSourceUrl(sourceIdOrName, searchUrl) {
@@ -683,6 +707,8 @@ Usage:
   node src/cli.js sources
   node src/cli.js add-source <label> <url>
   node src/cli.js add-builtin-source <label> <url>
+  node src/cli.js add-wellfound-source <label> <url>
+  node src/cli.js add-ashby-source <label> <url>
   node src/cli.js set-source-url <source-id-or-label> <url>
   node src/cli.js normalize-source-urls
   node src/cli.js profile-source
@@ -732,6 +758,12 @@ async function main() {
       break;
     case "add-builtin-source":
       runAddBuiltinSource(args[0], args[1]);
+      break;
+    case "add-wellfound-source":
+      runAddWellfoundSource(args[0], args[1]);
+      break;
+    case "add-ashby-source":
+      runAddAshbySource(args[0], args[1]);
       break;
     case "set-source-url":
       runSetSourceUrl(args[0], args[1]);

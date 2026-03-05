@@ -8,8 +8,10 @@ import {
 } from "../browser-bridge/client.js";
 import { startBrowserBridgeServer } from "../browser-bridge/server.js";
 import {
+  addAshbySearchSource,
   addBuiltinSearchSource,
   addLinkedInCaptureSource,
+  addWellfoundSearchSource,
   connectNarrataGoalsFile,
   loadActiveProfile,
   useLegacyProfileSource,
@@ -302,6 +304,36 @@ function isBuiltInJobsUrl(rawUrl) {
       host.endsWith(".builtin.com") ||
       /^builtin[a-z0-9-]+\.com$/.test(host)
     );
+  } catch {
+    return false;
+  }
+}
+
+function isWellfoundJobsUrl(rawUrl) {
+  const urlText = String(rawUrl || "").trim();
+  if (!urlText) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(urlText);
+    const host = parsed.hostname.toLowerCase();
+    return host === "wellfound.com" || host.endsWith(".wellfound.com");
+  } catch {
+    return false;
+  }
+}
+
+function isAshbyJobsUrl(rawUrl) {
+  const urlText = String(rawUrl || "").trim();
+  if (!urlText) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(urlText);
+    const host = parsed.hostname.toLowerCase();
+    return host === "jobs.ashbyhq.com" || host.endsWith(".ashbyhq.com");
   } catch {
     return false;
   }
@@ -1054,10 +1086,22 @@ function renderDashboardPage(dashboard) {
         background: rgba(229, 245, 236, 0.9);
       }
 
+      .source-badge[data-source-kind="wf"] {
+        color: #2f4d95;
+        border-color: rgba(47, 77, 149, 0.28);
+        background: rgba(235, 241, 252, 0.9);
+      }
+
+      .source-badge[data-source-kind="ah"] {
+        color: #8a4f12;
+        border-color: rgba(138, 79, 18, 0.28);
+        background: rgba(252, 243, 232, 0.9);
+      }
+
       .source-badge[data-source-kind="mixed"] {
-        color: #6b4c80;
-        border-color: rgba(107, 76, 128, 0.28);
-        background: rgba(242, 235, 248, 0.9);
+        color: #5f6368;
+        border-color: rgba(95, 99, 104, 0.28);
+        background: rgba(241, 242, 244, 0.9);
       }
 
       .search-empty {
@@ -1594,11 +1638,35 @@ function renderDashboardPage(dashboard) {
           return "Built In";
         }
 
+        if (normalized === "wellfound_search") {
+          return "Wellfound";
+        }
+
+        if (normalized === "ashby_search") {
+          return "Ashby";
+        }
+
         return normalized.replaceAll("_", " ");
       }
 
       function sourceKindFromType(value) {
-        return value === "builtin_search" ? "bi" : "li";
+        if (value === "linkedin_capture_file") {
+          return "li";
+        }
+
+        if (value === "builtin_search") {
+          return "bi";
+        }
+
+        if (value === "wellfound_search") {
+          return "wf";
+        }
+
+        if (value === "ashby_search") {
+          return "ah";
+        }
+
+        return "unknown";
       }
 
       function sourceKindLabel(kind) {
@@ -1610,8 +1678,16 @@ function renderDashboardPage(dashboard) {
           return "LinkedIn";
         }
 
+        if (kind === "wf") {
+          return "Wellfound";
+        }
+
+        if (kind === "ah") {
+          return "Ashby";
+        }
+
         if (kind === "mixed") {
-          return "LinkedIn + Built In";
+          return "Multiple";
         }
 
         return "Unknown";
@@ -2042,7 +2118,7 @@ function renderDashboardPage(dashboard) {
 
       function setSearchSourceFilter(filterValue) {
         const normalized = String(filterValue || "all").toLowerCase();
-        if (!["all", "li", "bi"].includes(normalized)) {
+        if (!["all", "li", "bi", "wf", "ah"].includes(normalized)) {
           return;
         }
 
@@ -2461,6 +2537,8 @@ function renderDashboardPage(dashboard) {
             '<button class="sub-tab' + (selectedSearchSourceFilter === "all" ? " active" : "") + '" data-search-type="all">All</button>' +
             '<button class="sub-tab' + (selectedSearchSourceFilter === "li" ? " active" : "") + '" data-search-type="li">LinkedIn</button>' +
             '<button class="sub-tab' + (selectedSearchSourceFilter === "bi" ? " active" : "") + '" data-search-type="bi">Built In</button>' +
+            '<button class="sub-tab' + (selectedSearchSourceFilter === "wf" ? " active" : "") + '" data-search-type="wf">Wellfound</button>' +
+            '<button class="sub-tab' + (selectedSearchSourceFilter === "ah" ? " active" : "") + '" data-search-type="ah">Ashby</button>' +
           "</div>",
           '  <div class="subhead" style="margin-top: 10px;">Source type and freshness are tracked so you can refine where high-signal jobs come from.</div>',
           (sourceFormOpen || editingSourceId
@@ -2469,7 +2547,7 @@ function renderDashboardPage(dashboard) {
                 '    <p class="section-label">' + escapeHtml(formState.heading) + "</p>",
                 '    <div class="search-form">',
                 '      <label>Name<input id="source-name" type="text" value="' + escapeHtml(formState.name) + '" placeholder="AI PM"></label>',
-                '      <label>Search URL<input id="source-url" type="text" value="' + escapeHtml(formState.searchUrl) + '" placeholder="https://www.linkedin.com/jobs/search-results/?keywords=... or https://www.builtinsf.com/jobs/..."></label>',
+                '      <label>Search URL<input id="source-url" type="text" value="' + escapeHtml(formState.searchUrl) + '" placeholder="LinkedIn, Built In, Wellfound, or Ashby jobs URL"></label>',
                 '      <div class="inline-actions">',
                 '        <button class="primary" id="save-source"' + (busy ? " disabled" : "") + ">" + escapeHtml(formState.actionLabel) + "</button>",
                 '        <button class="ghost" id="cancel-edit"' + (busy ? " disabled" : "") + ">Cancel</button>",
@@ -2760,7 +2838,11 @@ export function startReviewServer({ port = 4311, limit = 200 } = {}) {
           ? updateSourceDefinition(sourceId, { name, searchUrl })
           : isBuiltInJobsUrl(searchUrl)
             ? addBuiltinSearchSource(name, searchUrl)
-            : addLinkedInCaptureSource(name, searchUrl);
+            : isWellfoundJobsUrl(searchUrl)
+              ? addWellfoundSearchSource(name, searchUrl)
+              : isAshbyJobsUrl(searchUrl)
+                ? addAshbySearchSource(name, searchUrl)
+                : addLinkedInCaptureSource(name, searchUrl);
 
         response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
         response.end(JSON.stringify({ ok: true, source }));

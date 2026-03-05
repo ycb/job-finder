@@ -17,7 +17,7 @@ Job Finder is an intelligence agent for turning noisy job discovery into a ranke
 Instead of acting like another job board, generic scraper, or chat wrapper, it models your search as a repeatable system:
 
 - structured profile and preference inputs
-- named search sources (LinkedIn and Built In) as reusable inputs
+- named search sources (LinkedIn, Built In, Wellfound, Ashby) as reusable inputs
 - browser-driven intake into a local database
 - deterministic fit scoring against your target criteria
 - a de-duped review queue with lightweight application tracking
@@ -28,7 +28,7 @@ The current implementation focuses on:
 
 - profile/goals and source configuration
 - LinkedIn capture by named saved search
-- Built In SF search ingestion by URL
+- Built In / Wellfound / Ashby search ingestion by URL
 - job intake into SQLite
 - deterministic scoring with hard filters, freshness, confidence, and history-aware signals
 - shortlist generation
@@ -38,7 +38,7 @@ The current intake adapters support:
 
 - LinkedIn live capture through the local browser bridge (`chrome_applescript` by default on macOS)
 - LinkedIn snapshot import from `output/playwright/<source-id>-snapshot.md` as a fallback
-- Built In search ingestion directly from the configured search URL during `sync`
+- Built In / Wellfound / Ashby ingestion directly from configured search URLs during `sync`
 
 The scoring and review pipeline stays stable across both.
 
@@ -75,7 +75,10 @@ That makes it a stronger demonstration of AI-native product thinking than a thin
 3. Copy `config/profile-source.example.json` to `config/profile-source.json` if you want to explicitly control provider mode.
 4. Copy and edit `config/sources.example.json` to `config/sources.json`.
 5. Add named LinkedIn sources with `node src/cli.js add-source "<Label>" "<LinkedIn URL>"`.
-6. Optionally add Built In sources with `node src/cli.js add-builtin-source "<Label>" "<Built In URL>"`.
+6. Optionally add Built In, Wellfound, or Ashby sources with:
+   - `node src/cli.js add-builtin-source "<Label>" "<Built In URL>"`
+   - `node src/cli.js add-wellfound-source "<Label>" "<Wellfound URL>"`
+   - `node src/cli.js add-ashby-source "<Label>" "<Ashby URL>"`
 7. Run `npm run run` for the full pipeline. LinkedIn capture auto-starts a local bridge only when needed.
 8. Start `npm run review` when you want the dashboard UI (this is a separate long-running server process).
 
@@ -99,6 +102,8 @@ npm run run
 - `npm run sources`
 - `node src/cli.js add-source <label> <linkedin-url>`
 - `node src/cli.js add-builtin-source <label> <built-in-url>`
+- `node src/cli.js add-wellfound-source <label> <wellfound-url>`
+- `node src/cli.js add-ashby-source <label> <ashby-url>`
 - `node src/cli.js set-source-url <source-id-or-label> <url>`
 - `node src/cli.js profile-source`
 - `node src/cli.js use-my-goals [goals-path]`

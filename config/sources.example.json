@@ -15,6 +15,22 @@
       "enabled": false,
       "searchUrl": "https://www.builtinsf.com/jobs/product-management/product-manager/senior/expert-leader?search=AI&daysSinceUpdated=7&city=San+Francisco&state=California&country=USA&allLocations=true",
       "maxJobs": 50
+    },
+    {
+      "id": "wellfound-ai-pm",
+      "name": "Wellfound AI Product Jobs",
+      "type": "wellfound_search",
+      "enabled": false,
+      "searchUrl": "https://wellfound.com/jobs",
+      "maxJobs": 50
+    },
+    {
+      "id": "ashby-pm-roles",
+      "name": "Ashby PM Roles",
+      "type": "ashby_search",
+      "enabled": false,
+      "searchUrl": "https://jobs.ashbyhq.com/",
+      "maxJobs": 50
     }
   ]
 }

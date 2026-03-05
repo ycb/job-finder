@@ -200,6 +200,12 @@ function sourceQualityDelta(job) {
   if (source === "builtin_search") {
     return 3;
   }
+  if (source === "wellfound_search") {
+    return 2;
+  }
+  if (source === "ashby_search") {
+    return 2;
+  }
   if (source === "linkedin_capture_file") {
     return 2;
   }

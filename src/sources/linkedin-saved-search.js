@@ -1,7 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { collectAshbyJobsFromSearch } from "./ashby-jobs.js";
 import { collectBuiltInJobsFromSearch } from "./builtin-jobs.js";
+import { collectWellfoundJobsFromSearch } from "./wellfound-jobs.js";
 
 function readSourceJson(filePath, errorLabel) {
   const resolvedPath = path.resolve(filePath);
@@ -281,6 +283,14 @@ export function collectJobsFromSource(source) {
 
   if (source.type === "builtin_search") {
     return collectBuiltInJobsFromSearch(source);
+  }
+
+  if (source.type === "wellfound_search") {
+    return collectWellfoundJobsFromSearch(source);
+  }
+
+  if (source.type === "ashby_search") {
+    return collectAshbyJobsFromSearch(source);
   }
 
   throw new Error(`Unsupported source type: ${source.type}`);

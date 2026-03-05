@@ -296,7 +296,9 @@ export function validateSources(raw) {
       const allowedTypes = new Set([
         "mock_linkedin_saved_search",
         "linkedin_capture_file",
-        "builtin_search"
+        "builtin_search",
+        "wellfound_search",
+        "ashby_search"
       ]);
       if (!allowedTypes.has(type)) {
         throw new Error(
@@ -329,7 +331,11 @@ export function validateSources(raw) {
         );
       }
 
-      if (type === "builtin_search") {
+      if (
+        type === "builtin_search" ||
+        type === "wellfound_search" ||
+        type === "ashby_search"
+      ) {
         if (source.maxJobs !== undefined) {
           if (!Number.isInteger(source.maxJobs) || source.maxJobs <= 0) {
             throw new Error(
