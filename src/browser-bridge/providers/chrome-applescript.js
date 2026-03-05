@@ -356,32 +356,61 @@ function buildWellfoundExtractionScript() {
     if (!href || !/wellfound\\.com/i.test(href)) {
       continue;
     }
-
-    const card = anchor.closest("article, li, div") || anchor.parentElement;
-    const text = normalize(card?.innerText || card?.textContent || "");
-    if (!text) {
+    if (!/\\/jobs\\/\\d+/i.test(href)) {
       continue;
     }
 
-    const lines = text
+    const card = anchor.closest("article, li, div") || anchor.parentElement;
+    const cardTextRaw = String(card?.innerText || card?.textContent || "");
+    if (!normalize(cardTextRaw)) {
+      continue;
+    }
+
+    const cardLines = cardTextRaw
       .split(/\\n+/)
       .map((line) => normalize(line))
       .filter(Boolean);
-    const titleIndex = lines.findIndex((line) => line === title);
-    const company = titleIndex >= 0 ? normalize(lines[titleIndex + 1] || "") : normalize(lines[1] || "");
-    if (!company || company.toLowerCase() === title.toLowerCase()) {
+
+    let context = card;
+    for (let depth = 0; depth < 6 && context; depth += 1) {
+      if (context.querySelector('a[href*="/company/"]')) {
+        break;
+      }
+      context = context.parentElement;
+    }
+
+    const contextTextRaw = String(
+      context?.innerText || context?.textContent || cardTextRaw
+    );
+    const contextLines = contextTextRaw
+      .split(/\\n+/)
+      .map((line) => normalize(line))
+      .filter(Boolean);
+
+    const companyCandidates = Array.from(
+      (context || card).querySelectorAll('a[href*="/company/"]')
+    )
+      .map((node) => normalize(node.innerText || node.textContent || ""))
+      .filter(Boolean)
+      .filter((value) => value.length < 80)
+      .filter((value) => !/promoted|report|hide|learn more|save/i.test(value));
+
+    const company = companyCandidates[0] || "";
+    if (!company) {
       continue;
     }
 
-    const location = lines.find((line) =>
+    const jobTitle = normalize(cardLines[0] || title);
+
+    const location = cardLines.find((line) =>
       /remote|san francisco|new york|hybrid|on-site|onsite|ca\\b|ny\\b/i.test(line)
     ) || "";
 
-    const employmentType = lines.find((line) =>
+    const employmentType = cardLines.find((line) =>
       /full-time|part-time|contract|internship|temporary/i.test(line)
     ) || null;
 
-    const salaryText = lines.find((line) =>
+    const salaryText = cardLines.find((line) =>
       /[$€£]\\s*\\d|\\b\\d+(?:\\.\\d+)?[Kk]\\b.*\\/yr|\\/hr/i.test(line)
     ) || null;
 
@@ -394,15 +423,15 @@ function buildWellfoundExtractionScript() {
 
     jobs.push({
       externalId,
-      title,
+      title: jobTitle,
       company,
       location: location || null,
-      postedAt: parsePosted(text),
+      postedAt: parsePosted(contextTextRaw || cardTextRaw),
       employmentType,
       easyApply: false,
       salaryText,
-      summary: text.slice(0, 500),
-      description: text,
+      summary: normalize(cardTextRaw).slice(0, 500),
+      description: normalize(contextLines.join(" · ") || cardTextRaw),
       url: href
     });
   }
@@ -682,28 +711,135 @@ function buildAshbyExtractionScript() {
   `.trim();
 }
 
-function readAshbyJobsFromChrome(searchUrl, options = {}) {
-  navigateFrontTab(searchUrl);
+function buildAshbyBoardDiscoveryScript() {
+  return `
+(() => {
+  const normalize = (value) => typeof value === "string"
+    ? value.replace(/\\s+/g, " ").trim()
+    : "";
 
-  const settleMs = Number(options.settleMs) > 0 ? Number(options.settleMs) : 3000;
-  const maxAttempts = Number(options.maxAttempts) > 0 ? Number(options.maxAttempts) : 6;
-  const attemptDelayMs =
-    Number(options.attemptDelayMs) > 0 ? Number(options.attemptDelayMs) : 1200;
-  const extractionScript = buildAshbyExtractionScript();
+  const toAbsoluteUrl = (href) => {
+    const value = normalize(href);
+    if (!value) return "";
+    try {
+      return new URL(value, location.origin).toString();
+    } catch {
+      return value;
+    }
+  };
 
-  sleepSync(settleMs);
+  const decodeGoogleRedirect = (href) => {
+    const absolute = toAbsoluteUrl(href);
+    if (!absolute) return "";
+    try {
+      const parsed = new URL(absolute);
+      if (!/google\\./i.test(parsed.hostname)) {
+        return absolute;
+      }
+      const redirect = parsed.searchParams.get("q") || parsed.searchParams.get("url");
+      if (!redirect) {
+        return absolute;
+      }
+      return toAbsoluteUrl(decodeURIComponent(redirect));
+    } catch {
+      return absolute;
+    }
+  };
 
+  const toBoardUrl = (urlText) => {
+    try {
+      const parsed = new URL(String(urlText || "").trim());
+      const host = parsed.hostname.toLowerCase();
+      if (!host.endsWith("ashbyhq.com")) {
+        return "";
+      }
+
+      if (host === "jobs.ashbyhq.com") {
+        const segment = parsed.pathname.split("/").filter(Boolean)[0] || "";
+        if (!segment) {
+          return "";
+        }
+        return "https://jobs.ashbyhq.com/" + segment;
+      }
+
+      return parsed.protocol + "//" + parsed.hostname + "/";
+    } catch {
+      return "";
+    }
+  };
+
+  const urls = new Set();
+  const anchors = Array.from(document.querySelectorAll("a[href]"));
+  for (const anchor of anchors) {
+    const href = decodeGoogleRedirect(anchor.getAttribute("href") || "");
+    if (!/ashbyhq\\.com/i.test(href)) {
+      continue;
+    }
+
+    const boardUrl = toBoardUrl(href);
+    if (boardUrl) {
+      urls.add(boardUrl);
+    }
+  }
+
+  return JSON.stringify({
+    pageUrl: location.href,
+    boardUrls: Array.from(urls)
+  });
+})()
+  `.trim();
+}
+
+function isGoogleSearchUrl(searchUrl) {
+  try {
+    const parsed = new URL(String(searchUrl || "").trim());
+    return /(^|\.)google\./i.test(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function toAshbyBoardUrl(urlText) {
+  try {
+    const parsed = new URL(String(urlText || "").trim());
+    const host = parsed.hostname.toLowerCase();
+    if (!host.endsWith("ashbyhq.com")) {
+      return "";
+    }
+
+    if (host === "jobs.ashbyhq.com") {
+      const segment = parsed.pathname.split("/").filter(Boolean)[0] || "";
+      if (!segment) {
+        return "";
+      }
+
+      return `https://jobs.ashbyhq.com/${segment}`;
+    }
+
+    return `${parsed.protocol}//${parsed.hostname}/`;
+  } catch {
+    return "";
+  }
+}
+
+function parseBridgeJsonPayload(raw) {
+  try {
+    const payload = JSON.parse(raw);
+    if (!payload || typeof payload !== "object") {
+      return null;
+    }
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+function runExtractionAttempts(extractionScript, maxAttempts, attemptDelayMs) {
   let lastPayload = null;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const raw = executeInFrontTab(extractionScript);
-    let payload;
-
-    try {
-      payload = JSON.parse(raw);
-    } catch {
-      payload = null;
-    }
+    const payload = parseBridgeJsonPayload(raw);
 
     if (payload && Array.isArray(payload.jobs)) {
       lastPayload = payload;
@@ -715,8 +851,99 @@ function readAshbyJobsFromChrome(searchUrl, options = {}) {
     sleepSync(attemptDelayMs);
   }
 
-  if (lastPayload && Array.isArray(lastPayload.jobs)) {
-    return lastPayload;
+  return lastPayload;
+}
+
+function dedupeAshbyJobs(jobs) {
+  const deduped = new Map();
+
+  for (const job of Array.isArray(jobs) ? jobs : []) {
+    if (!job || typeof job !== "object") {
+      continue;
+    }
+
+    const key = String(job.externalId || job.url || "").toLowerCase();
+    if (!key) {
+      continue;
+    }
+
+    if (!deduped.has(key)) {
+      deduped.set(key, job);
+    }
+  }
+
+  return Array.from(deduped.values());
+}
+
+function readAshbyJobsFromChrome(searchUrl, options = {}) {
+  navigateFrontTab(searchUrl);
+
+  const settleMs = Number(options.settleMs) > 0 ? Number(options.settleMs) : 3000;
+  const maxAttempts = Number(options.maxAttempts) > 0 ? Number(options.maxAttempts) : 6;
+  const attemptDelayMs =
+    Number(options.attemptDelayMs) > 0 ? Number(options.attemptDelayMs) : 1200;
+  const extractionScript = buildAshbyExtractionScript();
+  const boardDiscoveryScript = buildAshbyBoardDiscoveryScript();
+  const boardSettleMs =
+    Number(options.boardSettleMs) > 0 ? Number(options.boardSettleMs) : 2200;
+  const boardMaxAttempts =
+    Number(options.boardMaxAttempts) > 0 ? Number(options.boardMaxAttempts) : 4;
+  const maxBoards = Number(options.maxBoards) > 0 ? Number(options.maxBoards) : 12;
+
+  sleepSync(settleMs);
+
+  const initialPayload = runExtractionAttempts(
+    extractionScript,
+    maxAttempts,
+    attemptDelayMs
+  );
+  const collectedJobs = Array.isArray(initialPayload?.jobs) ? [...initialPayload.jobs] : [];
+
+  if (isGoogleSearchUrl(searchUrl)) {
+    const boardPayload = parseBridgeJsonPayload(
+      executeInFrontTab(boardDiscoveryScript)
+    );
+    const boardUrlSet = new Set();
+
+    for (const job of collectedJobs) {
+      const boardUrl = toAshbyBoardUrl(job?.url);
+      if (boardUrl) {
+        boardUrlSet.add(boardUrl);
+      }
+    }
+
+    for (const url of Array.isArray(boardPayload?.boardUrls)
+      ? boardPayload.boardUrls
+      : []) {
+      const boardUrl = toAshbyBoardUrl(url);
+      if (boardUrl) {
+        boardUrlSet.add(boardUrl);
+      }
+    }
+
+    const boardUrls = Array.from(boardUrlSet).slice(0, maxBoards);
+    for (const boardUrl of boardUrls) {
+      navigateFrontTab(boardUrl);
+      sleepSync(boardSettleMs);
+
+      const boardJobsPayload = runExtractionAttempts(
+        extractionScript,
+        boardMaxAttempts,
+        attemptDelayMs
+      );
+      if (Array.isArray(boardJobsPayload?.jobs) && boardJobsPayload.jobs.length > 0) {
+        collectedJobs.push(...boardJobsPayload.jobs);
+      }
+    }
+  }
+
+  const dedupedJobs = dedupeAshbyJobs(collectedJobs);
+  if (dedupedJobs.length > 0 || initialPayload) {
+    return {
+      pageUrl: searchUrl,
+      capturedAt: new Date().toISOString(),
+      jobs: dedupedJobs
+    };
   }
 
   throw new Error("Could not extract Ashby jobs from the active Chrome tab.");
