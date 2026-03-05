@@ -3,7 +3,7 @@ import http from "node:http";
 import path from "node:path";
 
 import {
-  captureLinkedInSourceViaBridge,
+  captureSourceViaBridge,
   resolveBrowserBridgeBaseUrl
 } from "../browser-bridge/client.js";
 import { startBrowserBridgeServer } from "../browser-bridge/server.js";
@@ -109,7 +109,9 @@ async function isBridgeAvailable(baseUrl) {
 async function ensureBridgeForSources(sources) {
   const requiresBridge = Array.isArray(sources)
     ? sources.some(
-        (source) => source && source.type === "linkedin_capture_file"
+        (source) =>
+          source &&
+          (source.type === "linkedin_capture_file" || source.type === "wellfound_search")
       )
     : false;
 
@@ -135,7 +137,7 @@ async function ensureBridgeForSources(sources) {
   const port = resolveLocalBridgePort(baseUrl);
   if (!port) {
     throw new Error(
-      `LinkedIn capture requires a local browser bridge. Current bridge URL is ${baseUrl}. Set JOB_FINDER_BROWSER_BRIDGE_URL to http://127.0.0.1:<port> or start the bridge manually.`
+      `Browser capture requires a local bridge. Current bridge URL is ${baseUrl}. Set JOB_FINDER_BROWSER_BRIDGE_URL to http://127.0.0.1:<port> or start the bridge manually.`
     );
   }
 
@@ -484,6 +486,10 @@ function buildSourceSnapshotPath(source) {
   return path.resolve("output/playwright", `${source.id}-snapshot.md`);
 }
 
+function isBrowserCaptureSource(source) {
+  return source?.type === "linkedin_capture_file" || source?.type === "wellfound_search";
+}
+
 function runSyncAndScore() {
   const { profile } = loadActiveProfile();
   const sources = loadSources().sources.filter((source) => source.enabled);
@@ -519,7 +525,7 @@ async function runSourceCapture(sourceId) {
     throw new Error(`Source not found: ${sourceId}`);
   }
 
-  if (source.type !== "linkedin_capture_file") {
+  if (!isBrowserCaptureSource(source)) {
     return {
       capture: {
         provider: "source_fetch",
@@ -532,7 +538,7 @@ async function runSourceCapture(sourceId) {
   }
 
   await ensureBridgeForSources([source]);
-  const capture = await captureLinkedInSourceViaBridge(source, buildSourceSnapshotPath(source));
+  const capture = await captureSourceViaBridge(source, buildSourceSnapshotPath(source));
   const sync = capture.status === "completed" ? runSyncAndScore() : null;
 
   return {
@@ -551,8 +557,8 @@ async function runAllCaptures() {
   for (const source of sources) {
     let capture;
 
-    if (source.type === "linkedin_capture_file") {
-      capture = await captureLinkedInSourceViaBridge(
+    if (isBrowserCaptureSource(source)) {
+      capture = await captureSourceViaBridge(
         source,
         buildSourceSnapshotPath(source)
       );

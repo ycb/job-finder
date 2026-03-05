@@ -331,6 +331,13 @@ export function validateSources(raw) {
         );
       }
 
+      if (type === "wellfound_search" && source.capturePath !== undefined) {
+        normalizedSource.capturePath = assertString(
+          source.capturePath,
+          `Sources.sources[${index}].capturePath`
+        );
+      }
+
       if (
         type === "builtin_search" ||
         type === "wellfound_search" ||

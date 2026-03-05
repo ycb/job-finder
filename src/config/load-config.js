@@ -349,16 +349,75 @@ export function loadActiveProfile(profileSourcePath = "config/profile-source.jso
 }
 
 export function loadSources(sourcesPath = "config/sources.json") {
-  return validateSources(readJsonFileWithPath(sourcesPath).data);
+  return {
+    sources: loadSourcesWithPath(sourcesPath).sources
+  };
 }
 
 export function loadSourcesWithPath(sourcesPath = "config/sources.json") {
   const { resolvedPath, data } = readJsonFileWithPath(sourcesPath);
+  const changed = ensureDerivedSourceMetadata(data, resolvedPath);
+  const validated = validateSources(data);
+
+  if (changed) {
+    fs.writeFileSync(resolvedPath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+  }
 
   return {
     path: resolvedPath,
-    sources: validateSources(data)
+    sources: validated.sources
   };
+}
+
+function ensureDerivedSourceMetadata(raw, resolvedPath) {
+  if (!raw || !Array.isArray(raw.sources)) {
+    return false;
+  }
+
+  let changed = false;
+
+  for (const source of raw.sources) {
+    if (!source || typeof source !== "object") {
+      continue;
+    }
+
+    if (source.type !== "wellfound_search") {
+      continue;
+    }
+
+    const sourceId = String(source.id || "").trim();
+    if (!sourceId) {
+      continue;
+    }
+
+    let capturePath = String(source.capturePath || "").trim();
+    if (!capturePath) {
+      const capturesDir = path.resolve(path.dirname(resolvedPath), "..", "data", "captures");
+      fs.mkdirSync(capturesDir, { recursive: true });
+      capturePath = path.join(capturesDir, `${sourceId}.json`);
+      source.capturePath = capturePath;
+      changed = true;
+    }
+
+    const resolvedCapturePath = path.resolve(capturePath);
+    if (!fs.existsSync(resolvedCapturePath)) {
+      const emptyCapture = {
+        sourceId,
+        sourceName: String(source.name || "").trim() || sourceId,
+        searchUrl: String(source.searchUrl || "").trim(),
+        capturedAt: null,
+        jobs: []
+      };
+      fs.mkdirSync(path.dirname(resolvedCapturePath), { recursive: true });
+      fs.writeFileSync(
+        resolvedCapturePath,
+        `${JSON.stringify(emptyCapture, null, 2)}\n`,
+        "utf8"
+      );
+    }
+  }
+
+  return changed;
 }
 
 function slugifySourceId(label) {
@@ -396,7 +455,10 @@ function requireSourcesArray(raw, resolvedPath) {
 }
 
 function syncCaptureFileMetadata(source) {
-  if (!source || source.type !== "linkedin_capture_file") {
+  if (
+    !source ||
+    (source.type !== "linkedin_capture_file" && source.type !== "wellfound_search")
+  ) {
     return;
   }
 
@@ -678,13 +740,34 @@ function addLiveFetchSource(
     suffix += 1;
   }
 
-  sources.push({
+  const nextSource = {
     id: sourceId,
     name: normalizedName,
     type,
     enabled: true,
     searchUrl: normalizedSearchUrl
-  });
+  };
+
+  if (type === "wellfound_search") {
+    const capturesDir = path.resolve(path.dirname(resolvedPath), "..", "data", "captures");
+    fs.mkdirSync(capturesDir, { recursive: true });
+    const capturePath = path.join(capturesDir, `${sourceId}.json`);
+    if (!fs.existsSync(capturePath)) {
+      const emptyCapture = {
+        sourceId,
+        sourceName: normalizedName,
+        searchUrl: normalizedSearchUrl,
+        capturedAt: null,
+        jobs: []
+      };
+      fs.writeFileSync(capturePath, `${JSON.stringify(emptyCapture, null, 2)}\n`, "utf8");
+    }
+    nextSource.capturePath = capturePath;
+  }
+
+  sources.push(nextSource);
+
+  syncCaptureFileMetadata(sources[sources.length - 1]);
 
   const validated = validateSources(data);
   fs.writeFileSync(resolvedPath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
@@ -739,9 +822,14 @@ export function normalizeAllSourceSearchUrls(sourcesPath = "config/sources.json"
 
 export function getSourceByIdOrName(sourceIdOrName, sourcesPath = "config/sources.json") {
   const { resolvedPath, data } = readJsonFileWithPath(sourcesPath);
+  const changed = ensureDerivedSourceMetadata(data, resolvedPath);
   const sources = requireSourcesArray(data, resolvedPath);
   const validated = validateSources(data);
   const sourceIndex = findSourceIndexByIdOrName(sources, sourceIdOrName);
+
+  if (changed) {
+    fs.writeFileSync(resolvedPath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+  }
 
   if (sourceIndex === -1) {
     throw new Error(`Source not found: ${String(sourceIdOrName || "").trim()}`);

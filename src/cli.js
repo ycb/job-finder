@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import {
-  captureLinkedInSourceViaBridge,
+  captureSourceViaBridge,
   resolveBrowserBridgeBaseUrl
 } from "./browser-bridge/client.js";
 import { startBrowserBridgeServer } from "./browser-bridge/server.js";
@@ -210,7 +210,10 @@ function runListSources() {
   for (const source of sources.sources) {
     let captureStatus = "no-capture";
 
-    if (source.type === "linkedin_capture_file" && source.capturePath) {
+    if (
+      (source.type === "linkedin_capture_file" || source.type === "wellfound_search") &&
+      source.capturePath
+    ) {
       try {
         const raw = JSON.parse(fs.readFileSync(source.capturePath, "utf8"));
         const jobCount = Array.isArray(raw.jobs) ? raw.jobs.length : 0;
@@ -224,7 +227,6 @@ function runListSources() {
       }
     } else if (
       source.type === "builtin_search" ||
-      source.type === "wellfound_search" ||
       source.type === "ashby_search"
     ) {
       captureStatus = "live-fetch";
@@ -331,12 +333,30 @@ function isLinkedInSource(source) {
   return source?.type === "linkedin_capture_file";
 }
 
+function isWellfoundSource(source) {
+  return source?.type === "wellfound_search";
+}
+
+function isBrowserCaptureSource(source) {
+  return isLinkedInSource(source) || isWellfoundSource(source);
+}
+
 function isEnabledLinkedInSource(source) {
   return source?.enabled && isLinkedInSource(source);
 }
 
+function isEnabledBrowserCaptureSource(source) {
+  return source?.enabled && isBrowserCaptureSource(source);
+}
+
 function getEnabledLinkedInSources() {
   return loadSources().sources.filter((source) => isEnabledLinkedInSource(source));
+}
+
+function getEnabledBrowserCaptureSources() {
+  return loadSources().sources.filter((source) =>
+    isEnabledBrowserCaptureSource(source)
+  );
 }
 
 function resolveLocalBridgePort(baseUrl) {
@@ -378,7 +398,7 @@ async function isBridgeAvailable(baseUrl) {
 
 async function ensureBridgeForLinkedInSources(sources) {
   const requiresBridge = Array.isArray(sources)
-    ? sources.some((source) => isLinkedInSource(source))
+    ? sources.some((source) => isBrowserCaptureSource(source))
     : false;
 
   if (!requiresBridge) {
@@ -399,7 +419,7 @@ async function ensureBridgeForLinkedInSources(sources) {
   const port = resolveLocalBridgePort(baseUrl);
   if (!port) {
     throw new Error(
-      `LinkedIn intake requires a local browser bridge. Current bridge URL is ${baseUrl}. Set JOB_FINDER_BROWSER_BRIDGE_URL to http://127.0.0.1:<port> or start the bridge manually.`
+      `Browser capture requires a local bridge. Current bridge URL is ${baseUrl}. Set JOB_FINDER_BROWSER_BRIDGE_URL to http://127.0.0.1:<port> or start the bridge manually.`
     );
   }
 
@@ -420,7 +440,7 @@ async function ensureBridgeForLinkedInSources(sources) {
     };
   } catch (error) {
     throw new Error(
-      `LinkedIn intake needs the browser bridge at ${baseUrl}, but auto-start failed (${error.message}). Start it manually with: node src/cli.js bridge-server ${port}`
+      `Browser capture needs the bridge at ${baseUrl}, but auto-start failed (${error.message}). Start it manually with: node src/cli.js bridge-server ${port}`
     );
   }
 }
@@ -548,9 +568,9 @@ async function runCaptureSourceLive(sourceIdOrName, snapshotPathArg) {
   }
 
   const source = getSourceByIdOrName(sourceIdOrName);
-  if (source.type !== "linkedin_capture_file") {
+  if (!isBrowserCaptureSource(source)) {
     throw new Error(
-      `capture-source-live only supports linkedin_capture_file sources. "${source.name}" is ${source.type}.`
+      `capture-source-live supports linkedin_capture_file and wellfound_search sources. "${source.name}" is ${source.type}.`
     );
   }
 
@@ -559,7 +579,7 @@ async function runCaptureSourceLive(sourceIdOrName, snapshotPathArg) {
   let result;
 
   try {
-    result = await captureLinkedInSourceViaBridge(source, snapshotPath);
+    result = await captureSourceViaBridge(source, snapshotPath);
   } finally {
     await stopAutoStartedBridge(bridgeSession);
   }
@@ -579,10 +599,10 @@ async function runCaptureSourceLive(sourceIdOrName, snapshotPathArg) {
 }
 
 async function runCaptureAllLive(snapshotDirArg) {
-  const sources = getEnabledLinkedInSources();
+  const sources = getEnabledBrowserCaptureSources();
 
   if (sources.length === 0) {
-    console.log("No enabled LinkedIn live sources. Skipping live capture.");
+    console.log("No enabled LinkedIn/Wellfound browser-capture sources. Skipping live capture.");
     return {
       completed: 0,
       pending: false,
@@ -597,7 +617,7 @@ async function runCaptureAllLive(snapshotDirArg) {
   try {
     for (const source of sources) {
       const snapshotPath = getDefaultSnapshotPath(source, snapshotDir);
-      const result = await captureLinkedInSourceViaBridge(source, snapshotPath);
+      const result = await captureSourceViaBridge(source, snapshotPath);
 
       if (result.status === "pending") {
         console.log(result.message || `Capture queued for "${source.name}".`);
@@ -671,18 +691,18 @@ async function runReview(portArg) {
 
 async function runPipeline() {
   const sources = loadSources().sources.filter((source) => source.enabled);
-  const hasLinkedIn = sources.some((source) => source.type === "linkedin_capture_file");
+  const hasBrowserCapture = sources.some((source) => isBrowserCaptureSource(source));
 
-  if (hasLinkedIn) {
+  if (hasBrowserCapture) {
     const captureSummary = await runCaptureAllLive();
 
     if (captureSummary?.pending) {
       console.log(
-        "LinkedIn capture is pending manual snapshot handoff. Continuing with sync using current source data."
+        "Browser capture is pending manual snapshot handoff. Continuing with sync using current source data."
       );
     }
   } else {
-    console.log("No enabled LinkedIn sources. Skipping browser capture.");
+    console.log("No enabled LinkedIn/Wellfound sources. Skipping browser capture.");
   }
 
   runSync();

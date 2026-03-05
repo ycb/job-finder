@@ -130,3 +130,13 @@ export function captureLinkedInSourceWithPlaywrightCli(
     provider: "playwright_cli"
   };
 }
+
+export function captureSourceWithPlaywrightCli(source, snapshotPath, options = {}) {
+  if (source?.type !== "linkedin_capture_file") {
+    throw new Error(
+      `Playwright CLI provider currently supports linkedin_capture_file only. "${source?.name || "unknown"}" is ${source?.type || "unknown"}.`
+    );
+  }
+
+  return captureLinkedInSourceWithPlaywrightCli(source, snapshotPath, options);
+}

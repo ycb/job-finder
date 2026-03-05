@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { execFileSync } from "node:child_process";
 
 function decodeHtmlEntities(value) {
@@ -310,7 +312,85 @@ function fetchWellfoundSearchHtml(searchUrl, timeoutMs = 30_000) {
   );
 }
 
+export function writeWellfoundCaptureFile(source, jobs, options = {}) {
+  if (!source || source.type !== "wellfound_search") {
+    throw new Error("Wellfound capture write requires a wellfound_search source.");
+  }
+
+  if (!source.capturePath) {
+    throw new Error(
+      `Wellfound source "${source.name}" is missing capturePath. Re-add the source or set capturePath in config/sources.json.`
+    );
+  }
+
+  const capturePath = path.resolve(source.capturePath);
+  fs.mkdirSync(path.dirname(capturePath), { recursive: true });
+
+  const payload = {
+    sourceId: source.id,
+    sourceName: source.name,
+    searchUrl: source.searchUrl,
+    capturedAt: options.capturedAt || new Date().toISOString(),
+    jobs: Array.isArray(jobs) ? jobs : []
+  };
+
+  if (options.pageUrl) {
+    payload.pageUrl = options.pageUrl;
+  }
+
+  fs.writeFileSync(capturePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+
+  return {
+    source,
+    capturePath,
+    jobsImported: payload.jobs.length,
+    capturedAt: payload.capturedAt,
+    pageUrl: payload.pageUrl || null
+  };
+}
+
+export function collectWellfoundCaptureFile(source) {
+  if (!source?.capturePath) {
+    return [];
+  }
+
+  const capturePath = path.resolve(source.capturePath);
+  if (!fs.existsSync(capturePath)) {
+    return [];
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(fs.readFileSync(capturePath, "utf8"));
+  } catch {
+    return [];
+  }
+
+  if (!payload || typeof payload !== "object" || !Array.isArray(payload.jobs)) {
+    return [];
+  }
+
+  const capturedAt =
+    typeof payload.capturedAt === "string" && payload.capturedAt.trim()
+      ? payload.capturedAt
+      : new Date().toISOString();
+
+  return payload.jobs.map((job) => ({
+    ...job,
+    retrievedAt: capturedAt,
+    pageUrl: typeof payload.pageUrl === "string" ? payload.pageUrl : null
+  }));
+}
+
 export function collectWellfoundJobsFromSearch(source) {
+  const capturedJobs = collectWellfoundCaptureFile(source);
+  if (capturedJobs.length > 0) {
+    if (Number.isInteger(source.maxJobs) && source.maxJobs > 0) {
+      return capturedJobs.slice(0, source.maxJobs);
+    }
+    return capturedJobs;
+  }
+
   const html = fetchWellfoundSearchHtml(source.searchUrl, source.requestTimeoutMs || 30_000);
   const jobs = parseWellfoundSearchHtml(html, source.searchUrl);
   const retrievedAt = new Date().toISOString();

@@ -17,7 +17,7 @@ export function resolveBrowserBridgeBaseUrl(overrideBaseUrl) {
   ).replace(/\/+$/, "");
 }
 
-export async function captureLinkedInSourceViaBridge(
+export async function captureSourceViaBridge(
   source,
   snapshotPath,
   options = {}
@@ -26,7 +26,7 @@ export async function captureLinkedInSourceViaBridge(
 
   let response;
   try {
-    response = await fetch(`${baseUrl}/capture-linkedin-source`, {
+    response = await fetch(`${baseUrl}/capture-source`, {
       method: "POST",
       headers: {
         "content-type": "application/json"
@@ -53,4 +53,12 @@ export async function captureLinkedInSourceViaBridge(
   }
 
   return payload.result;
+}
+
+export async function captureLinkedInSourceViaBridge(
+  source,
+  snapshotPath,
+  options = {}
+) {
+  return captureSourceViaBridge(source, snapshotPath, options);
 }

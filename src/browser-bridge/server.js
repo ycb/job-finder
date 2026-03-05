@@ -1,9 +1,9 @@
 import http from "node:http";
 
-import { captureLinkedInSourceWithChromeAppleScript } from "./providers/chrome-applescript.js";
-import { captureLinkedInSourceWithNoop } from "./providers/noop.js";
-import { captureLinkedInSourceWithPersistentScaffold } from "./providers/persistent-scaffold.js";
-import { captureLinkedInSourceWithPlaywrightCli } from "./providers/playwright-cli.js";
+import { captureSourceWithChromeAppleScript } from "./providers/chrome-applescript.js";
+import { captureSourceWithNoop } from "./providers/noop.js";
+import { captureSourceWithPersistentScaffold } from "./providers/persistent-scaffold.js";
+import { captureSourceWithPlaywrightCli } from "./providers/playwright-cli.js";
 
 function createJsonResponse(response, statusCode, payload) {
   response.writeHead(statusCode, {
@@ -44,27 +44,27 @@ function resolveProvider(providerName = "noop") {
   if (providerName === "chrome_applescript") {
     return {
       name: providerName,
-      captureLinkedInSource: captureLinkedInSourceWithChromeAppleScript
+      captureSource: captureSourceWithChromeAppleScript
     };
   }
 
   if (providerName === "persistent_scaffold") {
     return {
       name: providerName,
-      captureLinkedInSource: captureLinkedInSourceWithPersistentScaffold
+      captureSource: captureSourceWithPersistentScaffold
     };
   }
 
   if (providerName === "playwright_cli") {
     return {
       name: providerName,
-      captureLinkedInSource: captureLinkedInSourceWithPlaywrightCli
+      captureSource: captureSourceWithPlaywrightCli
     };
   }
 
   return {
     name: "noop",
-    captureLinkedInSource: captureLinkedInSourceWithNoop
+    captureSource: captureSourceWithNoop
   };
 }
 
@@ -84,9 +84,12 @@ export async function startBrowserBridgeServer({
         return;
       }
 
-      if (request.method === "POST" && request.url === "/capture-linkedin-source") {
+      if (
+        request.method === "POST" &&
+        (request.url === "/capture-source" || request.url === "/capture-linkedin-source")
+      ) {
         const body = await readRequestBody(request);
-        const result = provider.captureLinkedInSource(
+        const result = provider.captureSource(
           body.source,
           body.snapshotPath,
           body.options || {}

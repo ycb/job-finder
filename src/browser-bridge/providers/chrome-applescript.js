@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 
 import { writeLinkedInCaptureFile } from "../../sources/linkedin-saved-search.js";
+import { writeWellfoundCaptureFile } from "../../sources/wellfound-jobs.js";
 
 function sleepSync(milliseconds) {
   const buffer = new SharedArrayBuffer(4);
@@ -304,6 +305,156 @@ function readLinkedInJobsFromChrome(searchUrl, options = {}) {
   throw new Error("Could not extract LinkedIn jobs from the active Chrome tab.");
 }
 
+function buildWellfoundExtractionScript() {
+  return `
+(() => {
+  const normalize = (value) => typeof value === "string"
+    ? value.replace(/\\s+/g, " ").trim()
+    : "";
+
+  const looksLikeTitle = (value) => {
+    const text = normalize(value);
+    if (!text || text.length < 4 || text.length > 180) return false;
+    const lowered = text.toLowerCase();
+    const blocked = new Set(["apply", "learn more", "view all", "all jobs", "careers", "home"]);
+    if (blocked.has(lowered)) return false;
+    return /[a-z]/i.test(text) && /\\s/.test(text);
+  };
+
+  const toAbsoluteUrl = (href) => {
+    const value = normalize(href);
+    if (!value) return "";
+    try {
+      return new URL(value, location.origin).toString();
+    } catch {
+      return value;
+    }
+  };
+
+  const extractJobId = (url) => {
+    const match = String(url || "").match(/\\/jobs\\/(\\d+)/i);
+    return match ? match[1] : "";
+  };
+
+  const parsePosted = (text) => {
+    const lines = String(text || "").split(/\\n+/).map((line) => normalize(line)).filter(Boolean);
+    return lines.find((line) => /(hour|day|week|month|year)s? ago/i.test(line) || /\\b(today|yesterday)\\b/i.test(line)) || null;
+  };
+
+  const jobs = [];
+  const seen = new Set();
+  const anchors = Array.from(document.querySelectorAll('a[href*="/jobs/"]'));
+
+  for (const anchor of anchors) {
+    const title = normalize(anchor.innerText || anchor.textContent || "");
+    if (!looksLikeTitle(title)) {
+      continue;
+    }
+
+    const href = toAbsoluteUrl(anchor.getAttribute("href") || "");
+    if (!href || !/wellfound\\.com/i.test(href)) {
+      continue;
+    }
+
+    const card = anchor.closest("article, li, div") || anchor.parentElement;
+    const text = normalize(card?.innerText || card?.textContent || "");
+    if (!text) {
+      continue;
+    }
+
+    const lines = text
+      .split(/\\n+/)
+      .map((line) => normalize(line))
+      .filter(Boolean);
+    const titleIndex = lines.findIndex((line) => line === title);
+    const company = titleIndex >= 0 ? normalize(lines[titleIndex + 1] || "") : normalize(lines[1] || "");
+    if (!company || company.toLowerCase() === title.toLowerCase()) {
+      continue;
+    }
+
+    const location = lines.find((line) =>
+      /remote|san francisco|new york|hybrid|on-site|onsite|ca\\b|ny\\b/i.test(line)
+    ) || "";
+
+    const employmentType = lines.find((line) =>
+      /full-time|part-time|contract|internship|temporary/i.test(line)
+    ) || null;
+
+    const salaryText = lines.find((line) =>
+      /[$€£]\\s*\\d|\\b\\d+(?:\\.\\d+)?[Kk]\\b.*\\/yr|\\/hr/i.test(line)
+    ) || null;
+
+    const externalId = extractJobId(href) || null;
+    const dedupeKey = externalId ? "wellfound:" + externalId : href.toLowerCase();
+    if (seen.has(dedupeKey)) {
+      continue;
+    }
+    seen.add(dedupeKey);
+
+    jobs.push({
+      externalId,
+      title,
+      company,
+      location: location || null,
+      postedAt: parsePosted(text),
+      employmentType,
+      easyApply: false,
+      salaryText,
+      summary: text.slice(0, 500),
+      description: text,
+      url: href
+    });
+  }
+
+  return JSON.stringify({
+    pageUrl: location.href,
+    capturedAt: new Date().toISOString(),
+    jobs
+  });
+})()
+  `.trim();
+}
+
+function readWellfoundJobsFromChrome(searchUrl, options = {}) {
+  navigateFrontTab(searchUrl);
+
+  const settleMs = Number(options.settleMs) > 0 ? Number(options.settleMs) : 3000;
+  const maxAttempts = Number(options.maxAttempts) > 0 ? Number(options.maxAttempts) : 6;
+  const attemptDelayMs =
+    Number(options.attemptDelayMs) > 0 ? Number(options.attemptDelayMs) : 1500;
+  const extractionScript = buildWellfoundExtractionScript();
+
+  sleepSync(settleMs);
+
+  let lastPayload = null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const raw = executeInFrontTab(extractionScript);
+    let payload;
+
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      payload = null;
+    }
+
+    if (payload && Array.isArray(payload.jobs)) {
+      lastPayload = payload;
+      if (payload.jobs.length > 0) {
+        return payload;
+      }
+    }
+
+    sleepSync(attemptDelayMs);
+  }
+
+  if (lastPayload && Array.isArray(lastPayload.jobs)) {
+    return lastPayload;
+  }
+
+  throw new Error("Could not extract Wellfound jobs from the active Chrome tab.");
+}
+
 export function captureLinkedInSourceWithChromeAppleScript(
   source,
   _snapshotPath,
@@ -323,4 +474,39 @@ export function captureLinkedInSourceWithChromeAppleScript(
     provider: "chrome_applescript",
     status: "completed"
   };
+}
+
+export function captureWellfoundSourceWithChromeAppleScript(
+  source,
+  _snapshotPath,
+  options = {}
+) {
+  if (!source || source.type !== "wellfound_search") {
+    throw new Error("Chrome AppleScript capture requires a wellfound_search source.");
+  }
+
+  const payload = readWellfoundJobsFromChrome(source.searchUrl, options);
+
+  return {
+    ...writeWellfoundCaptureFile(source, payload.jobs, {
+      capturedAt: payload.capturedAt,
+      pageUrl: payload.pageUrl
+    }),
+    provider: "chrome_applescript",
+    status: "completed"
+  };
+}
+
+export function captureSourceWithChromeAppleScript(source, snapshotPath, options = {}) {
+  if (source?.type === "linkedin_capture_file") {
+    return captureLinkedInSourceWithChromeAppleScript(source, snapshotPath, options);
+  }
+
+  if (source?.type === "wellfound_search") {
+    return captureWellfoundSourceWithChromeAppleScript(source, snapshotPath, options);
+  }
+
+  throw new Error(
+    `Chrome AppleScript provider currently supports linkedin_capture_file and wellfound_search. "${source?.name || "unknown"}" is ${source?.type || "unknown"}.`
+  );
 }

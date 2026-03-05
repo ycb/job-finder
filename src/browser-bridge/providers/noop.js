@@ -1,4 +1,4 @@
-export function captureLinkedInSourceWithNoop(source, snapshotPath) {
+export function captureSourceWithNoop(source, snapshotPath) {
   throw new Error(
     [
       `No browser bridge provider is configured for "${source?.name || "unknown source"}".`,
@@ -6,4 +6,8 @@ export function captureLinkedInSourceWithNoop(source, snapshotPath) {
       `Requested snapshot path: ${snapshotPath}`
     ].join(" ")
   );
+}
+
+export function captureLinkedInSourceWithNoop(source, snapshotPath) {
+  return captureSourceWithNoop(source, snapshotPath);
 }

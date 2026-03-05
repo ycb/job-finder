@@ -145,3 +145,13 @@ export function captureLinkedInSourceWithPersistentScaffold(
       `${resolvedSnapshotPath}, then rerun the capture command.`
   };
 }
+
+export function captureSourceWithPersistentScaffold(source, snapshotPath, options = {}) {
+  if (source?.type !== "linkedin_capture_file") {
+    throw new Error(
+      `Persistent scaffold provider currently supports linkedin_capture_file only. "${source?.name || "unknown"}" is ${source?.type || "unknown"}.`
+    );
+  }
+
+  return captureLinkedInSourceWithPersistentScaffold(source, snapshotPath, options);
+}
