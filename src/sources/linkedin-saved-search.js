@@ -258,7 +258,16 @@ export function collectLinkedInCaptureFile(source) {
     );
   }
 
-  return payload.jobs;
+  const capturedAt =
+    typeof payload.capturedAt === "string" && payload.capturedAt.trim()
+      ? payload.capturedAt
+      : new Date().toISOString();
+
+  return payload.jobs.map((job) => ({
+    ...job,
+    retrievedAt: capturedAt,
+    pageUrl: typeof payload.pageUrl === "string" ? payload.pageUrl : null
+  }));
 }
 
 export function collectJobsFromSource(source) {

@@ -26,11 +26,11 @@ This repo is intentionally opinionated about the workflow: automate the repetiti
 
 The current implementation focuses on:
 
-- profile and source configuration
+- profile/goals and source configuration
 - LinkedIn capture by named saved search
 - Built In SF search ingestion by URL
 - job intake into SQLite
-- deterministic scoring
+- deterministic scoring with hard filters, freshness, confidence, and history-aware signals
 - shortlist generation
 - de-duped review and application tracking
 
@@ -56,20 +56,28 @@ That makes it a stronger demonstration of AI-native product thinking than a thin
 
 ## Current Workflow
 
-1. Define your profile and preferences in `config/profile.json`.
+1. Define your profile either in `config/profile.json` or `config/my-goals.json`.
 2. Add labeled search sources in `config/sources.json` or with the CLI.
 3. Run `npm run run` to execute intake + scoring + shortlist generation.
-4. Open `npm run review` to inspect ranked jobs and attribution.
+4. Start `npm run review` to run the local dashboard server and inspect ranked jobs and attribution.
 5. Mark jobs as applied/rejected and refine sources based on outcomes.
+
+`run` and `review` are separate processes:
+
+- `npm run run` updates data (capture, sync, score, shortlist).
+- `npm run review` serves the local UI at `http://127.0.0.1:4311`.
+- if you only run `run`, dashboard data changes will not appear until `review` is running and refreshed.
 
 ## Setup
 
 1. Copy and edit `config/profile.example.json` to `config/profile.json`.
-2. Copy and edit `config/sources.example.json` to `config/sources.json`.
-3. Add named LinkedIn sources with `node src/cli.js add-source "<Label>" "<LinkedIn URL>"`.
-4. Optionally add Built In sources with `node src/cli.js add-builtin-source "<Label>" "<Built In URL>"`.
-5. Run `npm run run` for the full pipeline. LinkedIn capture auto-starts a local bridge only when needed.
-6. Start `npm run review` when you want the dashboard UI (this is a separate long-running server process).
+2. Copy and edit `config/my-goals.example.json` to `config/my-goals.json` if you want goals-based scoring inputs.
+3. Copy `config/profile-source.example.json` to `config/profile-source.json` if you want to explicitly control provider mode.
+4. Copy and edit `config/sources.example.json` to `config/sources.json`.
+5. Add named LinkedIn sources with `node src/cli.js add-source "<Label>" "<LinkedIn URL>"`.
+6. Optionally add Built In sources with `node src/cli.js add-builtin-source "<Label>" "<Built In URL>"`.
+7. Run `npm run run` for the full pipeline. LinkedIn capture auto-starts a local bridge only when needed.
+8. Start `npm run review` when you want the dashboard UI (this is a separate long-running server process).
 
 Fallback snapshot workflow:
 
@@ -92,6 +100,11 @@ npm run run
 - `node src/cli.js add-source <label> <linkedin-url>`
 - `node src/cli.js add-builtin-source <label> <built-in-url>`
 - `node src/cli.js set-source-url <source-id-or-label> <url>`
+- `node src/cli.js profile-source`
+- `node src/cli.js use-my-goals [goals-path]`
+- `node src/cli.js use-profile-file [profile-path]`
+- `node src/cli.js connect-narrata-file [goals-path]`
+- `node src/cli.js connect-narrata-supabase <supabase-url> <user-id> [service-role-env]`
 - `npm run capture -- <source-id-or-label> [snapshot-path]`
 - `npm run capture:all`
 - `npm run capture:live -- <source-id-or-label> [snapshot-path]`
@@ -112,6 +125,7 @@ The dashboard includes:
 
 - top-level tabs: `Jobs`, `Searches`, `Profile`
 - a profile summary with active and applied counts
+- profile source controls (`profile.json`, `my-goals.json`, or Narrata file sync) in `Profile`
 - a searchable list of named job search sources
 - per-source quality signals (`jobs found`, `applied`, `high signal %`, `avg score`)
 - per-search run controls (`Run`, `Run All`, `See Results`, `Edit`) in `Searches`
@@ -120,6 +134,27 @@ The dashboard includes:
 - per-job attribution showing which source/search URLs surfaced the role
 
 Jobs found in multiple searches are grouped into one review row and show which searches surfaced them.
+
+## Profile Source Modes
+
+`job-finder` supports three profile providers:
+
+- `legacy_profile`: reads `config/profile.json`
+- `my_goals`: reads `config/my-goals.json` and maps goals into scoring profile fields
+- `narrata` (`file` mode in first pass): reads Narrata goals JSON via file path
+
+If `config/profile-source.json` is missing, `job-finder` auto-uses `my_goals` when `config/my-goals.json` exists; otherwise it falls back to `profile.json`.
+
+Switch with CLI:
+
+```bash
+node src/cli.js use-profile-file
+node src/cli.js use-my-goals
+node src/cli.js connect-narrata-file config/my-goals.json
+node src/cli.js profile-source
+```
+
+Or switch in the `Profile` tab in the review dashboard.
 
 ## Status values
 

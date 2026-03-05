@@ -212,10 +212,15 @@ function fetchBuiltInSearchHtml(searchUrl, timeoutMs = 30_000) {
 export function collectBuiltInJobsFromSearch(source) {
   const html = fetchBuiltInSearchHtml(source.searchUrl, source.requestTimeoutMs || 30_000);
   const jobs = parseBuiltInSearchHtml(html, source.searchUrl);
+  const retrievedAt = new Date().toISOString();
+  const jobsWithMetadata = jobs.map((job) => ({
+    ...job,
+    retrievedAt
+  }));
 
   if (Number.isInteger(source.maxJobs) && source.maxJobs > 0) {
-    return jobs.slice(0, source.maxJobs);
+    return jobsWithMetadata.slice(0, source.maxJobs);
   }
 
-  return jobs;
+  return jobsWithMetadata;
 }

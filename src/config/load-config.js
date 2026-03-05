@@ -1,7 +1,42 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { validateProfile, validateSources } from "./schema.js";
+import {
+  validateGoals,
+  validateProfile,
+  validateProfileSource,
+  validateSources
+} from "./schema.js";
+
+const DEFAULT_PROFILE_SOURCE_CONFIG = {
+  provider: "legacy_profile",
+  legacyProfilePath: "config/profile.json",
+  goalsPath: "config/my-goals.json",
+  narrata: {
+    mode: "file",
+    goalsPath: "config/my-goals.json",
+    supabaseUrl: "",
+    userId: "",
+    serviceRoleEnv: "NARRATA_SUPABASE_SERVICE_ROLE_KEY"
+  }
+};
+
+function resolveDefaultProfileSourceConfig() {
+  const goalsPath = path.resolve("config/my-goals.json");
+  if (fs.existsSync(goalsPath)) {
+    return {
+      ...DEFAULT_PROFILE_SOURCE_CONFIG,
+      provider: "my_goals",
+      goalsPath: "config/my-goals.json",
+      narrata: {
+        ...DEFAULT_PROFILE_SOURCE_CONFIG.narrata,
+        goalsPath: "config/my-goals.json"
+      }
+    };
+  }
+
+  return { ...DEFAULT_PROFILE_SOURCE_CONFIG };
+}
 
 function readJsonFileWithPath(filePath) {
   const resolvedPath = path.resolve(filePath);
@@ -26,6 +61,291 @@ function readJsonFileWithPath(filePath) {
 
 export function loadProfile(profilePath = "config/profile.json") {
   return validateProfile(readJsonFileWithPath(profilePath).data);
+}
+
+export function loadGoals(goalsPath = "config/my-goals.json") {
+  return validateGoals(readJsonFileWithPath(goalsPath).data);
+}
+
+function deriveRemotePreferenceFromGoals(goals) {
+  const workType = Array.isArray(goals?.workType)
+    ? goals.workType.map((value) => String(value || "").toLowerCase())
+    : [];
+
+  const wantsRemote = workType.includes("remote");
+  const wantsHybrid = workType.includes("hybrid");
+  const wantsInPerson =
+    workType.includes("in-person") || workType.includes("in person") || workType.includes("onsite");
+
+  if (wantsRemote && !wantsHybrid && !wantsInPerson) {
+    return "remote_only";
+  }
+
+  if (wantsRemote) {
+    return "remote_friendly";
+  }
+
+  return "onsite_ok";
+}
+
+export function mapGoalsToProfile(goals, options = {}) {
+  const fallbackProfile = options.fallbackProfile || null;
+  const candidateName = String(goals.candidateName || fallbackProfile?.candidateName || "").trim();
+  const resumePath = String(goals.resumePath || fallbackProfile?.resumePath || "").trim();
+
+  if (!candidateName) {
+    throw new Error(
+      "Goals are missing candidateName. Set candidateName in config/my-goals.json or keep profile.json as fallback."
+    );
+  }
+
+  if (!resumePath) {
+    throw new Error(
+      "Goals are missing resumePath. Set resumePath in config/my-goals.json or keep profile.json as fallback."
+    );
+  }
+
+  const cityLocations = Array.isArray(goals.preferredCities)
+    ? goals.preferredCities
+    : [];
+  const targetLocations =
+    cityLocations.length > 0
+      ? cityLocations
+      : Array.isArray(fallbackProfile?.targetLocations)
+        ? fallbackProfile.targetLocations
+        : [];
+
+  const includeKeywords = Array.from(
+    new Set([
+      ...(Array.isArray(goals.includeKeywords) ? goals.includeKeywords : []),
+      ...(Array.isArray(goals.businessModels) ? goals.businessModels : [])
+    ])
+  );
+
+  const salaryFloor =
+    Number.isFinite(goals?.dealBreakers?.salaryMinimum) && goals.dealBreakers.salaryMinimum > 0
+      ? Number(goals.dealBreakers.salaryMinimum)
+      : Number.isFinite(goals.minimumSalary)
+        ? Number(goals.minimumSalary)
+        : Number(fallbackProfile?.salaryFloor || 0);
+
+  return validateProfile({
+    candidateName,
+    resumePath,
+    targetTitles:
+      Array.isArray(goals.targetTitles) && goals.targetTitles.length > 0
+        ? goals.targetTitles
+        : fallbackProfile?.targetTitles || [],
+    targetLocations,
+    remotePreference: deriveRemotePreferenceFromGoals(goals),
+    salaryFloor: Number.isFinite(salaryFloor) ? salaryFloor : 0,
+    seniorityLevels:
+      Array.isArray(goals.seniorityLevels) && goals.seniorityLevels.length > 0
+        ? goals.seniorityLevels
+        : fallbackProfile?.seniorityLevels || [],
+    preferredIndustries:
+      Array.isArray(goals.industries) && goals.industries.length > 0
+        ? goals.industries
+        : fallbackProfile?.preferredIndustries || [],
+    targetCompanies:
+      Array.isArray(goals.targetCompanies) && goals.targetCompanies.length > 0
+        ? goals.targetCompanies
+        : fallbackProfile?.targetCompanies || [],
+    includeKeywords:
+      includeKeywords.length > 0 ? includeKeywords : fallbackProfile?.includeKeywords || [],
+    excludeKeywords:
+      Array.isArray(goals.excludeKeywords) && goals.excludeKeywords.length > 0
+        ? goals.excludeKeywords
+        : fallbackProfile?.excludeKeywords || [],
+    workTypePreferences:
+      Array.isArray(goals.workType) && goals.workType.length > 0
+        ? goals.workType
+        : fallbackProfile?.workTypePreferences || [],
+    preferredBusinessModels:
+      Array.isArray(goals.businessModels) && goals.businessModels.length > 0
+        ? goals.businessModels
+        : fallbackProfile?.preferredBusinessModels || [],
+    preferredCompanyMaturity:
+      Array.isArray(goals.companyMaturity) && goals.companyMaturity.length > 0
+        ? goals.companyMaturity
+        : fallbackProfile?.preferredCompanyMaturity || [],
+    dealBreakers: {
+      salaryMinimum:
+        goals?.dealBreakers?.salaryMinimum ?? fallbackProfile?.dealBreakers?.salaryMinimum ?? null,
+      workType:
+        Array.isArray(goals?.dealBreakers?.workType) &&
+        goals.dealBreakers.workType.length > 0
+          ? goals.dealBreakers.workType
+          : fallbackProfile?.dealBreakers?.workType || [],
+      companyMaturity:
+        Array.isArray(goals?.dealBreakers?.companyMaturity) &&
+        goals.dealBreakers.companyMaturity.length > 0
+          ? goals.dealBreakers.companyMaturity
+          : fallbackProfile?.dealBreakers?.companyMaturity || []
+    }
+  });
+}
+
+function maybeLoadLegacyProfile(profilePath) {
+  try {
+    return loadProfile(profilePath);
+  } catch {
+    return null;
+  }
+}
+
+export function loadProfileSourceConfig(profileSourcePath = "config/profile-source.json") {
+  const defaultConfig = resolveDefaultProfileSourceConfig();
+  const resolvedPath = path.resolve(profileSourcePath);
+  if (!fs.existsSync(resolvedPath)) {
+    return validateProfileSource(defaultConfig);
+  }
+
+  const rawText = fs.readFileSync(resolvedPath, "utf8");
+  let parsed;
+  try {
+    parsed = JSON.parse(rawText);
+  } catch (error) {
+    throw new Error(`Invalid JSON in ${resolvedPath}: ${error.message}`);
+  }
+
+  return validateProfileSource({
+    ...defaultConfig,
+    ...parsed,
+    narrata: {
+      ...defaultConfig.narrata,
+      ...(parsed?.narrata || {})
+    }
+  });
+}
+
+export function writeProfileSourceConfig(
+  nextConfig,
+  profileSourcePath = "config/profile-source.json"
+) {
+  const resolvedPath = path.resolve(profileSourcePath);
+  const validated = validateProfileSource(nextConfig);
+  fs.writeFileSync(resolvedPath, `${JSON.stringify(validated, null, 2)}\n`, "utf8");
+  return validated;
+}
+
+export function updateProfileSourceConfig(
+  updates,
+  profileSourcePath = "config/profile-source.json"
+) {
+  const current = loadProfileSourceConfig(profileSourcePath);
+  const next = {
+    ...current,
+    ...updates,
+    narrata: {
+      ...current.narrata,
+      ...(updates?.narrata || {})
+    }
+  };
+  return writeProfileSourceConfig(next, profileSourcePath);
+}
+
+export function useLegacyProfileSource(
+  legacyProfilePath = "config/profile.json",
+  profileSourcePath = "config/profile-source.json"
+) {
+  return updateProfileSourceConfig(
+    {
+      provider: "legacy_profile",
+      legacyProfilePath
+    },
+    profileSourcePath
+  );
+}
+
+export function useMyGoalsProfileSource(
+  goalsPath = "config/my-goals.json",
+  profileSourcePath = "config/profile-source.json"
+) {
+  return updateProfileSourceConfig(
+    {
+      provider: "my_goals",
+      goalsPath
+    },
+    profileSourcePath
+  );
+}
+
+export function connectNarrataGoalsFile(
+  goalsPath = "config/my-goals.json",
+  profileSourcePath = "config/profile-source.json"
+) {
+  return updateProfileSourceConfig(
+    {
+      provider: "narrata",
+      narrata: {
+        mode: "file",
+        goalsPath
+      }
+    },
+    profileSourcePath
+  );
+}
+
+export function connectNarrataSupabase(
+  { supabaseUrl, userId, serviceRoleEnv = "NARRATA_SUPABASE_SERVICE_ROLE_KEY" },
+  profileSourcePath = "config/profile-source.json"
+) {
+  return updateProfileSourceConfig(
+    {
+      provider: "narrata",
+      narrata: {
+        mode: "supabase",
+        supabaseUrl,
+        userId,
+        serviceRoleEnv
+      }
+    },
+    profileSourcePath
+  );
+}
+
+export function loadActiveProfile(profileSourcePath = "config/profile-source.json") {
+  const sourceConfig = loadProfileSourceConfig(profileSourcePath);
+  const fallbackProfile = maybeLoadLegacyProfile(sourceConfig.legacyProfilePath);
+
+  if (sourceConfig.provider === "legacy_profile") {
+    return {
+      profile: loadProfile(sourceConfig.legacyProfilePath),
+      source: {
+        provider: "legacy_profile",
+        profilePath: sourceConfig.legacyProfilePath
+      }
+    };
+  }
+
+  if (sourceConfig.provider === "my_goals") {
+    const goals = loadGoals(sourceConfig.goalsPath);
+    return {
+      profile: mapGoalsToProfile(goals, { fallbackProfile }),
+      source: {
+        provider: "my_goals",
+        goalsPath: sourceConfig.goalsPath
+      }
+    };
+  }
+
+  if (sourceConfig.narrata.mode === "file") {
+    const goalsPath = sourceConfig.narrata.goalsPath || sourceConfig.goalsPath;
+    const goals = loadGoals(goalsPath);
+    return {
+      profile: mapGoalsToProfile(goals, { fallbackProfile }),
+      source: {
+        provider: "narrata",
+        mode: "file",
+        goalsPath
+      }
+    };
+  }
+
+  throw new Error(
+    "Narrata supabase mode is configured but not yet enabled for local run commands. Use Narrata file mode for first pass."
+  );
 }
 
 export function loadSources(sourcesPath = "config/sources.json") {
@@ -404,8 +724,10 @@ export function getSourceByIdOrName(sourceIdOrName, sourcesPath = "config/source
 }
 
 export function loadAppConfig() {
+  const active = loadActiveProfile();
   return {
-    profile: loadProfile(),
+    profile: active.profile,
+    profileSource: active.source,
     sources: loadSources()
   };
 }

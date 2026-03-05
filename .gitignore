@@ -1,5 +1,7 @@
 .codex/
 config/profile.json
+config/my-goals.json
+config/profile-source.json
 config/sources.json
 data/
 output/

@@ -36,5 +36,22 @@
     "principal engineer",
     "java developer",
     "onsite daily"
+  ],
+  "workTypePreferences": [
+    "remote",
+    "hybrid"
+  ],
+  "preferredBusinessModels": [
+    "b2b saas",
+    "marketplace"
+  ],
+  "preferredCompanyMaturity": [
+    "growth-stage",
+    "public"
+  ],
+  "dealBreakers": {
+    "salaryMinimum": 180000,
+    "workType": [],
+    "companyMaturity": []
   ]
 }

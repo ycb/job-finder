@@ -1,0 +1,58 @@
+{
+  "candidateName": "Your Name",
+  "resumePath": "resume.pdf",
+  "targetTitles": [
+    "staff product manager",
+    "group product manager"
+  ],
+  "minimumSalary": 200000,
+  "companyMaturity": [
+    "growth-stage",
+    "public"
+  ],
+  "workType": [
+    "remote",
+    "hybrid",
+    "in-person"
+  ],
+  "industries": [
+    "ai",
+    "saas",
+    "clean energy"
+  ],
+  "businessModels": [
+    "b2b saas",
+    "b2c"
+  ],
+  "preferredCities": [
+    "san francisco, ca",
+    "new york, ny",
+    "remote"
+  ],
+  "openToRelocation": true,
+  "targetCompanies": [
+    "openai",
+    "anthropic"
+  ],
+  "seniorityLevels": [
+    "senior",
+    "staff",
+    "lead",
+    "principal",
+    "group",
+    "director"
+  ],
+  "includeKeywords": [
+    "platform",
+    "growth",
+    "ai"
+  ],
+  "excludeKeywords": [
+    "defense"
+  ],
+  "dealBreakers": {
+    "salaryMinimum": 200000,
+    "workType": [],
+    "companyMaturity": []
+  }
+}

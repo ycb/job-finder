@@ -10,7 +10,10 @@ import { startBrowserBridgeServer } from "../browser-bridge/server.js";
 import {
   addBuiltinSearchSource,
   addLinkedInCaptureSource,
-  loadProfile,
+  connectNarrataGoalsFile,
+  loadActiveProfile,
+  useLegacyProfileSource,
+  useMyGoalsProfileSource,
   loadSources,
   updateSourceDefinition
 } from "../config/load-config.js";
@@ -431,7 +434,7 @@ function buildSourceSnapshotPath(source) {
 }
 
 function runSyncAndScore() {
-  const profile = loadProfile();
+  const { profile } = loadActiveProfile();
   const sources = loadSources().sources.filter((source) => source.enabled);
 
   return withDatabase((db) => {
@@ -531,7 +534,8 @@ async function runAllCaptures() {
 }
 
 function buildDashboardData(limit = 200) {
-  const profile = loadProfile();
+  const activeProfile = loadActiveProfile();
+  const profile = activeProfile.profile;
   const sources = loadSources().sources;
   const statsQueue = hydrateQueue(getReviewQueue(5_000));
   const sourceLastSeenAt = getSourceLastSeenAtMap();
@@ -586,10 +590,17 @@ function buildDashboardData(limit = 200) {
       candidateName: profile.candidateName,
       remotePreference: profile.remotePreference,
       salaryFloor: profile.salaryFloor,
+      provider: activeProfile.source.provider,
+      providerMode: activeProfile.source.mode || null,
+      goalsPath: activeProfile.source.goalsPath || null,
+      profileFilePath: activeProfile.source.profilePath || null,
       appliedCount: appliedQueue.length,
       skippedCount: skippedQueue.length,
       activeCount: queue.length,
-      profilePath: path.resolve("config/profile.json"),
+      profilePath: path.resolve(
+        activeProfile.source.profilePath || "config/profile.json"
+      ),
+      goalsFilePath: path.resolve(activeProfile.source.goalsPath || "config/my-goals.json"),
       sourcesPath: path.resolve("config/sources.json")
     },
     sources: sources.map((source) => {
@@ -651,16 +662,24 @@ function renderDashboardPage(dashboard) {
         color-scheme: light;
         --bg: #f5f1e8;
         --panel: rgba(255, 252, 245, 0.94);
-        --surface: rgba(255, 255, 255, 0.76);
+        --surface: rgba(255, 255, 255, 0.78);
+        --surface-soft: rgba(252, 248, 239, 0.85);
         --ink: #1e2a26;
         --muted: #5e6b66;
         --line: #d8cfbd;
         --line-strong: #c8bea8;
+        --accent: #1b3a33;
+        --accent-soft: #e5f0ea;
         --high: #17643a;
         --review: #8a5a0a;
         --button: #1e2a26;
         --button-ink: #fdf9ef;
         --error: #8b1e1e;
+        --new: #4f6275;
+        --viewed: #6f6a58;
+        --applied: #1e5c3f;
+        --skip: #6b4c80;
+        --reject: #7a1d1d;
       }
 
       * { box-sizing: border-box; }
@@ -723,7 +742,6 @@ function renderDashboardPage(dashboard) {
 
       .top-actions,
       .inline-actions,
-      .status-row,
       .filter-row {
         display: flex;
         gap: 10px;
@@ -743,6 +761,7 @@ function renderDashboardPage(dashboard) {
         font-size: 14px;
         text-decoration: none;
         cursor: pointer;
+        transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease, box-shadow 120ms ease;
       }
 
       button.primary,
@@ -753,7 +772,7 @@ function renderDashboardPage(dashboard) {
 
       button.secondary,
       a.button.secondary {
-        background: rgba(255, 255, 255, 0.82);
+        background: rgba(255, 255, 255, 0.9);
         color: var(--ink);
         border: 1px solid var(--line);
       }
@@ -769,13 +788,6 @@ function renderDashboardPage(dashboard) {
         opacity: 0.55;
       }
 
-      .grid {
-        margin-top: 18px;
-        display: grid;
-        grid-template-columns: minmax(0, 1.15fr) minmax(340px, 0.85fr);
-        gap: 20px;
-      }
-
       .stack {
         display: flex;
         flex-direction: column;
@@ -788,6 +800,10 @@ function renderDashboardPage(dashboard) {
         border: 1px solid var(--line);
         border-radius: 16px;
         padding: 16px;
+      }
+
+      .card.inset {
+        background: var(--surface-soft);
       }
 
       .meta-grid {
@@ -869,7 +885,100 @@ function renderDashboardPage(dashboard) {
         word-break: break-all;
       }
 
-      .pill {
+      .main-tabs {
+        margin-top: 14px;
+        display: inline-flex;
+        gap: 4px;
+        padding: 4px;
+        border-radius: 14px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.62);
+      }
+
+      .main-tab {
+        background: transparent;
+        border: 1px solid transparent;
+        color: var(--muted);
+        border-radius: 10px;
+        padding: 9px 14px;
+        font-weight: 700;
+      }
+
+      .main-tab.active {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: var(--button-ink);
+      }
+
+      .sub-tabs {
+        display: inline-flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .sub-tab {
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid var(--line-strong);
+        color: var(--ink);
+        border-radius: 999px;
+        padding: 8px 14px;
+        font-weight: 700;
+      }
+
+      .sub-tab.active {
+        background: var(--accent-soft);
+        border-color: rgba(27, 58, 51, 0.35);
+        color: var(--accent);
+        box-shadow: inset 0 0 0 1px rgba(27, 58, 51, 0.1);
+      }
+
+      .sub-tab:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      .filter-chips {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .filter-chip {
+        background: rgba(255, 255, 255, 0.9);
+        border: 1px solid var(--line);
+        color: var(--muted);
+        border-radius: 12px;
+        padding: 8px 10px;
+        font-size: 13px;
+        text-align: left;
+        display: inline-flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .filter-chip.active {
+        color: var(--accent);
+        border-color: rgba(27, 58, 51, 0.32);
+        background: var(--accent-soft);
+        font-weight: 700;
+      }
+
+      .filter-chip:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      .filter-chip-main {
+        font-weight: 700;
+        color: var(--ink);
+      }
+
+      .filter-chip-meta {
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      .tag {
         display: inline-flex;
         align-items: center;
         gap: 6px;
@@ -877,23 +986,25 @@ function renderDashboardPage(dashboard) {
         padding: 7px 11px;
         border: 1px solid var(--line);
         font-size: 13px;
-        background: rgba(255, 255, 255, 0.8);
+        background: rgba(255, 255, 255, 0.74);
+        color: var(--muted);
       }
 
-      .pill.active {
-        background: var(--button);
-        color: var(--button-ink);
-        border-color: var(--button);
+      .tag[data-tone="strong"] {
+        color: var(--ink);
+        background: rgba(255, 255, 255, 0.92);
       }
 
-      .pill[data-bucket="high_signal"] {
+      .tag[data-bucket="high_signal"] {
         color: var(--high);
         border-color: rgba(23, 100, 58, 0.25);
+        background: rgba(228, 246, 236, 0.85);
       }
 
-      .pill[data-bucket="review_later"] {
+      .tag[data-bucket="review_later"] {
         color: var(--review);
         border-color: rgba(138, 90, 10, 0.25);
+        background: rgba(250, 242, 227, 0.9);
       }
 
       .search-actions {
@@ -907,13 +1018,228 @@ function renderDashboardPage(dashboard) {
         font-size: 13px;
       }
 
-      .queue-list {
+      .search-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .source-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 40px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--line-strong);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+        background: rgba(255, 255, 255, 0.9);
+        font-weight: 700;
+      }
+
+      .source-badge[data-source-kind="li"] {
+        color: #21406b;
+        border-color: rgba(33, 64, 107, 0.28);
+        background: rgba(233, 241, 251, 0.9);
+      }
+
+      .source-badge[data-source-kind="bi"] {
+        color: #18633f;
+        border-color: rgba(24, 99, 63, 0.28);
+        background: rgba(229, 245, 236, 0.9);
+      }
+
+      .source-badge[data-source-kind="mixed"] {
+        color: #6b4c80;
+        border-color: rgba(107, 76, 128, 0.28);
+        background: rgba(242, 235, 248, 0.9);
+      }
+
+      .search-empty {
+        margin-top: 12px;
+      }
+
+      .jobs-layout {
+        margin-top: 14px;
+        display: grid;
+        grid-template-columns: minmax(320px, 1fr) minmax(0, 2fr);
+        gap: 18px;
+        min-width: 0;
+      }
+
+      .jobs-controls-panel {
+        margin-top: 8px;
+      }
+
+      .jobs-view-panel {
+        margin-top: 12px;
+      }
+
+      .jobs-view-nav {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .jobs-controls-head {
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 8px;
+      }
+
+      .disclosure-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: transparent;
+        border: 0;
+        padding: 0;
+        color: var(--ink);
+        font-weight: 700;
+      }
+
+      .disclosure-caret {
+        width: 14px;
+        display: inline-flex;
+        justify-content: center;
+        color: var(--muted);
+      }
+
+      .ranked-controls {
         display: flex;
         flex-direction: column;
         gap: 10px;
-        max-height: 62vh;
-        overflow: auto;
-        padding-right: 4px;
+      }
+
+      .controls-group {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .controls-label {
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+        font-weight: 700;
+      }
+
+      .review-head {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 16px;
+        align-items: start;
+      }
+
+      .review-title {
+        margin: 0;
+        font-size: clamp(30px, 4.2vw, 58px);
+        line-height: 1.02;
+        letter-spacing: -0.01em;
+        overflow-wrap: anywhere;
+      }
+
+      .tag-row {
+        margin-top: 14px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .review-controls {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+      }
+
+      .arrow-btn {
+        width: 42px;
+        height: 42px;
+        border-radius: 999px;
+        border: 1px solid var(--line-strong);
+        background: rgba(255, 255, 255, 0.92);
+        color: var(--ink);
+        font-size: 22px;
+        line-height: 1;
+        padding: 0;
+      }
+
+      .position-indicator {
+        min-width: 78px;
+        text-align: center;
+        color: var(--muted);
+      }
+
+      .decision-row {
+        margin-top: 16px;
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
+      .decision-btn {
+        border: 2px solid transparent;
+        border-radius: 12px;
+        padding: 10px 14px;
+        font-weight: 700;
+        background: rgba(255, 255, 255, 0.95);
+        color: var(--ink);
+      }
+
+      .decision-btn[data-status="applied"] {
+        border-color: rgba(30, 92, 63, 0.45);
+      }
+
+      .decision-btn[data-status="skip_for_now"] {
+        border-color: rgba(107, 76, 128, 0.4);
+      }
+
+      .decision-btn[data-status="rejected"] {
+        border-color: rgba(122, 29, 29, 0.4);
+      }
+
+      .decision-btn.active[data-status="applied"] {
+        background: var(--applied);
+        color: #f3fff9;
+      }
+
+      .decision-btn.active[data-status="skip_for_now"] {
+        background: var(--skip);
+        color: #fbf6ff;
+      }
+
+      .decision-btn.active[data-status="rejected"] {
+        background: var(--reject);
+        color: #fff4f4;
+      }
+
+      .review-body {
+        margin-top: 16px;
+        display: grid;
+        grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+        gap: 14px;
+      }
+
+      .review-sidebar {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+
+      .queue-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
       }
 
       .queue-item {
@@ -922,7 +1248,7 @@ function renderDashboardPage(dashboard) {
         background: rgba(255, 255, 255, 0.82);
         color: var(--ink);
         border: 1px solid var(--line);
-        padding: 14px;
+        padding: 10px 12px;
         border-radius: 14px;
       }
 
@@ -939,9 +1265,14 @@ function renderDashboardPage(dashboard) {
       }
 
       .queue-item-title {
-        font-size: 16px;
+        font-size: 14px;
         line-height: 1.3;
         font-weight: 700;
+        overflow-wrap: anywhere;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
       }
 
       .queue-item-score {
@@ -951,13 +1282,11 @@ function renderDashboardPage(dashboard) {
       }
 
       .queue-item-meta,
-      .queue-item-summary,
       .muted {
         color: var(--muted);
       }
 
-      .queue-item-meta,
-      .queue-item-summary {
+      .queue-item-meta {
         margin-top: 6px;
         font-size: 13px;
         line-height: 1.4;
@@ -972,18 +1301,6 @@ function renderDashboardPage(dashboard) {
         margin-top: 8px;
       }
 
-      .status-row button {
-        background: rgba(255, 255, 255, 0.82);
-        border: 1px solid var(--line);
-        color: var(--ink);
-      }
-
-      .status-row button.active {
-        background: var(--button);
-        border-color: var(--button);
-        color: var(--button-ink);
-      }
-
       .feedback {
         margin-top: 12px;
         font-size: 13px;
@@ -996,7 +1313,19 @@ function renderDashboardPage(dashboard) {
       }
 
       @media (max-width: 1040px) {
-        .grid {
+        .jobs-layout {
+          grid-template-columns: 1fr;
+        }
+
+        .review-head {
+          grid-template-columns: 1fr;
+        }
+
+        .review-controls {
+          justify-content: flex-start;
+        }
+
+        .review-body {
           grid-template-columns: 1fr;
         }
       }
@@ -1048,13 +1377,20 @@ function renderDashboardPage(dashboard) {
       let selectedSourceId = null;
       let selectedTab = "jobs";
       let selectedJobsView = "active";
+      let selectedActiveStatusFilter = "all";
+      let selectedJobsSort = "score";
+      let jobsFiltersCollapsed = false;
+      let selectedJobsPage = 1;
+      let selectedSearchSourceFilter = "all";
       let selectedJobId = dashboard.queue[0] ? dashboard.queue[0].id : null;
       let editingSourceId = null;
+      let sourceFormOpen = false;
       let feedback = "";
       let feedbackError = false;
       let busy = false;
 
       const app = document.getElementById("app");
+      const JOBS_PAGE_SIZE = 10;
 
       function escapeHtml(value) {
         return String(value)
@@ -1074,28 +1410,87 @@ function renderDashboardPage(dashboard) {
           : items;
       }
 
-      function activeQueue() {
-        return filterBySource(dashboard.queue || []);
+      function activeQueueAllSources() {
+        return Array.isArray(dashboard.queue) ? dashboard.queue : [];
       }
 
-      function appliedQueue() {
-        return filterBySource(dashboard.appliedQueue || []);
+      function appliedQueueAllSources() {
+        return Array.isArray(dashboard.appliedQueue) ? dashboard.appliedQueue : [];
       }
 
-      function skippedQueue() {
-        return filterBySource(dashboard.skippedQueue || []);
+      function skippedQueueAllSources() {
+        return Array.isArray(dashboard.skippedQueue) ? dashboard.skippedQueue : [];
       }
 
-      function jobsForCurrentView() {
+      function jobsForSelectedViewAllSources() {
         if (selectedJobsView === "applied") {
-          return appliedQueue();
+          return appliedQueueAllSources();
         }
 
         if (selectedJobsView === "skipped") {
-          return skippedQueue();
+          return skippedQueueAllSources();
         }
 
-        return activeQueue();
+        const activeJobs = activeQueueAllSources();
+        if (selectedActiveStatusFilter === "new") {
+          return activeJobs.filter((job) => job?.status === "new");
+        }
+
+        if (selectedActiveStatusFilter === "viewed") {
+          return activeJobs.filter((job) => job?.status === "viewed");
+        }
+
+        return activeJobs;
+      }
+
+      function rankJobs(jobs) {
+        const items = Array.isArray(jobs) ? [...jobs] : [];
+        const dateValue = (job) => {
+          const posted = Date.parse(typeof job?.postedAt === "string" ? job.postedAt : "");
+          if (Number.isFinite(posted)) {
+            return posted;
+          }
+
+          const retrieved = Date.parse(typeof job?.updatedAt === "string" ? job.updatedAt : "");
+          return Number.isFinite(retrieved) ? retrieved : 0;
+        };
+
+        const scoreValue = (job) => {
+          const parsed = Number(job?.score);
+          return Number.isFinite(parsed) ? parsed : -1;
+        };
+
+        items.sort((left, right) => {
+          if (selectedJobsSort === "date") {
+            const freshnessDiff = dateValue(right) - dateValue(left);
+            if (freshnessDiff !== 0) {
+              return freshnessDiff;
+            }
+
+            const scoreDiff = scoreValue(right) - scoreValue(left);
+            if (scoreDiff !== 0) {
+              return scoreDiff;
+            }
+          } else {
+            const scoreDiff = scoreValue(right) - scoreValue(left);
+            if (scoreDiff !== 0) {
+              return scoreDiff;
+            }
+
+            const freshnessDiff = dateValue(right) - dateValue(left);
+            if (freshnessDiff !== 0) {
+              return freshnessDiff;
+            }
+          }
+
+          return String(left?.title || "").localeCompare(String(right?.title || ""));
+        });
+
+        return items;
+      }
+
+      function jobsForCurrentView() {
+        return rankJobs(filterBySource(jobsForSelectedViewAllSources()));
       }
 
       function ensureSelectedJob() {
@@ -1160,6 +1555,19 @@ function renderDashboardPage(dashboard) {
         return normalized.replaceAll("_", " ");
       }
 
+      function formatProfileProvider(provider, mode) {
+        if (provider === "legacy_profile") {
+          return "Standalone (profile.json)";
+        }
+        if (provider === "my_goals") {
+          return "Standalone (my-goals.json)";
+        }
+        if (provider === "narrata") {
+          return mode === "file" ? "Narrata (file sync)" : "Narrata";
+        }
+        return "Unknown";
+      }
+
       function formatStatus(status) {
         if (status === "viewed" || status === "applied" || status === "rejected") {
           return status;
@@ -1187,6 +1595,72 @@ function renderDashboardPage(dashboard) {
         }
 
         return normalized.replaceAll("_", " ");
+      }
+
+      function sourceKindFromType(value) {
+        return value === "builtin_search" ? "bi" : "li";
+      }
+
+      function sourceKindLabel(kind) {
+        if (kind === "bi") {
+          return "Built In";
+        }
+
+        if (kind === "li") {
+          return "LinkedIn";
+        }
+
+        if (kind === "mixed") {
+          return "LinkedIn + Built In";
+        }
+
+        return "Unknown";
+      }
+
+      function sourceKindsForJob(job) {
+        const kinds = new Set(
+          sourceAttributions(job).map((source) => sourceKindFromType(source.type))
+        );
+
+        if (kinds.size === 0) {
+          return {
+            key: "unknown",
+            label: "Unknown"
+          };
+        }
+
+        if (kinds.size > 1) {
+          return {
+            key: "mixed",
+            label: sourceKindLabel("mixed")
+          };
+        }
+
+        const key = [...kinds][0];
+        return {
+          key,
+          label: sourceKindLabel(key)
+        };
+      }
+
+      function isSourceVisibleForSearchFilter(source) {
+        const kind = sourceKindFromType(source?.type);
+        return selectedSearchSourceFilter === "all" || kind === selectedSearchSourceFilter;
+      }
+
+      function formatFreshness(job) {
+        const postedAt = typeof job?.postedAt === "string" ? job.postedAt : "";
+        const updatedAt = typeof job?.updatedAt === "string" ? job.updatedAt : "";
+
+        if (postedAt.trim()) {
+          return "Posted " + formatTime(postedAt);
+        }
+
+        if (updatedAt.trim()) {
+          return "Retrieved " + formatTime(updatedAt);
+        }
+
+        return "Freshness unknown";
       }
 
       function reviewLinkLabel(job) {
@@ -1266,7 +1740,50 @@ function renderDashboardPage(dashboard) {
         const payload = await getJson("/api/dashboard");
         dashboard = payload;
         ensureSelectedJob();
+        syncJobsPageToSelection();
         render();
+      }
+
+      async function refreshAndRescore() {
+        busy = true;
+        setFeedback("Re-scoring jobs from current profile...");
+
+        try {
+          await getJson("/api/sync-score", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" }
+          });
+          await refreshDashboard();
+          setFeedback("Dashboard refreshed and jobs re-scored.");
+        } catch (error) {
+          setFeedback(error.message, true);
+        } finally {
+          busy = false;
+          render();
+        }
+      }
+
+      async function applyProfileSource(action, payload = {}) {
+        busy = true;
+        setFeedback("Updating profile source...");
+
+        try {
+          await getJson("/api/profile/source", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action,
+              ...payload
+            })
+          });
+          await refreshDashboard();
+          setFeedback("Profile source updated.");
+        } catch (error) {
+          setFeedback(error.message, true);
+        } finally {
+          busy = false;
+          render();
+        }
       }
 
       async function saveSource() {
@@ -1289,6 +1806,7 @@ function renderDashboardPage(dashboard) {
             body: JSON.stringify(body)
           });
           editingSourceId = null;
+          sourceFormOpen = false;
           await refreshDashboard();
           setFeedback("Search saved.");
         } catch (error) {
@@ -1306,11 +1824,19 @@ function renderDashboardPage(dashboard) {
         }
 
         editingSourceId = source.id;
+        sourceFormOpen = true;
+        render();
+      }
+
+      function beginAddSource() {
+        editingSourceId = null;
+        sourceFormOpen = true;
         render();
       }
 
       function resetSourceForm() {
         editingSourceId = null;
+        sourceFormOpen = false;
         render();
       }
 
@@ -1360,12 +1886,16 @@ function renderDashboardPage(dashboard) {
         let reason = "";
 
         if (status === "rejected") {
-          const promptedReason = window.prompt("Why reject this job?", "");
+          const promptedReason = window.prompt(
+            "Why reject this job? (e.g., dead link, application limit, other roles stronger fit)",
+            "dead link"
+          );
           if (promptedReason === null) {
             return false;
           }
 
           reason = promptedReason.trim();
+
           if (!reason) {
             setFeedback("Reject reason is required.", true);
             return false;
@@ -1408,6 +1938,35 @@ function renderDashboardPage(dashboard) {
         }
       }
 
+      function setLocalStatus(jobId, status) {
+        if (!Array.isArray(dashboard?.jobs)) {
+          return;
+        }
+
+        for (const item of dashboard.jobs) {
+          if (item.id === jobId) {
+            item.status = status;
+          }
+        }
+      }
+
+      async function markViewed(jobId) {
+        const target = (dashboard.jobs || []).find((item) => item.id === jobId);
+        if (!target || target.status !== "new") {
+          return;
+        }
+
+        setLocalStatus(jobId, "viewed");
+        render();
+
+        try {
+          await persistStatus(jobId, "viewed");
+        } catch (error) {
+          setLocalStatus(jobId, "new");
+          setFeedback(error.message, true);
+        }
+      }
+
       async function openCurrent() {
         const job = currentJob();
         if (!job) {
@@ -1415,14 +1974,12 @@ function renderDashboardPage(dashboard) {
         }
 
         window.open(job.reviewTarget.url, "job-review-target");
-
-        if (job.status === "new") {
-          await updateStatus("viewed");
-        }
+        await markViewed(job.id);
       }
 
       function setSourceFilter(sourceId) {
         selectedSourceId = sourceId || null;
+        selectedJobsPage = 1;
         ensureSelectedJob();
         render();
       }
@@ -1447,7 +2004,77 @@ function renderDashboardPage(dashboard) {
         }
 
         selectedJobsView = normalized;
+        if (selectedJobsView !== "active") {
+          selectedActiveStatusFilter = "all";
+        }
+        selectedJobsPage = 1;
         ensureSelectedJob();
+        render();
+      }
+
+      function setActiveStatusFilter(filterName) {
+        if (selectedJobsView !== "active") {
+          return;
+        }
+
+        const normalized = String(filterName || "all").toLowerCase();
+        if (!["all", "new", "viewed"].includes(normalized)) {
+          return;
+        }
+
+        selectedActiveStatusFilter = normalized;
+        selectedJobsPage = 1;
+        ensureSelectedJob();
+        render();
+      }
+
+      function setJobsSort(sortName) {
+        const normalized = String(sortName || "score").toLowerCase();
+        if (!["score", "date"].includes(normalized)) {
+          return;
+        }
+
+        selectedJobsSort = normalized;
+        selectedJobsPage = 1;
+        ensureSelectedJob();
+        render();
+      }
+
+      function setSearchSourceFilter(filterValue) {
+        const normalized = String(filterValue || "all").toLowerCase();
+        if (!["all", "li", "bi"].includes(normalized)) {
+          return;
+        }
+
+        selectedSearchSourceFilter = normalized;
+        render();
+      }
+
+      function syncJobsPageToSelection() {
+        const jobs = jobsForCurrentView();
+        if (!jobs.length || !selectedJobId) {
+          selectedJobsPage = 1;
+          return;
+        }
+
+        const index = jobs.findIndex((job) => job.id === selectedJobId);
+        if (index < 0) {
+          return;
+        }
+
+        selectedJobsPage = Math.floor(index / JOBS_PAGE_SIZE) + 1;
+      }
+
+      function setJobsPage(pageValue) {
+        const jobs = jobsForCurrentView();
+        const totalPages = Math.max(1, Math.ceil(jobs.length / JOBS_PAGE_SIZE));
+        const nextPage = Math.max(1, Math.min(totalPages, Number(pageValue) || 1));
+        selectedJobsPage = nextPage;
+        render();
+      }
+
+      function toggleJobsFilters() {
+        jobsFiltersCollapsed = !jobsFiltersCollapsed;
         render();
       }
 
@@ -1461,19 +2088,23 @@ function renderDashboardPage(dashboard) {
         const safeIndex = currentIndex >= 0 ? currentIndex : 0;
         const nextIndex = Math.max(0, Math.min(jobs.length - 1, safeIndex + step));
         selectedJobId = jobs[nextIndex].id;
+        syncJobsPageToSelection();
         render();
+        void markViewed(selectedJobId);
       }
 
       function selectJob(jobId) {
         selectedJobId = jobId;
+        syncJobsPageToSelection();
         render();
+        void markViewed(jobId);
       }
 
       function sourceFormValues() {
         if (!editingSourceId) {
           return {
             heading: "Add Search",
-            actionLabel: "Add Search",
+            actionLabel: "Save Search",
             name: "",
             searchUrl: ""
           };
@@ -1483,7 +2114,7 @@ function renderDashboardPage(dashboard) {
         if (!source) {
           return {
             heading: "Add Search",
-            actionLabel: "Add Search",
+            actionLabel: "Save Search",
             name: "",
             searchUrl: ""
           };
@@ -1498,9 +2129,12 @@ function renderDashboardPage(dashboard) {
       }
 
       function render() {
-        const queue = activeQueue();
-        const applied = appliedQueue();
-        const skipped = skippedQueue();
+        const activeAll = activeQueueAllSources();
+        const appliedAll = appliedQueueAllSources();
+        const skippedAll = skippedQueueAllSources();
+        const activeNewCount = activeAll.filter((job) => job?.status === "new").length;
+        const activeViewedCount = activeAll.filter((job) => job?.status === "viewed").length;
+        const jobsAllInSelectedView = jobsForSelectedViewAllSources();
         const jobsInView = jobsForCurrentView();
         const job = currentJob();
         const formState = sourceFormValues();
@@ -1508,13 +2142,46 @@ function renderDashboardPage(dashboard) {
         const currentIndexLabel =
           position.index >= 0 ? String(position.index + 1) : "0";
         const totalIndexLabel = String(position.total || 0);
+        const totalInSelectedView = jobsAllInSelectedView.length;
+        const jobsTotalPages = Math.max(1, Math.ceil(jobsInView.length / JOBS_PAGE_SIZE));
+        if (selectedJobsPage > jobsTotalPages) {
+          selectedJobsPage = jobsTotalPages;
+        }
+        if (selectedJobsPage < 1) {
+          selectedJobsPage = 1;
+        }
+        const jobsPageStartIndex = (selectedJobsPage - 1) * JOBS_PAGE_SIZE;
+        const pagedJobsInView = jobsInView.slice(
+          jobsPageStartIndex,
+          jobsPageStartIndex + JOBS_PAGE_SIZE
+        );
+        const pageStartLabel = jobsInView.length ? jobsPageStartIndex + 1 : 0;
+        const pageEndLabel = Math.min(jobsPageStartIndex + JOBS_PAGE_SIZE, jobsInView.length);
+        const showingRangeLabel = jobsInView.length
+          ? String(pageStartLabel) + "-" + String(pageEndLabel)
+          : "0";
 
-        const searchRows = dashboard.sources
+        const filteredSearchSources = dashboard.sources.filter((source) =>
+          isSourceVisibleForSearchFilter(source)
+        );
+        const sourceJobCounts = new Map();
+        for (const item of jobsAllInSelectedView) {
+          if (!Array.isArray(item?.sourceIds)) {
+            continue;
+          }
+
+          for (const sourceId of item.sourceIds) {
+            sourceJobCounts.set(sourceId, (sourceJobCounts.get(sourceId) || 0) + 1);
+          }
+        }
+
+        const searchRows = filteredSearchSources
           .map((source) => {
             const isActive = selectedSourceId === source.id;
             const safeName = escapeHtml(source.name);
             const safeUrl = escapeHtml(source.searchUrl);
             const lastRun = escapeHtml(formatTime(source.capturedAt));
+            const sourceKind = sourceKindFromType(source.type);
             const trackedTotal = Number(source.totalCount || source.jobCount || 0);
             const highSignalLabel =
               String(source.highSignalCount || 0) +
@@ -1532,6 +2199,7 @@ function renderDashboardPage(dashboard) {
 
             return [
               "<tr>",
+              '  <td><span class="source-badge" data-source-kind="' + escapeHtml(sourceKind) + '">' + escapeHtml(sourceKindLabel(sourceKind)) + "</span></td>",
               '  <td><div class="search-name">' + safeName + '</div><a class="search-url" href="' + encodeURI(source.searchUrl) + '" target="_blank" rel="noreferrer">' + safeUrl + "</a></td>",
               "  <td>" + lastRun + "</td>",
               "  <td>" + escapeHtml(statusLabel) + "</td>",
@@ -1551,9 +2219,10 @@ function renderDashboardPage(dashboard) {
           .join("");
 
         const queueItems = jobsInView.length
-          ? jobsInView
+          ? pagedJobsInView
               .map((item) => {
-                const attributionNames = sourceNames(item);
+                const sourceKinds = sourceKindsForJob(item);
+                const freshness = formatFreshness(item);
                 const activeClass = item.id === selectedJobId ? " active" : "";
                 const scoreLabel =
                   item.status === "applied"
@@ -1561,6 +2230,9 @@ function renderDashboardPage(dashboard) {
                     : item.status === "skip_for_now"
                       ? "Skipped"
                       : "Score " + (item.score ?? "n/a");
+                const confidenceLabel = Number.isFinite(Number(item.confidence))
+                  ? "Confidence " + Number(item.confidence)
+                  : "Confidence n/a";
 
                 return [
                   '<button class="queue-item' + activeClass + '" data-job-id="' + escapeHtml(item.id) + '">',
@@ -1575,40 +2247,68 @@ function renderDashboardPage(dashboard) {
                     " · " +
                     escapeHtml(formatBucket(item.bucket)) +
                     "</div>",
-                  '  <div class="queue-item-summary">' + escapeHtml(item.summary || "No summary available.") + "</div>",
-                  attributionNames.length
-                    ? '  <div class="queue-item-meta">Found via ' + escapeHtml(attributionNames.join(", ")) + "</div>"
-                    : "",
+                  '  <div class="queue-item-meta">Source ' + escapeHtml(sourceKinds.label) + " · " + escapeHtml(freshness) + "</div>",
+                  '  <div class="queue-item-meta">' + escapeHtml(confidenceLabel) + "</div>",
                   item.duplicateCount > 1
-                    ? '  <div class="queue-item-meta">Seen in ' + escapeHtml(item.duplicateCount) + " searches</div>"
+                    ? '  <div class="queue-item-meta">Seen across ' + escapeHtml(item.duplicateCount) + " searches</div>"
                     : "",
                   "</button>"
                 ].join("");
               })
               .join("")
           : '<p class="muted">No jobs match this filter yet.</p>';
+        const queuePagination =
+          jobsInView.length > JOBS_PAGE_SIZE
+            ? [
+                '<div class="inline-actions" style="margin-top: 12px;">',
+                '  <button class="secondary" data-jobs-page-nav="prev"' + (selectedJobsPage <= 1 ? " disabled" : "") + ">Prev</button>",
+                '  <span class="subhead" style="margin-top: 0;">Page ' + escapeHtml(String(selectedJobsPage)) + " of " + escapeHtml(String(jobsTotalPages)) + "</span>",
+                '  <button class="secondary" data-jobs-page-nav="next"' + (selectedJobsPage >= jobsTotalPages ? " disabled" : "") + ">Next</button>",
+                "</div>"
+              ].join("")
+            : "";
 
         const sourceFilterPills = [
-          '<button class="pill' + (selectedSourceId ? "" : " active") + '" data-filter-source="">All Results</button>',
+          '<button class="filter-chip' + (selectedSourceId ? "" : " active") + '" data-filter-source="">' +
+            '<span class="filter-chip-main">All Results</span>' +
+            '<span class="filter-chip-meta">All sources · ' + escapeHtml(String(totalInSelectedView)) + " jobs</span>" +
+          "</button>",
           ...dashboard.sources.map((source) => {
             const activeClass = selectedSourceId === source.id ? " active" : "";
-            return '<button class="pill' + activeClass + '" data-filter-source="' + escapeHtml(source.id) + '">' + escapeHtml(source.name) + "</button>";
+            const sourceKind = sourceKindFromType(source.type);
+            const sourceCount = Number(sourceJobCounts.get(source.id) || 0);
+            const isUnavailable = sourceCount === 0 && selectedSourceId !== source.id;
+            return (
+              '<button class="filter-chip' + activeClass + '" data-filter-source="' + escapeHtml(source.id) + '"' + (isUnavailable ? " disabled" : "") + ">" +
+                '<span class="filter-chip-main">' + escapeHtml(source.name) + "</span>" +
+                '<span class="filter-chip-meta">' + escapeHtml(sourceKindLabel(sourceKind)) + " · " + escapeHtml(String(sourceCount)) + " jobs</span>" +
+              "</button>"
+            );
           })
         ].join("");
         const jobsViewPills = [
-          '<button class="pill' + (selectedJobsView === "active" ? " active" : "") + '" data-jobs-view="active">Active (' + escapeHtml(String(queue.length)) + ')</button>',
-          '<button class="pill' + (selectedJobsView === "applied" ? " active" : "") + '" data-jobs-view="applied">Applied (' + escapeHtml(String(applied.length)) + ')</button>',
-          '<button class="pill' + (selectedJobsView === "skipped" ? " active" : "") + '" data-jobs-view="skipped">Skipped (' + escapeHtml(String(skipped.length)) + ')</button>'
+          '<button class="sub-tab' + (selectedJobsView === "active" ? " active" : "") + '" data-jobs-view="active">Active (' + escapeHtml(String(activeAll.length)) + ')</button>',
+          '<button class="sub-tab' + (selectedJobsView === "applied" ? " active" : "") + '" data-jobs-view="applied">Applied (' + escapeHtml(String(appliedAll.length)) + ')</button>',
+          '<button class="sub-tab' + (selectedJobsView === "skipped" ? " active" : "") + '" data-jobs-view="skipped">Skipped (' + escapeHtml(String(skippedAll.length)) + ')</button>'
         ].join("");
-
+        const jobsSortPills = [
+          '<button class="sub-tab' + (selectedJobsSort === "score" ? " active" : "") + '" data-jobs-sort="score">Score</button>',
+          '<button class="sub-tab' + (selectedJobsSort === "date" ? " active" : "") + '" data-jobs-sort="date">Date</button>'
+        ].join("");
+        const activeStatusPills = selectedJobsView === "active"
+          ? [
+              '<button class="sub-tab' + (selectedActiveStatusFilter === "all" ? " active" : "") + '" data-active-status="all">All Active (' + escapeHtml(String(activeAll.length)) + ')</button>',
+              '<button class="sub-tab' + (selectedActiveStatusFilter === "new" ? " active" : "") + '" data-active-status="new"' + (activeNewCount === 0 && selectedActiveStatusFilter !== "new" ? " disabled" : "") + ">New (" + escapeHtml(String(activeNewCount)) + ')</button>',
+              '<button class="sub-tab' + (selectedActiveStatusFilter === "viewed" ? " active" : "") + '" data-active-status="viewed"' + (activeViewedCount === 0 && selectedActiveStatusFilter !== "viewed" ? " disabled" : "") + ">Viewed (" + escapeHtml(String(activeViewedCount)) + ')</button>'
+            ].join("")
+          : "";
         const detailMarkup = job
           ? [
               (() => {
                 const attributions = sourceAttributions(job);
-                const attributionNames = attributions.map((source) => source.name);
-                const sourceSummary = attributionNames.length
-                  ? attributionNames.join(", ")
-                  : "No saved search linked";
+                const sourceKinds = sourceKindsForJob(job);
+                const freshness = formatFreshness(job);
+                const searchCount = attributions.length;
                 const attributionList = attributions.length
                   ? attributions
                       .map((source) =>
@@ -1629,35 +2329,41 @@ function renderDashboardPage(dashboard) {
 
                 return [
                   '<div class="eyebrow">Review</div>',
-                  '<h1 style="font-size: 30px;">' + escapeHtml(job.title) + "</h1>",
-                  '<div class="subhead">' +
+                  '<div class="review-head">',
+                  '  <div>',
+                  '    <h2 class="review-title">' + escapeHtml(job.title) + "</h2>",
+                  '    <div class="subhead">' +
                     escapeHtml(job.company) +
                     " · " +
                     escapeHtml(formatValue(job.location, "Location unknown")) +
                     "</div>",
-                  '<div class="filter-row" style="margin-top: 14px;">',
-                  '  <span class="pill" data-bucket="' + escapeHtml(job.bucket || "unscored") + '">Bucket: ' + escapeHtml(formatBucket(job.bucket)) + "</span>",
-                  '  <span class="pill">Score: ' + escapeHtml(job.score ?? "n/a") + "</span>",
-                  '  <span class="pill">Status: ' + escapeHtml(formatStatus(job.status)) + "</span>",
-                  '  <span class="pill">Searches: ' + escapeHtml(sourceSummary) + "</span>",
+                  '    <div class="tag-row">',
+                  '      <span class="tag" data-bucket="' + escapeHtml(job.bucket || "unscored") + '">Bucket: ' + escapeHtml(formatBucket(job.bucket)) + "</span>",
+                  '      <span class="tag" data-tone="strong">Score: ' + escapeHtml(job.score ?? "n/a") + "</span>",
+                  '      <span class="tag">Confidence: ' + escapeHtml(Number.isFinite(Number(job.confidence)) ? String(job.confidence) : "n/a") + "</span>",
+                  '      <span class="tag">Status: ' + escapeHtml(formatStatus(job.status)) + "</span>",
+                  '      <span class="tag">Source: ' + escapeHtml(sourceKinds.label) + "</span>",
+                  '      <span class="tag">Searches: ' + escapeHtml(String(searchCount)) + "</span>",
+                  '      <span class="tag">' + escapeHtml(freshness) + "</span>",
                   job.duplicateCount > 1
-                    ? '  <span class="pill">Seen in ' + escapeHtml(job.duplicateCount) + " searches</span>"
+                    ? '      <span class="tag">Seen in ' + escapeHtml(job.duplicateCount) + " searches</span>"
                     : "",
+                  "    </div>",
+                  "  </div>",
+                  '  <div class="review-controls">',
+                  '    <button class="arrow-btn" id="prev-job" aria-label="Previous job" title="Previous job"' + (position.index <= 0 ? " disabled" : "") + ">←</button>",
+                  '    <span class="position-indicator">' + escapeHtml(currentIndexLabel) + " / " + escapeHtml(totalIndexLabel) + "</span>",
+                  '    <button class="arrow-btn" id="next-job" aria-label="Next job" title="Next job"' + (position.index < 0 || position.index >= position.total - 1 ? " disabled" : "") + ">→</button>",
+                  '    <button class="primary" id="open-current">' + escapeHtml(reviewLinkLabel(job)) + "</button>",
                   "</div>",
-                  '<div class="inline-actions" style="margin-top: 16px;">',
-                  '  <button class="secondary" id="prev-job"' + (position.index <= 0 ? " disabled" : "") + ">Prev</button>",
-                  '  <button class="secondary" id="next-job"' + (position.index < 0 || position.index >= position.total - 1 ? " disabled" : "") + ">Next</button>",
-                  '  <span class="pill">' + escapeHtml(currentIndexLabel) + " of " + escapeHtml(totalIndexLabel) + "</span>",
-                  '  <button class="primary" id="open-current">' + escapeHtml(reviewLinkLabel(job)) + "</button>",
                   "</div>",
-                  '<div class="status-row" style="margin-top: 16px;">',
-                  '  <button class="' + (formatStatus(job.status) === "new" ? "active" : "") + '" data-status="new">New</button>',
-                  '  <button class="' + (formatStatus(job.status) === "viewed" ? "active" : "") + '" data-status="viewed">Viewed</button>',
-                  '  <button class="' + (formatStatus(job.status) === "applied" ? "active" : "") + '" data-status="applied">I Applied</button>',
-                  '  <button class="' + (job.status === "skip_for_now" ? "active" : "") + '" data-status="skip_for_now">Skip For Now</button>',
-                  '  <button class="' + (formatStatus(job.status) === "rejected" ? "active" : "") + '" data-status="rejected">Reject</button>',
+                  '<div class="decision-row">',
+                  '  <button class="decision-btn' + (formatStatus(job.status) === "applied" ? " active" : "") + '" data-status="applied">I Applied</button>',
+                  '  <button class="decision-btn' + (job.status === "skip_for_now" ? " active" : "") + '" data-status="skip_for_now">Skip For Now</button>',
+                  '  <button class="decision-btn' + (formatStatus(job.status) === "rejected" ? " active" : "") + '" data-status="rejected">Reject</button>',
                   "</div>",
-                  '<div class="card" style="margin-top: 16px;">',
+                  '<div class="review-body">',
+                  '<div class="card inset">',
                   '  <p class="section-label">Why It Fits</p>',
                   '  <div>' + escapeHtml(job.summary || "No summary available.") + "</div>",
                   '  <ul class="reason-list">' +
@@ -1671,18 +2377,21 @@ function renderDashboardPage(dashboard) {
                     ? '  <p class="muted" style="margin-top: 12px;">Latest note: ' + escapeHtml(job.notes) + "</p>"
                     : "",
                   "</div>",
-                  '<div class="card" style="margin-top: 16px;">',
+                  '<div class="review-sidebar">',
+                  '<div class="card inset">',
                   '  <p class="section-label">Attribution</p>',
                   '  <ul class="reason-list">' + attributionList + "</ul>",
                   "</div>",
-                  '<div class="card" style="margin-top: 16px;">',
+                  '<div class="card inset">',
                   '  <p class="section-label">Role Snapshot</p>',
                   '  <dl class="meta-grid">',
                   '    <div class="meta-item"><dt>Salary</dt><dd>' + escapeHtml(formatValue(job.salaryText, "Unknown")) + "</dd></div>",
                   '    <div class="meta-item"><dt>Employment</dt><dd>' + escapeHtml(formatValue(job.employmentType, "Unknown")) + "</dd></div>",
-                  '    <div class="meta-item"><dt>Posted</dt><dd>' + escapeHtml(formatValue(job.postedAt, "Unknown")) + "</dd></div>",
+                  '    <div class="meta-item"><dt>Freshness</dt><dd>' + escapeHtml(freshness) + "</dd></div>",
                   '    <div class="meta-item"><dt>Link</dt><dd><a href="' + encodeURI(job.reviewTarget.url) + '" target="job-review-target" rel="noreferrer">' + escapeHtml(reviewLinkLabel(job)) + "</a></dd></div>",
                   "  </dl>",
+                  "</div>",
+                  "</div>",
                   "</div>"
                 ].join("");
               })()
@@ -1690,50 +2399,94 @@ function renderDashboardPage(dashboard) {
           : '<div class="eyebrow">Review</div><p class="muted">No jobs are available for the current filter.</p>';
 
         const tabButtons = [
-          '<button class="' + (selectedTab === "jobs" ? "primary" : "secondary") + '" data-tab="jobs">Jobs</button>',
-          '<button class="' + (selectedTab === "searches" ? "primary" : "secondary") + '" data-tab="searches">Searches</button>',
-          '<button class="' + (selectedTab === "profile" ? "primary" : "secondary") + '" data-tab="profile">Profile</button>'
+          '<button class="main-tab' + (selectedTab === "jobs" ? " active" : "") + '" data-tab="jobs">Jobs</button>',
+          '<button class="main-tab' + (selectedTab === "searches" ? " active" : "") + '" data-tab="searches">Searches</button>',
+          '<button class="main-tab' + (selectedTab === "profile" ? " active" : "") + '" data-tab="profile">Profile</button>'
         ].join("");
 
         const jobsSection = [
-          '<div class="grid">',
-          '  <div class="stack">',
-          '    <section class="card">',
-          '      <p class="section-label">Ranked Jobs</p>',
-          '      <div class="filter-row">' + sourceFilterPills + "</div>",
-          '      <div class="filter-row" style="margin-top: 10px;">' + jobsViewPills + "</div>",
-          '      <div class="subhead" style="margin-top: 10px;">' + escapeHtml(String(jobsInView.length)) + " job(s) in this view.</div>",
-          '      <div class="queue-list" style="margin-top: 14px; max-height: 76vh;">' + queueItems + "</div>",
-          "    </section>",
+          '<div class="jobs-view-panel">',
+          '  <div class="jobs-view-nav">' + jobsViewPills + "</div>",
+          "</div>",
+          '<section class="card jobs-controls-panel">',
+          '  <div class="jobs-controls-head">',
+            '    <button class="disclosure-btn" id="toggle-job-filters" aria-expanded="' + escapeHtml(String(!jobsFiltersCollapsed)) + '">',
+            '      <span class="disclosure-caret">' + (jobsFiltersCollapsed ? "▸" : "▾") + "</span>",
+            '      <span>Filters</span>',
+            "    </button>",
           "  </div>",
-          '  <div class="stack">',
-          '    <section class="card">',
+          '  <div class="subhead" style="margin-top: 8px;">Showing ' + escapeHtml(showingRangeLabel) + " of " + escapeHtml(String(jobsInView.length)) + " jobs</div>",
+          (!jobsFiltersCollapsed
+            ? [
+                '  <div class="ranked-controls">',
+                (selectedJobsView === "active"
+                  ? [
+                      '    <div class="controls-group">',
+                      '      <div class="controls-label">Status</div>',
+                      '      <div class="sub-tabs">' + activeStatusPills + "</div>",
+                      "    </div>"
+                    ].join("")
+                  : ""),
+                '    <div class="controls-group">',
+                '      <div class="controls-label">Sort</div>',
+                '      <div class="sub-tabs">' + jobsSortPills + "</div>",
+                "    </div>",
+                '    <div class="controls-group">',
+                '      <div class="controls-label">Source</div>',
+                '      <div class="filter-chips">' + sourceFilterPills + "</div>",
+                "    </div>",
+                "  </div>"
+              ].join("")
+            : ""),
+          "</section>",
+          '<div class="jobs-layout">',
+          '  <section class="card">',
+          '    <p class="section-label">Ranked Jobs (' + escapeHtml(String(jobsInView.length)) + ")</p>",
+          '    <div class="queue-list" style="margin-top: 10px;">' + queueItems + "</div>",
+          queuePagination,
+          "  </section>",
+          '  <section class="card">',
           detailMarkup,
-          "    </section>",
-          "  </div>",
+          "  </section>",
           "</div>"
         ].join("");
 
         const searchesSection = [
           '<section class="card" style="margin-top: 18px;">',
-          '  <p class="section-label">My Job Searches</p>',
-          '  <div class="search-form">',
-          '    <label>Name<input id="source-name" type="text" value="' + escapeHtml(formState.name) + '" placeholder="AI PM"></label>',
-          '    <label>Search URL<input id="source-url" type="text" value="' + escapeHtml(formState.searchUrl) + '" placeholder="https://www.linkedin.com/jobs/search-results/?keywords=... or https://www.builtinsf.com/jobs/..."></label>',
-          '    <div class="inline-actions">',
-          '      <button class="primary" id="save-source"' + (busy ? " disabled" : "") + ">" + escapeHtml(formState.actionLabel) + "</button>",
-          (editingSourceId
-            ? '      <button class="ghost" id="cancel-edit"' + (busy ? " disabled" : "") + ">Cancel</button>"
-            : ""),
-          "    </div>",
+          '  <div class="search-header">',
+          '    <p class="section-label">My Job Searches</p>',
+          '    <button class="primary" id="open-add-source"' + (busy ? " disabled" : "") + ">" + (editingSourceId ? "Add Another Search" : "Add Search") + "</button>",
           "  </div>",
-          '  <div class="subhead" style="margin-top: 12px;">Edit search labels and URLs here. Track which sources generate your strongest pipeline.</div>',
+          '  <div class="sub-tabs" style="margin-top: 8px;">' +
+            '<button class="sub-tab' + (selectedSearchSourceFilter === "all" ? " active" : "") + '" data-search-type="all">All</button>' +
+            '<button class="sub-tab' + (selectedSearchSourceFilter === "li" ? " active" : "") + '" data-search-type="li">LinkedIn</button>' +
+            '<button class="sub-tab' + (selectedSearchSourceFilter === "bi" ? " active" : "") + '" data-search-type="bi">Built In</button>' +
+          "</div>",
+          '  <div class="subhead" style="margin-top: 10px;">Source type and freshness are tracked so you can refine where high-signal jobs come from.</div>',
+          (sourceFormOpen || editingSourceId
+            ? [
+                '  <div class="card inset" style="margin-top: 14px;">',
+                '    <p class="section-label">' + escapeHtml(formState.heading) + "</p>",
+                '    <div class="search-form">',
+                '      <label>Name<input id="source-name" type="text" value="' + escapeHtml(formState.name) + '" placeholder="AI PM"></label>',
+                '      <label>Search URL<input id="source-url" type="text" value="' + escapeHtml(formState.searchUrl) + '" placeholder="https://www.linkedin.com/jobs/search-results/?keywords=... or https://www.builtinsf.com/jobs/..."></label>',
+                '      <div class="inline-actions">',
+                '        <button class="primary" id="save-source"' + (busy ? " disabled" : "") + ">" + escapeHtml(formState.actionLabel) + "</button>",
+                '        <button class="ghost" id="cancel-edit"' + (busy ? " disabled" : "") + ">Cancel</button>",
+                "      </div>",
+                "    </div>",
+                "  </div>"
+              ].join("")
+            : ""),
           '  <div style="margin-top: 16px; overflow-x: auto;">',
           '    <table>',
-          '      <thead><tr><th>Name / URL</th><th>Last Run</th><th>Status</th><th>Jobs Found</th><th>Applied</th><th>Skipped</th><th>High Signal</th><th>Avg Score</th><th>Actions</th></tr></thead>',
+          '      <thead><tr><th>Source</th><th>Name / URL</th><th>Last Run</th><th>Status</th><th>Jobs Found</th><th>Applied</th><th>Skipped</th><th>High Signal</th><th>Avg Score</th><th>Actions</th></tr></thead>',
           '      <tbody>' + searchRows + "</tbody>",
           "    </table>",
           "  </div>",
+          (filteredSearchSources.length === 0
+            ? '  <div class="subhead search-empty">No searches in this source filter.</div>'
+            : ""),
           '  <div class="feedback' + (feedbackError ? " error" : "") + '">' + escapeHtml(feedback) + "</div>",
           "</section>"
         ].join("");
@@ -1743,14 +2496,30 @@ function renderDashboardPage(dashboard) {
           '  <p class="section-label">Profile</p>',
           '  <dl class="meta-grid">',
           '    <div class="meta-item"><dt>Candidate</dt><dd>' + escapeHtml(dashboard.profile.candidateName) + "</dd></div>",
+          '    <div class="meta-item"><dt>Profile Source</dt><dd>' + escapeHtml(formatProfileProvider(dashboard.profile.provider, dashboard.profile.providerMode)) + "</dd></div>",
           '    <div class="meta-item"><dt>Remote Preference</dt><dd>' + escapeHtml(formatRemotePreference(dashboard.profile.remotePreference)) + "</dd></div>",
           '    <div class="meta-item"><dt>Salary Floor</dt><dd>$' + escapeHtml(Number(dashboard.profile.salaryFloor || 0).toLocaleString()) + "</dd></div>",
           '    <div class="meta-item"><dt>Active</dt><dd>' + escapeHtml(dashboard.profile.activeCount) + "</dd></div>",
           '    <div class="meta-item"><dt>Applied</dt><dd>' + escapeHtml(dashboard.profile.appliedCount) + "</dd></div>",
           '    <div class="meta-item"><dt>Skipped</dt><dd>' + escapeHtml(dashboard.profile.skippedCount || 0) + "</dd></div>",
           '    <div class="meta-item"><dt>Profile File</dt><dd>' + escapeHtml(dashboard.profile.profilePath || "") + "</dd></div>",
+          '    <div class="meta-item"><dt>My Goals File</dt><dd>' + escapeHtml(dashboard.profile.goalsFilePath || "config/my-goals.json") + "</dd></div>",
           '    <div class="meta-item"><dt>Sources File</dt><dd>' + escapeHtml(dashboard.profile.sourcesPath || "") + "</dd></div>",
           "  </dl>",
+          '  <div class="card inset" style="margin-top: 14px;">',
+          '    <p class="section-label">Connect Narrata / Goals</p>',
+          '    <div class="subhead">Use standalone profile, standalone goals, or Narrata goals file without changing scoring commands.</div>',
+          '    <div class="inline-actions" style="margin-top: 10px;">',
+          '      <button class="secondary" id="use-profile-json"' + (busy ? " disabled" : "") + ">Use profile.json</button>",
+          '      <button class="secondary" id="use-my-goals"' + (busy ? " disabled" : "") + ">Use my-goals.json</button>",
+          "    </div>",
+          '    <div class="search-form" style="margin-top: 12px;">',
+          '      <label>Narrata Goals Path<input id="narrata-goals-path" type="text" value="' + escapeHtml(dashboard.profile.goalsPath || "config/my-goals.json") + '" placeholder="config/my-goals.json"></label>',
+          '      <div class="inline-actions">',
+          '        <button class="primary" id="connect-narrata-file"' + (busy ? " disabled" : "") + ">Connect Narrata (File)</button>",
+          "      </div>",
+          "    </div>",
+          "  </div>",
           '  <div class="feedback' + (feedbackError ? " error" : "") + '">' + escapeHtml(feedback) + "</div>",
           "</section>"
         ].join("");
@@ -1764,10 +2533,10 @@ function renderDashboardPage(dashboard) {
           "  </div>",
           '  <div class="top-actions">',
           '    <button class="primary" id="run-all"' + (busy ? " disabled" : "") + ">Run All Searches</button>",
-          '    <button class="secondary" id="refresh-data"' + (busy ? " disabled" : "") + ">Refresh</button>",
+          '    <button class="secondary" id="refresh-data"' + (busy ? " disabled" : "") + ">Refresh + Re-score</button>",
           "  </div>",
           "</div>",
-          '<div class="filter-row" style="margin-top: 14px;">' + tabButtons + "</div>",
+          '<div class="main-tabs">' + tabButtons + "</div>",
           selectedTab === "jobs"
             ? jobsSection
             : selectedTab === "searches"
@@ -1776,18 +2545,38 @@ function renderDashboardPage(dashboard) {
         ].join("");
 
         document.getElementById("run-all").addEventListener("click", runAll);
-        document.getElementById("refresh-data").addEventListener("click", refreshDashboard);
+        document.getElementById("refresh-data").addEventListener("click", refreshAndRescore);
         for (const button of document.querySelectorAll("[data-tab]")) {
           button.addEventListener("click", () => setTab(button.dataset.tab));
         }
 
         if (selectedTab === "jobs") {
+          const toggleFiltersButton = document.getElementById("toggle-job-filters");
+          if (toggleFiltersButton) {
+            toggleFiltersButton.addEventListener("click", toggleJobsFilters);
+          }
+
           for (const button of document.querySelectorAll("[data-filter-source]")) {
             button.addEventListener("click", () => setSourceFilter(button.dataset.filterSource));
           }
 
           for (const button of document.querySelectorAll("[data-jobs-view]")) {
             button.addEventListener("click", () => setJobsView(button.dataset.jobsView));
+          }
+
+          for (const button of document.querySelectorAll("[data-jobs-sort]")) {
+            button.addEventListener("click", () => setJobsSort(button.dataset.jobsSort));
+          }
+
+          for (const button of document.querySelectorAll("[data-jobs-page-nav]")) {
+            button.addEventListener("click", () => {
+              const step = button.dataset.jobsPageNav === "next" ? 1 : -1;
+              setJobsPage(selectedJobsPage + step);
+            });
+          }
+
+          for (const button of document.querySelectorAll("[data-active-status]")) {
+            button.addEventListener("click", () => setActiveStatusFilter(button.dataset.activeStatus));
           }
 
           for (const button of document.querySelectorAll("[data-job-id]")) {
@@ -1815,6 +2604,15 @@ function renderDashboardPage(dashboard) {
         }
 
         if (selectedTab === "searches") {
+          const openAddSource = document.getElementById("open-add-source");
+          if (openAddSource) {
+            openAddSource.addEventListener("click", beginAddSource);
+          }
+
+          for (const button of document.querySelectorAll("[data-search-type]")) {
+            button.addEventListener("click", () => setSearchSourceFilter(button.dataset.searchType));
+          }
+
           const saveSourceButton = document.getElementById("save-source");
           if (saveSourceButton) {
             saveSourceButton.addEventListener("click", saveSource);
@@ -1838,6 +2636,39 @@ function renderDashboardPage(dashboard) {
 
           for (const button of document.querySelectorAll("[data-edit-source]")) {
             button.addEventListener("click", () => beginEditSource(button.dataset.editSource));
+          }
+        }
+
+        if (selectedTab === "profile") {
+          const useProfileButton = document.getElementById("use-profile-json");
+          if (useProfileButton) {
+            useProfileButton.addEventListener("click", () =>
+              applyProfileSource("use_profile_file")
+            );
+          }
+
+          const useGoalsButton = document.getElementById("use-my-goals");
+          if (useGoalsButton) {
+            useGoalsButton.addEventListener("click", () => {
+              const goalsPathInput = document.getElementById("narrata-goals-path");
+              const goalsPath =
+                goalsPathInput && typeof goalsPathInput.value === "string"
+                  ? goalsPathInput.value.trim()
+                  : "";
+              applyProfileSource("use_my_goals", { goalsPath });
+            });
+          }
+
+          const connectNarrataButton = document.getElementById("connect-narrata-file");
+          if (connectNarrataButton) {
+            connectNarrataButton.addEventListener("click", () => {
+              const goalsPathInput = document.getElementById("narrata-goals-path");
+              const goalsPath =
+                goalsPathInput && typeof goalsPathInput.value === "string"
+                  ? goalsPathInput.value.trim()
+                  : "";
+              applyProfileSource("connect_narrata_file", { goalsPath });
+            });
           }
         }
       }
@@ -1874,6 +2705,47 @@ export function startReviewServer({ port = 4311, limit = 200 } = {}) {
         return;
       }
 
+      if (request.method === "POST" && url.pathname === "/api/profile/source") {
+        const rawBody = await readRequestBody(request);
+        const parsedBody = rawBody ? JSON.parse(rawBody) : {};
+        const action = typeof parsedBody.action === "string" ? parsedBody.action.trim() : "";
+
+        if (!action) {
+          response.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+          response.end(JSON.stringify({ error: "action is required" }));
+          return;
+        }
+
+        if (action === "use_profile_file") {
+          useLegacyProfileSource("config/profile.json");
+        } else if (action === "use_my_goals") {
+          useMyGoalsProfileSource(
+            typeof parsedBody.goalsPath === "string" && parsedBody.goalsPath.trim()
+              ? parsedBody.goalsPath.trim()
+              : "config/my-goals.json"
+          );
+        } else if (action === "connect_narrata_file") {
+          connectNarrataGoalsFile(
+            typeof parsedBody.goalsPath === "string" && parsedBody.goalsPath.trim()
+              ? parsedBody.goalsPath.trim()
+              : "config/my-goals.json"
+          );
+        } else {
+          response.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+          response.end(
+            JSON.stringify({
+              error: "action must be one of use_profile_file, use_my_goals, connect_narrata_file"
+            })
+          );
+          return;
+        }
+
+        const dashboard = buildDashboardData(limit);
+        response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+        response.end(JSON.stringify({ ok: true, profile: dashboard.profile }));
+        return;
+      }
+
       if (request.method === "POST" && url.pathname === "/api/sources/upsert") {
         const rawBody = await readRequestBody(request);
         const parsedBody = rawBody ? JSON.parse(rawBody) : {};
@@ -1899,6 +2771,13 @@ export function startReviewServer({ port = 4311, limit = 200 } = {}) {
         const result = await runAllCaptures();
         response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
         response.end(JSON.stringify({ ok: true, ...result }));
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/sync-score") {
+        const sync = runSyncAndScore();
+        response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+        response.end(JSON.stringify({ ok: true, sync }));
         return;
       }
 

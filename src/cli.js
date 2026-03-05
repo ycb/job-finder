@@ -10,11 +10,15 @@ import { startBrowserBridgeServer } from "./browser-bridge/server.js";
 import {
   addBuiltinSearchSource,
   addLinkedInCaptureSource,
+  connectNarrataGoalsFile,
+  connectNarrataSupabase,
   getSourceByIdOrName,
-  loadAppConfig,
-  loadProfile,
+  loadActiveProfile,
+  loadProfileSourceConfig,
   loadSources,
   normalizeAllSourceSearchUrls,
+  useLegacyProfileSource,
+  useMyGoalsProfileSource,
   updateSourceSearchUrl
 } from "./config/load-config.js";
 import { openDatabase } from "./db/client.js";
@@ -78,7 +82,7 @@ function runInit() {
 }
 
 function runSync() {
-  const { sources } = loadAppConfig();
+  const sources = loadSources();
   const { db } = withDatabase();
 
   let totalCollected = 0;
@@ -96,7 +100,7 @@ function runSync() {
 }
 
 function runScore() {
-  const profile = loadProfile();
+  const { profile } = loadActiveProfile();
   const { db } = withDatabase();
   const jobs = listAllJobs(db);
   const evaluations = evaluateJobs(profile, jobs);
@@ -138,6 +142,64 @@ function runMark(jobId, status) {
   markApplicationStatus(db, jobId, status);
   db.close();
   console.log(`Updated ${jobId} to status=${status}`);
+}
+
+function runProfileSource() {
+  const sourceConfig = loadProfileSourceConfig();
+  const active = loadActiveProfile();
+  console.log(`provider=${sourceConfig.provider}`);
+  if (sourceConfig.provider === "legacy_profile") {
+    console.log(`profilePath=${sourceConfig.legacyProfilePath}`);
+  } else if (sourceConfig.provider === "my_goals") {
+    console.log(`goalsPath=${sourceConfig.goalsPath}`);
+  } else {
+    console.log(`narrataMode=${sourceConfig.narrata.mode}`);
+    if (sourceConfig.narrata.mode === "file") {
+      console.log(`narrataGoalsPath=${sourceConfig.narrata.goalsPath}`);
+    } else {
+      console.log(`narrataSupabaseUrl=${sourceConfig.narrata.supabaseUrl}`);
+      console.log(`narrataUserId=${sourceConfig.narrata.userId}`);
+      console.log(`narrataServiceRoleEnv=${sourceConfig.narrata.serviceRoleEnv}`);
+    }
+  }
+  console.log(`candidate=${active.profile.candidateName}`);
+}
+
+function runUseMyGoals(goalsPathArg) {
+  const config = useMyGoalsProfileSource(goalsPathArg || "config/my-goals.json");
+  console.log(`Profile source set to my_goals (${config.goalsPath}).`);
+}
+
+function runUseProfileFile(profilePathArg) {
+  const config = useLegacyProfileSource(profilePathArg || "config/profile.json");
+  console.log(`Profile source set to legacy_profile (${config.legacyProfilePath}).`);
+}
+
+function runConnectNarrataFile(goalsPathArg) {
+  const config = connectNarrataGoalsFile(goalsPathArg || "config/my-goals.json");
+  console.log(
+    `Profile source set to narrata file mode (${config.narrata.goalsPath}).`
+  );
+}
+
+function runConnectNarrataSupabase(supabaseUrl, userId, serviceRoleEnv) {
+  if (!supabaseUrl || !userId) {
+    throw new Error(
+      "Usage: node src/cli.js connect-narrata-supabase <supabase-url> <user-id> [service-role-env]"
+    );
+  }
+
+  const config = connectNarrataSupabase({
+    supabaseUrl,
+    userId,
+    serviceRoleEnv
+  });
+  console.log(
+    `Narrata Supabase mode configured (${config.narrata.supabaseUrl}, user=${config.narrata.userId}).`
+  );
+  console.log(
+    "Note: CLI scoring currently supports file-backed Narrata goals for first pass."
+  );
 }
 
 function runListSources() {
@@ -623,6 +685,11 @@ Usage:
   node src/cli.js add-builtin-source <label> <url>
   node src/cli.js set-source-url <source-id-or-label> <url>
   node src/cli.js normalize-source-urls
+  node src/cli.js profile-source
+  node src/cli.js use-my-goals [goals-path]
+  node src/cli.js use-profile-file [profile-path]
+  node src/cli.js connect-narrata-file [goals-path]
+  node src/cli.js connect-narrata-supabase <supabase-url> <user-id> [service-role-env]
   node src/cli.js open-source <source-id-or-label>
   node src/cli.js open-sources
   node src/cli.js capture-source <source-id-or-label> [snapshot-path]
@@ -671,6 +738,21 @@ async function main() {
       break;
     case "normalize-source-urls":
       runNormalizeSourceUrls();
+      break;
+    case "profile-source":
+      runProfileSource();
+      break;
+    case "use-my-goals":
+      runUseMyGoals(args[0]);
+      break;
+    case "use-profile-file":
+      runUseProfileFile(args[0]);
+      break;
+    case "connect-narrata-file":
+      runConnectNarrataFile(args[0]);
+      break;
+    case "connect-narrata-supabase":
+      runConnectNarrataSupabase(args[0], args[1], args[2]);
       break;
     case "open-source":
       runOpenSource(args[0]);

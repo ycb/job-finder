@@ -1,0 +1,12 @@
+{
+  "provider": "legacy_profile",
+  "legacyProfilePath": "config/profile.json",
+  "goalsPath": "config/my-goals.json",
+  "narrata": {
+    "mode": "file",
+    "goalsPath": "config/my-goals.json",
+    "supabaseUrl": "",
+    "userId": "",
+    "serviceRoleEnv": "NARRATA_SUPABASE_SERVICE_ROLE_KEY"
+  }
+}

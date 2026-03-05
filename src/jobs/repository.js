@@ -70,6 +70,9 @@ export function listAllJobs(db) {
         e.score,
         e.bucket,
         e.summary,
+        e.confidence,
+        e.freshness_days AS freshnessDays,
+        e.hard_filtered AS hardFiltered,
         a.status
       FROM jobs j
       LEFT JOIN evaluations e ON e.job_id = j.id
@@ -94,6 +97,9 @@ export function listTopJobs(db, limit = 20) {
         e.score,
         e.bucket,
         e.summary,
+        e.confidence,
+        e.freshness_days AS freshnessDays,
+        e.hard_filtered AS hardFiltered,
         COALESCE(a.status, 'new') AS status
       FROM jobs j
       LEFT JOIN evaluations e ON e.job_id = j.id
@@ -122,12 +128,16 @@ export function listReviewQueue(db, limit = 100) {
         j.source_url AS sourceUrl,
         j.external_id AS externalId,
         j.posted_at AS postedAt,
+        j.updated_at AS updatedAt,
         j.employment_type AS employmentType,
         j.salary_text AS salaryText,
         e.score,
         e.bucket,
         e.summary,
         e.reasons,
+        e.confidence,
+        e.freshness_days AS freshnessDays,
+        e.hard_filtered AS hardFiltered,
         COALESCE(a.status, 'new') AS status,
         COALESCE(a.notes, '') AS notes
       FROM jobs j
@@ -151,13 +161,19 @@ export function upsertEvaluations(db, evaluations) {
       bucket,
       summary,
       reasons,
+      confidence,
+      freshness_days,
+      hard_filtered,
       evaluated_at
-    ) VALUES (?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(job_id) DO UPDATE SET
       score = excluded.score,
       bucket = excluded.bucket,
       summary = excluded.summary,
       reasons = excluded.reasons,
+      confidence = excluded.confidence,
+      freshness_days = excluded.freshness_days,
+      hard_filtered = excluded.hard_filtered,
       evaluated_at = excluded.evaluated_at;
   `);
 
@@ -168,6 +184,9 @@ export function upsertEvaluations(db, evaluations) {
       evaluation.bucket,
       evaluation.summary,
       JSON.stringify(evaluation.reasons),
+      Number.isFinite(evaluation.confidence) ? Math.round(evaluation.confidence) : null,
+      Number.isFinite(evaluation.freshnessDays) ? Math.round(evaluation.freshnessDays) : null,
+      evaluation.hardFiltered ? 1 : 0,
       evaluation.evaluatedAt
     );
   }
