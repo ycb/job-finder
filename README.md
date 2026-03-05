@@ -110,23 +110,25 @@ npm run run
 
 The dashboard includes:
 
+- top-level tabs: `Jobs`, `Searches`, `Profile`
 - a profile summary with active and applied counts
 - a searchable list of named job search sources
 - per-source quality signals (`jobs found`, `applied`, `high signal %`, `avg score`)
-- per-search run controls (`Run`, `Run All`, `See Results`, `Edit`)
-- a de-duped ranked queue of actionable jobs (`new` and `viewed`)
-- a separate `Applied` list
+- per-search run controls (`Run`, `Run All`, `See Results`, `Edit`) in `Searches`
+- a de-duped ranked queue with selected-job detail and `Prev/Next` navigation in `Jobs`
+- `Active`, `Applied`, and `Skipped` job views in `Jobs`
 - per-job attribution showing which source/search URLs surfaced the role
 
 Jobs found in multiple searches are grouped into one review row and show which searches surfaced them.
 
 ## Status values
 
-Supported statuses: `new`, `viewed`, `applied`, `rejected`.
+Supported statuses: `new`, `viewed`, `applied`, `skip_for_now`, `rejected`.
 
-- `new` and `viewed` stay in the actionable queue
-- `applied` moves into the separate `Applied` list
-- `rejected` is removed from the actionable queue
+- `new` and `viewed` stay in the actionable queue (`Jobs > Active`)
+- `applied` moves into `Jobs > Applied`
+- `skip_for_now` moves into `Jobs > Skipped`
+- `rejected` is removed from active review views
 - rejecting a job requires a reason, which is stored as a note
 
 ## Live Capture Notes

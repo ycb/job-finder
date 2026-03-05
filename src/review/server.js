@@ -257,7 +257,12 @@ function normalizeStatus(status) {
     return "viewed";
   }
 
-  if (status === "applied" || status === "rejected" || status === "viewed") {
+  if (
+    status === "applied" ||
+    status === "rejected" ||
+    status === "viewed" ||
+    status === "skip_for_now"
+  ) {
     return status;
   }
 
@@ -308,6 +313,10 @@ function pickStatus(statuses) {
 
   if (normalized.includes("rejected")) {
     return "rejected";
+  }
+
+  if (normalized.includes("skip_for_now")) {
+    return "skip_for_now";
   }
 
   if (normalized.includes("viewed")) {
@@ -526,8 +535,13 @@ function buildDashboardData(limit = 200) {
   const sources = loadSources().sources;
   const statsQueue = hydrateQueue(getReviewQueue(5_000));
   const sourceLastSeenAt = getSourceLastSeenAtMap();
-  const queue = statsQueue.filter((job) => job.status !== "applied").slice(0, limit);
+  const queue = statsQueue
+    .filter((job) => job.status === "new" || job.status === "viewed")
+    .slice(0, limit);
   const appliedQueue = statsQueue.filter((job) => job.status === "applied").slice(0, limit);
+  const skippedQueue = statsQueue
+    .filter((job) => job.status === "skip_for_now")
+    .slice(0, limit);
 
   const countsBySourceId = new Map();
 
@@ -538,6 +552,7 @@ function buildDashboardData(limit = 200) {
         totalCount: 0,
         activeCount: 0,
         appliedCount: 0,
+        skippedCount: 0,
         highSignalCount: 0,
         scoredCount: 0,
         scoreTotal: 0
@@ -546,11 +561,13 @@ function buildDashboardData(limit = 200) {
       current.totalCount += 1;
       if (job.status === "applied") {
         current.appliedCount += 1;
+      } else if (job.status === "skip_for_now") {
+        current.skippedCount += 1;
       } else {
         current.activeCount += 1;
       }
 
-      if (job.bucket === "high_signal" && job.status !== "applied") {
+      if (job.bucket === "high_signal" && job.status !== "applied" && job.status !== "skip_for_now") {
         current.highSignalCount += 1;
       }
 
@@ -570,6 +587,7 @@ function buildDashboardData(limit = 200) {
       remotePreference: profile.remotePreference,
       salaryFloor: profile.salaryFloor,
       appliedCount: appliedQueue.length,
+      skippedCount: skippedQueue.length,
       activeCount: queue.length,
       profilePath: path.resolve("config/profile.json"),
       sourcesPath: path.resolve("config/sources.json")
@@ -580,6 +598,7 @@ function buildDashboardData(limit = 200) {
         totalCount: 0,
         activeCount: 0,
         appliedCount: 0,
+        skippedCount: 0,
         highSignalCount: 0,
         scoredCount: 0,
         scoreTotal: 0
@@ -607,12 +626,14 @@ function buildDashboardData(limit = 200) {
         totalCount: counts.totalCount,
         activeCount: counts.activeCount,
         appliedCount: counts.appliedCount,
+        skippedCount: counts.skippedCount,
         highSignalCount: counts.highSignalCount,
         avgScore
       };
     }),
     queue,
-    appliedQueue
+    appliedQueue,
+    skippedQueue
   };
 }
 
@@ -1025,6 +1046,8 @@ function renderDashboardPage(dashboard) {
     <script>
       let dashboard = ${dashboardJson};
       let selectedSourceId = null;
+      let selectedTab = "jobs";
+      let selectedJobsView = "active";
       let selectedJobId = dashboard.queue[0] ? dashboard.queue[0].id : null;
       let editingSourceId = null;
       let feedback = "";
@@ -1042,22 +1065,41 @@ function renderDashboardPage(dashboard) {
           .replaceAll("'", "&#39;");
       }
 
-      function filteredQueue() {
+      function filterBySource(jobs) {
+        const items = Array.isArray(jobs) ? jobs : [];
         return selectedSourceId
-          ? dashboard.queue.filter((job) => Array.isArray(job.sourceIds) && job.sourceIds.includes(selectedSourceId))
-          : dashboard.queue;
-      }
-
-      function filteredAppliedQueue() {
-        return selectedSourceId
-          ? (dashboard.appliedQueue || []).filter(
+          ? items.filter(
               (job) => Array.isArray(job.sourceIds) && job.sourceIds.includes(selectedSourceId)
             )
-          : (dashboard.appliedQueue || []);
+          : items;
+      }
+
+      function activeQueue() {
+        return filterBySource(dashboard.queue || []);
+      }
+
+      function appliedQueue() {
+        return filterBySource(dashboard.appliedQueue || []);
+      }
+
+      function skippedQueue() {
+        return filterBySource(dashboard.skippedQueue || []);
+      }
+
+      function jobsForCurrentView() {
+        if (selectedJobsView === "applied") {
+          return appliedQueue();
+        }
+
+        if (selectedJobsView === "skipped") {
+          return skippedQueue();
+        }
+
+        return activeQueue();
       }
 
       function ensureSelectedJob() {
-        const queue = filteredQueue();
+        const queue = jobsForCurrentView();
 
         if (queue.length === 0) {
           selectedJobId = null;
@@ -1075,6 +1117,21 @@ function renderDashboardPage(dashboard) {
 
       function currentJob() {
         return ensureSelectedJob();
+      }
+
+      function currentJobPosition() {
+        const jobs = jobsForCurrentView();
+        if (!jobs.length || !selectedJobId) {
+          return {
+            index: -1,
+            total: jobs.length
+          };
+        }
+
+        return {
+          index: jobs.findIndex((job) => job.id === selectedJobId),
+          total: jobs.length
+        };
       }
 
       function formatBucket(bucket) {
@@ -1106,6 +1163,10 @@ function renderDashboardPage(dashboard) {
       function formatStatus(status) {
         if (status === "viewed" || status === "applied" || status === "rejected") {
           return status;
+        }
+
+        if (status === "skip_for_now") {
+          return "skip for now";
         }
 
         return "new";
@@ -1338,6 +1399,8 @@ function renderDashboardPage(dashboard) {
               ? "Job rejected."
               : status === "applied"
                 ? "Marked applied."
+                : status === "skip_for_now"
+                  ? "Marked skip for now."
                 : "Job status updated."
           );
         } catch (error) {
@@ -1361,6 +1424,43 @@ function renderDashboardPage(dashboard) {
       function setSourceFilter(sourceId) {
         selectedSourceId = sourceId || null;
         ensureSelectedJob();
+        render();
+      }
+
+      function setTab(tabName) {
+        const normalized = String(tabName || "jobs").toLowerCase();
+        if (!["jobs", "searches", "profile"].includes(normalized)) {
+          return;
+        }
+
+        selectedTab = normalized;
+        if (selectedTab === "jobs") {
+          ensureSelectedJob();
+        }
+        render();
+      }
+
+      function setJobsView(viewName) {
+        const normalized = String(viewName || "active").toLowerCase();
+        if (!["active", "applied", "skipped"].includes(normalized)) {
+          return;
+        }
+
+        selectedJobsView = normalized;
+        ensureSelectedJob();
+        render();
+      }
+
+      function moveSelection(step) {
+        const jobs = jobsForCurrentView();
+        if (!jobs.length) {
+          return;
+        }
+
+        const currentIndex = jobs.findIndex((item) => item.id === selectedJobId);
+        const safeIndex = currentIndex >= 0 ? currentIndex : 0;
+        const nextIndex = Math.max(0, Math.min(jobs.length - 1, safeIndex + step));
+        selectedJobId = jobs[nextIndex].id;
         render();
       }
 
@@ -1398,10 +1498,16 @@ function renderDashboardPage(dashboard) {
       }
 
       function render() {
-        const queue = filteredQueue();
-        const appliedQueue = filteredAppliedQueue();
+        const queue = activeQueue();
+        const applied = appliedQueue();
+        const skipped = skippedQueue();
+        const jobsInView = jobsForCurrentView();
         const job = currentJob();
         const formState = sourceFormValues();
+        const position = currentJobPosition();
+        const currentIndexLabel =
+          position.index >= 0 ? String(position.index + 1) : "0";
+        const totalIndexLabel = String(position.total || 0);
 
         const searchRows = dashboard.sources
           .map((source) => {
@@ -1431,6 +1537,7 @@ function renderDashboardPage(dashboard) {
               "  <td>" + escapeHtml(statusLabel) + "</td>",
               "  <td>" + escapeHtml(source.jobCount) + "</td>",
               "  <td>" + escapeHtml(source.appliedCount || 0) + "</td>",
+              "  <td>" + escapeHtml(source.skippedCount || 0) + "</td>",
               "  <td>" + escapeHtml(highSignalLabel) + "</td>",
               "  <td>" + escapeHtml(source.avgScore ?? "n/a") + "</td>",
               '  <td><div class="search-actions">' +
@@ -1443,17 +1550,23 @@ function renderDashboardPage(dashboard) {
           })
           .join("");
 
-        const queueItems = queue.length
-          ? queue
+        const queueItems = jobsInView.length
+          ? jobsInView
               .map((item) => {
                 const attributionNames = sourceNames(item);
                 const activeClass = item.id === selectedJobId ? " active" : "";
+                const scoreLabel =
+                  item.status === "applied"
+                    ? "Applied"
+                    : item.status === "skip_for_now"
+                      ? "Skipped"
+                      : "Score " + (item.score ?? "n/a");
 
                 return [
                   '<button class="queue-item' + activeClass + '" data-job-id="' + escapeHtml(item.id) + '">',
                   '  <div class="queue-item-header">',
                   '    <span class="queue-item-title">' + escapeHtml(item.title) + '</span>',
-                  '    <span class="queue-item-score">Score ' + escapeHtml(item.score ?? "n/a") + '</span>',
+                  '    <span class="queue-item-score">' + escapeHtml(scoreLabel) + '</span>',
                   "  </div>",
                   '  <div class="queue-item-meta">' +
                     escapeHtml(item.company) +
@@ -1482,39 +1595,11 @@ function renderDashboardPage(dashboard) {
             return '<button class="pill' + activeClass + '" data-filter-source="' + escapeHtml(source.id) + '">' + escapeHtml(source.name) + "</button>";
           })
         ].join("");
-
-        const appliedItems = appliedQueue.length
-          ? appliedQueue
-              .map((item) => {
-                const attributionNames = sourceNames(item);
-
-                return [
-                  '<div class="queue-item">',
-                  '  <div class="queue-item-header">',
-                  '    <span class="queue-item-title">' + escapeHtml(item.title) + '</span>',
-                  '    <span class="queue-item-score">Applied</span>',
-                  "  </div>",
-                  '  <div class="queue-item-meta">' +
-                    escapeHtml(item.company) +
-                    " · " +
-                    escapeHtml(formatValue(item.location, "Location unknown")) +
-                    "</div>",
-                  attributionNames.length
-                    ? '  <div class="queue-item-meta">Found via ' + escapeHtml(attributionNames.join(", ")) + "</div>"
-                    : "",
-                  item.notes
-                    ? '  <div class="queue-item-summary">' + escapeHtml(item.notes) + "</div>"
-                    : "",
-                  '  <div class="queue-item-meta" style="margin-top: 8px;"><a href="' +
-                    encodeURI(item.reviewTarget.url) +
-                    '" target="job-review-target" rel="noreferrer">' +
-                    escapeHtml(reviewLinkLabel(item)) +
-                    "</a></div>",
-                  "</div>"
-                ].join("");
-              })
-              .join("")
-          : '<p class="muted">No applied jobs in this view.</p>';
+        const jobsViewPills = [
+          '<button class="pill' + (selectedJobsView === "active" ? " active" : "") + '" data-jobs-view="active">Active (' + escapeHtml(String(queue.length)) + ')</button>',
+          '<button class="pill' + (selectedJobsView === "applied" ? " active" : "") + '" data-jobs-view="applied">Applied (' + escapeHtml(String(applied.length)) + ')</button>',
+          '<button class="pill' + (selectedJobsView === "skipped" ? " active" : "") + '" data-jobs-view="skipped">Skipped (' + escapeHtml(String(skipped.length)) + ')</button>'
+        ].join("");
 
         const detailMarkup = job
           ? [
@@ -1560,12 +1645,16 @@ function renderDashboardPage(dashboard) {
                     : "",
                   "</div>",
                   '<div class="inline-actions" style="margin-top: 16px;">',
+                  '  <button class="secondary" id="prev-job"' + (position.index <= 0 ? " disabled" : "") + ">Prev</button>",
+                  '  <button class="secondary" id="next-job"' + (position.index < 0 || position.index >= position.total - 1 ? " disabled" : "") + ">Next</button>",
+                  '  <span class="pill">' + escapeHtml(currentIndexLabel) + " of " + escapeHtml(totalIndexLabel) + "</span>",
                   '  <button class="primary" id="open-current">' + escapeHtml(reviewLinkLabel(job)) + "</button>",
                   "</div>",
                   '<div class="status-row" style="margin-top: 16px;">',
                   '  <button class="' + (formatStatus(job.status) === "new" ? "active" : "") + '" data-status="new">New</button>',
                   '  <button class="' + (formatStatus(job.status) === "viewed" ? "active" : "") + '" data-status="viewed">Viewed</button>',
                   '  <button class="' + (formatStatus(job.status) === "applied" ? "active" : "") + '" data-status="applied">I Applied</button>',
+                  '  <button class="' + (job.status === "skip_for_now" ? "active" : "") + '" data-status="skip_for_now">Skip For Now</button>',
                   '  <button class="' + (formatStatus(job.status) === "rejected" ? "active" : "") + '" data-status="rejected">Reject</button>',
                   "</div>",
                   '<div class="card" style="margin-top: 16px;">',
@@ -1600,6 +1689,72 @@ function renderDashboardPage(dashboard) {
             ].join("")
           : '<div class="eyebrow">Review</div><p class="muted">No jobs are available for the current filter.</p>';
 
+        const tabButtons = [
+          '<button class="' + (selectedTab === "jobs" ? "primary" : "secondary") + '" data-tab="jobs">Jobs</button>',
+          '<button class="' + (selectedTab === "searches" ? "primary" : "secondary") + '" data-tab="searches">Searches</button>',
+          '<button class="' + (selectedTab === "profile" ? "primary" : "secondary") + '" data-tab="profile">Profile</button>'
+        ].join("");
+
+        const jobsSection = [
+          '<div class="grid">',
+          '  <div class="stack">',
+          '    <section class="card">',
+          '      <p class="section-label">Ranked Jobs</p>',
+          '      <div class="filter-row">' + sourceFilterPills + "</div>",
+          '      <div class="filter-row" style="margin-top: 10px;">' + jobsViewPills + "</div>",
+          '      <div class="subhead" style="margin-top: 10px;">' + escapeHtml(String(jobsInView.length)) + " job(s) in this view.</div>",
+          '      <div class="queue-list" style="margin-top: 14px; max-height: 76vh;">' + queueItems + "</div>",
+          "    </section>",
+          "  </div>",
+          '  <div class="stack">',
+          '    <section class="card">',
+          detailMarkup,
+          "    </section>",
+          "  </div>",
+          "</div>"
+        ].join("");
+
+        const searchesSection = [
+          '<section class="card" style="margin-top: 18px;">',
+          '  <p class="section-label">My Job Searches</p>',
+          '  <div class="search-form">',
+          '    <label>Name<input id="source-name" type="text" value="' + escapeHtml(formState.name) + '" placeholder="AI PM"></label>',
+          '    <label>Search URL<input id="source-url" type="text" value="' + escapeHtml(formState.searchUrl) + '" placeholder="https://www.linkedin.com/jobs/search-results/?keywords=... or https://www.builtinsf.com/jobs/..."></label>',
+          '    <div class="inline-actions">',
+          '      <button class="primary" id="save-source"' + (busy ? " disabled" : "") + ">" + escapeHtml(formState.actionLabel) + "</button>",
+          (editingSourceId
+            ? '      <button class="ghost" id="cancel-edit"' + (busy ? " disabled" : "") + ">Cancel</button>"
+            : ""),
+          "    </div>",
+          "  </div>",
+          '  <div class="subhead" style="margin-top: 12px;">Edit search labels and URLs here. Track which sources generate your strongest pipeline.</div>',
+          '  <div style="margin-top: 16px; overflow-x: auto;">',
+          '    <table>',
+          '      <thead><tr><th>Name / URL</th><th>Last Run</th><th>Status</th><th>Jobs Found</th><th>Applied</th><th>Skipped</th><th>High Signal</th><th>Avg Score</th><th>Actions</th></tr></thead>',
+          '      <tbody>' + searchRows + "</tbody>",
+          "    </table>",
+          "  </div>",
+          '  <div class="feedback' + (feedbackError ? " error" : "") + '">' + escapeHtml(feedback) + "</div>",
+          "</section>"
+        ].join("");
+
+        const profileSection = [
+          '<section class="card" style="margin-top: 18px;">',
+          '  <p class="section-label">Profile</p>',
+          '  <dl class="meta-grid">',
+          '    <div class="meta-item"><dt>Candidate</dt><dd>' + escapeHtml(dashboard.profile.candidateName) + "</dd></div>",
+          '    <div class="meta-item"><dt>Remote Preference</dt><dd>' + escapeHtml(formatRemotePreference(dashboard.profile.remotePreference)) + "</dd></div>",
+          '    <div class="meta-item"><dt>Salary Floor</dt><dd>$' + escapeHtml(Number(dashboard.profile.salaryFloor || 0).toLocaleString()) + "</dd></div>",
+          '    <div class="meta-item"><dt>Active</dt><dd>' + escapeHtml(dashboard.profile.activeCount) + "</dd></div>",
+          '    <div class="meta-item"><dt>Applied</dt><dd>' + escapeHtml(dashboard.profile.appliedCount) + "</dd></div>",
+          '    <div class="meta-item"><dt>Skipped</dt><dd>' + escapeHtml(dashboard.profile.skippedCount || 0) + "</dd></div>",
+          '    <div class="meta-item"><dt>Profile File</dt><dd>' + escapeHtml(dashboard.profile.profilePath || "") + "</dd></div>",
+          '    <div class="meta-item"><dt>Sources File</dt><dd>' + escapeHtml(dashboard.profile.sourcesPath || "") + "</dd></div>",
+          "  </dl>",
+          '  <div class="feedback' + (feedbackError ? " error" : "") + '">' + escapeHtml(feedback) + "</div>",
+          "</section>"
+        ].join("");
+
         app.innerHTML = [
           '<div class="header">',
           "  <div>",
@@ -1612,97 +1767,78 @@ function renderDashboardPage(dashboard) {
           '    <button class="secondary" id="refresh-data"' + (busy ? " disabled" : "") + ">Refresh</button>",
           "  </div>",
           "</div>",
-          '<div class="grid">',
-          '  <div class="stack">',
-          '    <section class="card">',
-          '      <p class="section-label">Profile</p>',
-          '      <dl class="meta-grid">',
-          '        <div class="meta-item"><dt>Candidate</dt><dd>' + escapeHtml(dashboard.profile.candidateName) + "</dd></div>",
-          '        <div class="meta-item"><dt>Remote Preference</dt><dd>' + escapeHtml(formatRemotePreference(dashboard.profile.remotePreference)) + "</dd></div>",
-          '        <div class="meta-item"><dt>Salary Floor</dt><dd>$' + escapeHtml(Number(dashboard.profile.salaryFloor || 0).toLocaleString()) + "</dd></div>",
-          '        <div class="meta-item"><dt>Applied</dt><dd>' + escapeHtml(dashboard.profile.appliedCount) + "</dd></div>",
-          '        <div class="meta-item"><dt>Active</dt><dd>' + escapeHtml(dashboard.profile.activeCount) + "</dd></div>",
-          '        <div class="meta-item"><dt>Configuration</dt><dd>File-based prototype</dd></div>',
-          '        <div class="meta-item"><dt>Settings</dt><dd>Edit profile and source files locally</dd></div>',
-          "      </dl>",
-          '      <div class="feedback' + (feedbackError ? " error" : "") + '">' + escapeHtml(feedback) + "</div>",
-          "    </section>",
-          '    <section class="card">',
-          '      <p class="section-label">My Job Searches</p>',
-          '      <div class="search-form">',
-          '        <label>Name<input id="source-name" type="text" value="' + escapeHtml(formState.name) + '" placeholder="AI PM"></label>',
-          '        <label>Search URL<input id="source-url" type="text" value="' + escapeHtml(formState.searchUrl) + '" placeholder="https://www.linkedin.com/jobs/search-results/?keywords=... or https://www.builtinsf.com/jobs/..."></label>',
-          '        <div class="inline-actions">',
-          '          <button class="primary" id="save-source"' + (busy ? " disabled" : "") + ">" + escapeHtml(formState.actionLabel) + "</button>",
-          (editingSourceId
-            ? '          <button class="ghost" id="cancel-edit"' + (busy ? " disabled" : "") + ">Cancel</button>"
-            : "") ,
-          "        </div>",
-          "      </div>",
-          '      <div class="subhead" style="margin-top: 12px;">Edit search labels and URLs here. Profile preferences stay file-based for now.</div>',
-          '      <div style="margin-top: 16px; overflow-x: auto;">',
-          '        <table>',
-          '          <thead><tr><th>Name / URL</th><th>Last Run</th><th>Status</th><th>Jobs Found</th><th>Applied</th><th>High Signal</th><th>Avg Score</th><th>Actions</th></tr></thead>',
-          '          <tbody>' + searchRows + "</tbody>",
-          "        </table>",
-          "      </div>",
-          "    </section>",
-          "  </div>",
-          '  <div class="stack">',
-          '    <section class="card">',
-          detailMarkup,
-          "    </section>",
-          '    <section class="card">',
-          '      <p class="section-label">Ranked Jobs</p>',
-          '      <div class="filter-row">' + sourceFilterPills + "</div>",
-          '      <div class="subhead" style="margin-top: 10px;">' + escapeHtml(String(queue.length)) + ' active job(s) in this view.</div>',
-          '      <div class="queue-list" style="margin-top: 14px;">' + queueItems + "</div>",
-          "    </section>",
-          '    <section class="card">',
-          '      <p class="section-label">Applied</p>',
-          '      <div class="subhead">' + escapeHtml(String(appliedQueue.length)) + ' applied job(s) in this view.</div>',
-          '      <div class="queue-list" style="margin-top: 14px; max-height: 28vh;">' + appliedItems + "</div>",
-          "    </section>",
-          "  </div>",
-          "</div>"
+          '<div class="filter-row" style="margin-top: 14px;">' + tabButtons + "</div>",
+          selectedTab === "jobs"
+            ? jobsSection
+            : selectedTab === "searches"
+              ? searchesSection
+              : profileSection
         ].join("");
 
         document.getElementById("run-all").addEventListener("click", runAll);
         document.getElementById("refresh-data").addEventListener("click", refreshDashboard);
-        document.getElementById("save-source").addEventListener("click", saveSource);
-
-        const cancelEdit = document.getElementById("cancel-edit");
-        if (cancelEdit) {
-          cancelEdit.addEventListener("click", resetSourceForm);
+        for (const button of document.querySelectorAll("[data-tab]")) {
+          button.addEventListener("click", () => setTab(button.dataset.tab));
         }
 
-        for (const button of document.querySelectorAll("[data-see-results]")) {
-          button.addEventListener("click", () => setSourceFilter(button.dataset.seeResults));
+        if (selectedTab === "jobs") {
+          for (const button of document.querySelectorAll("[data-filter-source]")) {
+            button.addEventListener("click", () => setSourceFilter(button.dataset.filterSource));
+          }
+
+          for (const button of document.querySelectorAll("[data-jobs-view]")) {
+            button.addEventListener("click", () => setJobsView(button.dataset.jobsView));
+          }
+
+          for (const button of document.querySelectorAll("[data-job-id]")) {
+            button.addEventListener("click", () => selectJob(button.dataset.jobId));
+          }
+
+          const openCurrentButton = document.getElementById("open-current");
+          if (openCurrentButton) {
+            openCurrentButton.addEventListener("click", openCurrent);
+          }
+
+          const prevJobButton = document.getElementById("prev-job");
+          if (prevJobButton) {
+            prevJobButton.addEventListener("click", () => moveSelection(-1));
+          }
+
+          const nextJobButton = document.getElementById("next-job");
+          if (nextJobButton) {
+            nextJobButton.addEventListener("click", () => moveSelection(1));
+          }
+
+          for (const button of document.querySelectorAll("[data-status]")) {
+            button.addEventListener("click", () => updateStatus(button.dataset.status));
+          }
         }
 
-        for (const button of document.querySelectorAll("[data-filter-source]")) {
-          button.addEventListener("click", () => setSourceFilter(button.dataset.filterSource));
-        }
+        if (selectedTab === "searches") {
+          const saveSourceButton = document.getElementById("save-source");
+          if (saveSourceButton) {
+            saveSourceButton.addEventListener("click", saveSource);
+          }
 
-        for (const button of document.querySelectorAll("[data-run-source]")) {
-          button.addEventListener("click", () => runSource(button.dataset.runSource));
-        }
+          const cancelEdit = document.getElementById("cancel-edit");
+          if (cancelEdit) {
+            cancelEdit.addEventListener("click", resetSourceForm);
+          }
 
-        for (const button of document.querySelectorAll("[data-edit-source]")) {
-          button.addEventListener("click", () => beginEditSource(button.dataset.editSource));
-        }
+          for (const button of document.querySelectorAll("[data-see-results]")) {
+            button.addEventListener("click", () => {
+              selectedTab = "jobs";
+              setSourceFilter(button.dataset.seeResults);
+            });
+          }
 
-        for (const button of document.querySelectorAll("[data-job-id]")) {
-          button.addEventListener("click", () => selectJob(button.dataset.jobId));
-        }
+          for (const button of document.querySelectorAll("[data-run-source]")) {
+            button.addEventListener("click", () => runSource(button.dataset.runSource));
+          }
 
-        const openCurrentButton = document.getElementById("open-current");
-        if (openCurrentButton) {
-          openCurrentButton.addEventListener("click", openCurrent);
-        }
-
-        for (const button of document.querySelectorAll("[data-status]")) {
-          button.addEventListener("click", () => updateStatus(button.dataset.status));
+          for (const button of document.querySelectorAll("[data-edit-source]")) {
+            button.addEventListener("click", () => beginEditSource(button.dataset.editSource));
+          }
         }
       }
 
@@ -1726,10 +1862,15 @@ export function startReviewServer({ port = 4311, limit = 200 } = {}) {
 
       if (request.method === "GET" && url.pathname === "/api/queue") {
         const groupedQueue = hydrateQueue(getReviewQueue(limit));
-        const queue = groupedQueue.filter((job) => job.status !== "applied");
+        const queue = groupedQueue.filter(
+          (job) => job.status === "new" || job.status === "viewed"
+        );
         const appliedQueue = groupedQueue.filter((job) => job.status === "applied");
+        const skippedQueue = groupedQueue.filter((job) => job.status === "skip_for_now");
         response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
-        response.end(JSON.stringify({ jobs: queue, appliedJobs: appliedQueue }));
+        response.end(
+          JSON.stringify({ jobs: queue, appliedJobs: appliedQueue, skippedJobs: skippedQueue })
+        );
         return;
       }
 
@@ -1792,6 +1933,23 @@ export function startReviewServer({ port = 4311, limit = 200 } = {}) {
         if (!status) {
           response.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
           response.end(JSON.stringify({ error: "status is required" }));
+          return;
+        }
+
+        const allowedStatuses = new Set([
+          "new",
+          "viewed",
+          "applied",
+          "skip_for_now",
+          "rejected"
+        ]);
+        if (!allowedStatuses.has(status)) {
+          response.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+          response.end(
+            JSON.stringify({
+              error: `status must be one of ${[...allowedStatuses].join(", ")}`
+            })
+          );
           return;
         }
 
