@@ -1,5 +1,8 @@
 import { execFileSync } from "node:child_process";
 
+const DEFAULT_USER_AGENT =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36";
+
 function decodeHtmlEntities(value) {
   const input = String(value || "");
 
@@ -75,6 +78,95 @@ function parseCompanyFromTitle(html) {
 
   const split = title.split("|")[0];
   return normalizeText(split.replace(/\b(open roles|jobs|careers)\b/gi, ""));
+}
+
+function isGoogleSearchUrl(searchUrl) {
+  try {
+    const parsed = new URL(String(searchUrl || "").trim());
+    return /(^|\.)google\./i.test(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+export function parseGoogleSearchQuery(searchUrl) {
+  try {
+    const parsed = new URL(String(searchUrl || "").trim());
+    if (!/(^|\.)google\./i.test(parsed.hostname)) {
+      return "";
+    }
+    return decodeURIComponent(parsed.searchParams.get("q") || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function extractQueryTerms(queryText) {
+  const raw = normalizeText(queryText).toLowerCase();
+  if (!raw) {
+    return { phrases: [], tokens: [] };
+  }
+
+  const phrases = [];
+  for (const match of raw.matchAll(/"([^"]+)"/g)) {
+    const phrase = normalizeText(match[1]).toLowerCase();
+    if (phrase) {
+      phrases.push(phrase);
+    }
+  }
+
+  const remainder = raw.replace(/"[^"]+"/g, " ");
+  const tokens = remainder
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .filter((token) => !token.startsWith("site:"))
+    .filter((token) => !["and", "or", "not"].includes(token))
+    .map((token) => token.replace(/^[^\w]+|[^\w]+$/g, ""))
+    .filter((token) => token.length >= 2);
+
+  return { phrases, tokens };
+}
+
+function jobMatchesQuery(job, queryText) {
+  const { phrases, tokens } = extractQueryTerms(queryText);
+  if (!phrases.length && !tokens.length) {
+    return true;
+  }
+
+  const searchable = normalizeText(
+    [
+      job.title,
+      job.company,
+      job.location,
+      job.description,
+      job.summary,
+      job.employmentType,
+      job.salaryText
+    ]
+      .filter(Boolean)
+      .join(" ")
+  ).toLowerCase();
+
+  for (const phrase of phrases) {
+    if (!searchable.includes(phrase)) {
+      return false;
+    }
+  }
+
+  if (!tokens.length) {
+    return true;
+  }
+
+  const matchedTokenCount = tokens.reduce(
+    (count, token) => (searchable.includes(token) ? count + 1 : count),
+    0
+  );
+
+  const minRequired =
+    tokens.length <= 2 ? tokens.length : Math.max(2, Math.ceil(tokens.length * 0.5));
+
+  return matchedTokenCount >= minRequired;
 }
 
 function chooseFirstNonEmpty(...values) {
@@ -281,6 +373,55 @@ function parseJobsFromAnchors(html, searchUrl) {
   return jobs;
 }
 
+function canonicalizeAshbyBoardUrl(inputUrl) {
+  try {
+    const parsed = new URL(String(inputUrl || "").trim());
+    const host = parsed.hostname.toLowerCase();
+    if (!host.endsWith("ashbyhq.com")) {
+      return "";
+    }
+
+    parsed.hash = "";
+    parsed.search = "";
+
+    if (host === "jobs.ashbyhq.com") {
+      const segments = parsed.pathname.split("/").filter(Boolean);
+      if (!segments.length) {
+        return "https://jobs.ashbyhq.com/";
+      }
+      return `https://jobs.ashbyhq.com/${segments[0]}`;
+    }
+
+    return `${parsed.protocol}//${parsed.hostname}/`;
+  } catch {
+    return "";
+  }
+}
+
+export function extractAshbyBoardUrlsFromGoogleHtml(html) {
+  const urls = new Set();
+  const decodedHtml = decodeHtmlEntities(String(html || ""));
+
+  const googleRedirectPattern = /href="\/url\?q=([^"&]+)[^"]*"/gi;
+  for (const match of decodedHtml.matchAll(googleRedirectPattern)) {
+    const candidate = decodeURIComponent(match[1] || "");
+    const boardUrl = canonicalizeAshbyBoardUrl(candidate);
+    if (boardUrl) {
+      urls.add(boardUrl);
+    }
+  }
+
+  const directPattern = /href="(https?:\/\/[^"]*ashbyhq\.com[^"]*)"/gi;
+  for (const match of decodedHtml.matchAll(directPattern)) {
+    const boardUrl = canonicalizeAshbyBoardUrl(match[1]);
+    if (boardUrl) {
+      urls.add(boardUrl);
+    }
+  }
+
+  return [...urls];
+}
+
 export function parseAshbySearchHtml(html, searchUrl) {
   const jsonJobs = parseJobsFromNextData(html, searchUrl);
   const anchorJobs = parseJobsFromAnchors(html, searchUrl);
@@ -305,11 +446,19 @@ export function parseAshbySearchHtml(html, searchUrl) {
   return [...merged.values()];
 }
 
-function fetchAshbySearchHtml(searchUrl, timeoutMs = 30_000) {
+function fetchSearchHtml(searchUrl, timeoutMs = 30_000) {
   const timeoutSeconds = Math.max(5, Math.ceil(timeoutMs / 1000));
   return execFileSync(
     "curl",
-    ["-sS", "-L", "--max-time", String(timeoutSeconds), String(searchUrl)],
+    [
+      "-sS",
+      "-L",
+      "-A",
+      DEFAULT_USER_AGENT,
+      "--max-time",
+      String(timeoutSeconds),
+      String(searchUrl)
+    ],
     {
       encoding: "utf8",
       maxBuffer: 10 * 1024 * 1024
@@ -318,10 +467,42 @@ function fetchAshbySearchHtml(searchUrl, timeoutMs = 30_000) {
 }
 
 export function collectAshbyJobsFromSearch(source) {
-  const html = fetchAshbySearchHtml(source.searchUrl, source.requestTimeoutMs || 30_000);
-  const jobs = parseAshbySearchHtml(html, source.searchUrl);
+  const timeoutMs = source.requestTimeoutMs || 30_000;
+  let jobs = [];
+
+  if (isGoogleSearchUrl(source.searchUrl)) {
+    const queryText = parseGoogleSearchQuery(source.searchUrl);
+    const discoveryHtml = fetchSearchHtml(source.searchUrl, timeoutMs);
+    const boardUrls = extractAshbyBoardUrlsFromGoogleHtml(discoveryHtml).slice(0, 20);
+
+    for (const boardUrl of boardUrls) {
+      try {
+        const boardHtml = fetchSearchHtml(boardUrl, timeoutMs);
+        const boardJobs = parseAshbySearchHtml(boardHtml, boardUrl);
+        jobs.push(...boardJobs);
+      } catch {
+        // ignore one failing board and continue
+      }
+    }
+
+    if (queryText) {
+      jobs = jobs.filter((job) => jobMatchesQuery(job, queryText));
+    }
+  } else {
+    const html = fetchSearchHtml(source.searchUrl, timeoutMs);
+    jobs = parseAshbySearchHtml(html, source.searchUrl);
+  }
+
+  const deduped = new Map();
+  for (const job of jobs) {
+    const key = String(job.externalId || job.url).toLowerCase();
+    if (!deduped.has(key)) {
+      deduped.set(key, job);
+    }
+  }
+
   const retrievedAt = new Date().toISOString();
-  const jobsWithMetadata = jobs.map((job) => ({
+  const jobsWithMetadata = [...deduped.values()].map((job) => ({
     ...job,
     retrievedAt
   }));

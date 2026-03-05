@@ -339,6 +339,25 @@ function isAshbyJobsUrl(rawUrl) {
   }
 }
 
+function isGoogleAshbyDiscoveryUrl(rawUrl) {
+  const urlText = String(rawUrl || "").trim();
+  if (!urlText) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(urlText);
+    const host = parsed.hostname.toLowerCase();
+    if (!/(^|\.)google\./i.test(host)) {
+      return false;
+    }
+    const query = String(parsed.searchParams.get("q") || "").toLowerCase();
+    return query.includes("ashbyhq.com");
+  } catch {
+    return false;
+  }
+}
+
 function pickStatus(statuses) {
   const normalized = statuses.map((status) => normalizeStatus(status));
 
@@ -2840,7 +2859,7 @@ export function startReviewServer({ port = 4311, limit = 200 } = {}) {
             ? addBuiltinSearchSource(name, searchUrl)
             : isWellfoundJobsUrl(searchUrl)
               ? addWellfoundSearchSource(name, searchUrl)
-              : isAshbyJobsUrl(searchUrl)
+              : isAshbyJobsUrl(searchUrl) || isGoogleAshbyDiscoveryUrl(searchUrl)
                 ? addAshbySearchSource(name, searchUrl)
                 : addLinkedInCaptureSource(name, searchUrl);
 

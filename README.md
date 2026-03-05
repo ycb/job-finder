@@ -79,6 +79,7 @@ That makes it a stronger demonstration of AI-native product thinking than a thin
    - `node src/cli.js add-builtin-source "<Label>" "<Built In URL>"`
    - `node src/cli.js add-wellfound-source "<Label>" "<Wellfound URL>"`
    - `node src/cli.js add-ashby-source "<Label>" "<Ashby URL>"`
+   - for Ashby discovery, you can also use a Google query URL like `site:ashbyhq.com "product manager" "San Francisco" "AI"`; Job Finder expands discovered company boards and ingests matching roles
 7. Run `npm run run` for the full pipeline. LinkedIn capture auto-starts a local bridge only when needed.
 8. Start `npm run review` when you want the dashboard UI (this is a separate long-running server process).
 
