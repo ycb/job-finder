@@ -7,6 +7,14 @@
       "enabled": true,
       "searchUrl": "https://www.linkedin.com/jobs/search-results/?keywords=lead%20product%20manager&geoId=90000084&distance=25",
       "capturePath": "data/captures/linkedin-live-capture.json"
+    },
+    {
+      "id": "builtin-sf-ai-pm",
+      "name": "Built In SF AI Product Jobs",
+      "type": "builtin_search",
+      "enabled": false,
+      "searchUrl": "https://www.builtinsf.com/jobs/product-management/product-manager/senior/expert-leader?search=AI&daysSinceUpdated=7&city=San+Francisco&state=California&country=USA&allLocations=true",
+      "maxJobs": 50
     }
   ]
 }

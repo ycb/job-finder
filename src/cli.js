@@ -2,9 +2,13 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-import { captureLinkedInSourceViaBridge } from "./browser-bridge/client.js";
+import {
+  captureLinkedInSourceViaBridge,
+  resolveBrowserBridgeBaseUrl
+} from "./browser-bridge/client.js";
 import { startBrowserBridgeServer } from "./browser-bridge/server.js";
 import {
+  addBuiltinSearchSource,
   addLinkedInCaptureSource,
   getSourceByIdOrName,
   loadAppConfig,
@@ -154,6 +158,8 @@ function runListSources() {
       } catch {
         captureStatus = "capture-unreadable";
       }
+    } else if (source.type === "builtin_search") {
+      captureStatus = "live-fetch";
     }
 
     console.log(
@@ -178,6 +184,15 @@ function runAddSource(label, searchUrl) {
   console.log(
     `Added source "${source.name}" with id=${source.id} and capturePath=${source.capturePath}`
   );
+}
+
+function runAddBuiltinSource(label, searchUrl) {
+  if (!label || !searchUrl) {
+    throw new Error("Usage: node src/cli.js add-builtin-source <label> <url>");
+  }
+
+  const source = addBuiltinSearchSource(label, searchUrl);
+  console.log(`Added Built In source "${source.name}" with id=${source.id}`);
 }
 
 function runSetSourceUrl(sourceIdOrName, searchUrl) {
@@ -224,6 +239,115 @@ function openUrlInBrowser(url) {
 
 function getDefaultSnapshotPath(source, baseDir = "output/playwright") {
   return path.resolve(baseDir, `${source.id}-snapshot.md`);
+}
+
+function isLinkedInSource(source) {
+  return source?.type === "linkedin_capture_file";
+}
+
+function isEnabledLinkedInSource(source) {
+  return source?.enabled && isLinkedInSource(source);
+}
+
+function getEnabledLinkedInSources() {
+  return loadSources().sources.filter((source) => isEnabledLinkedInSource(source));
+}
+
+function resolveLocalBridgePort(baseUrl) {
+  try {
+    const parsed = new URL(baseUrl);
+    const host = parsed.hostname.toLowerCase();
+
+    if (host !== "127.0.0.1" && host !== "localhost") {
+      return null;
+    }
+
+    const port = Number(parsed.port || (parsed.protocol === "https:" ? 443 : 80));
+    if (!Number.isInteger(port) || port <= 0) {
+      return null;
+    }
+
+    return port;
+  } catch {
+    return null;
+  }
+}
+
+async function isBridgeAvailable(baseUrl) {
+  try {
+    const response = await fetch(`${baseUrl}/health`, {
+      signal: AbortSignal.timeout(1_500)
+    });
+
+    if (!response.ok) {
+      return false;
+    }
+
+    const payload = await response.json();
+    return payload?.ok === true;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureBridgeForLinkedInSources(sources) {
+  const requiresBridge = Array.isArray(sources)
+    ? sources.some((source) => isLinkedInSource(source))
+    : false;
+
+  if (!requiresBridge) {
+    return null;
+  }
+
+  const baseUrl = resolveBrowserBridgeBaseUrl();
+  const available = await isBridgeAvailable(baseUrl);
+
+  if (available) {
+    return {
+      baseUrl,
+      started: false,
+      server: null
+    };
+  }
+
+  const port = resolveLocalBridgePort(baseUrl);
+  if (!port) {
+    throw new Error(
+      `LinkedIn intake requires a local browser bridge. Current bridge URL is ${baseUrl}. Set JOB_FINDER_BROWSER_BRIDGE_URL to http://127.0.0.1:<port> or start the bridge manually.`
+    );
+  }
+
+  const providerName = String(
+    process.env.JOB_FINDER_BRIDGE_PROVIDER || "chrome_applescript"
+  );
+
+  try {
+    const started = await startBrowserBridgeServer({ port, providerName });
+    console.log(
+      `Auto-started browser bridge at ${baseUrl} (provider=${started.provider}).`
+    );
+
+    return {
+      baseUrl,
+      started: true,
+      server: started.server
+    };
+  } catch (error) {
+    throw new Error(
+      `LinkedIn intake needs the browser bridge at ${baseUrl}, but auto-start failed (${error.message}). Start it manually with: node src/cli.js bridge-server ${port}`
+    );
+  }
+}
+
+async function stopAutoStartedBridge(bridgeSession) {
+  if (!bridgeSession?.started || !bridgeSession.server) {
+    return;
+  }
+
+  await new Promise((resolve) => {
+    bridgeSession.server.close(() => resolve());
+  });
+  console.log("Stopped auto-started browser bridge.");
 }
 
 function runOpenSource(sourceIdOrName) {
@@ -338,8 +462,21 @@ async function runCaptureSourceLive(sourceIdOrName, snapshotPathArg) {
   }
 
   const source = getSourceByIdOrName(sourceIdOrName);
+  if (source.type !== "linkedin_capture_file") {
+    throw new Error(
+      `capture-source-live only supports linkedin_capture_file sources. "${source.name}" is ${source.type}.`
+    );
+  }
+
+  const bridgeSession = await ensureBridgeForLinkedInSources([source]);
   const snapshotPath = path.resolve(snapshotPathArg || getDefaultSnapshotPath(source));
-  const result = await captureLinkedInSourceViaBridge(source, snapshotPath);
+  let result;
+
+  try {
+    result = await captureLinkedInSourceViaBridge(source, snapshotPath);
+  } finally {
+    await stopAutoStartedBridge(bridgeSession);
+  }
 
   if (result.status === "pending") {
     console.log(result.message || `Capture queued for "${source.name}".`);
@@ -356,39 +493,55 @@ async function runCaptureSourceLive(sourceIdOrName, snapshotPathArg) {
 }
 
 async function runCaptureAllLive(snapshotDirArg) {
-  const sources = loadSources().sources.filter(
-    (source) => source.enabled && source.type === "linkedin_capture_file"
-  );
+  const sources = getEnabledLinkedInSources();
 
   if (sources.length === 0) {
-    console.log("No enabled linkedin_capture_file sources.");
-    return;
+    console.log("No enabled LinkedIn live sources. Skipping live capture.");
+    return {
+      completed: 0,
+      pending: false,
+      skipped: true
+    };
   }
 
+  const bridgeSession = await ensureBridgeForLinkedInSources(sources);
   const snapshotDir = path.resolve(snapshotDirArg || "output/playwright");
   let completed = 0;
 
-  for (const source of sources) {
-    const snapshotPath = getDefaultSnapshotPath(source, snapshotDir);
-    const result = await captureLinkedInSourceViaBridge(source, snapshotPath);
+  try {
+    for (const source of sources) {
+      const snapshotPath = getDefaultSnapshotPath(source, snapshotDir);
+      const result = await captureLinkedInSourceViaBridge(source, snapshotPath);
 
-    if (result.status === "pending") {
-      console.log(result.message || `Capture queued for "${source.name}".`);
-      if (result.requestPath) {
-        console.log(`Request file: ${result.requestPath}`);
+      if (result.status === "pending") {
+        console.log(result.message || `Capture queued for "${source.name}".`);
+        if (result.requestPath) {
+          console.log(`Request file: ${result.requestPath}`);
+        }
+        console.log(`Snapshot path: ${result.snapshotPath}`);
+        console.log("Paused capture-all-live at the first source awaiting a fresh snapshot.");
+        return {
+          completed,
+          pending: true,
+          skipped: false
+        };
       }
-      console.log(`Snapshot path: ${result.snapshotPath}`);
-      console.log("Paused capture-all-live at the first source awaiting a fresh snapshot.");
-      return;
+
+      completed += 1;
+      console.log(
+        `Live-captured ${result.jobsImported} job(s) for "${source.name}" via ${result.provider || "bridge"}`
+      );
     }
 
-    completed += 1;
-    console.log(
-      `Live-captured ${result.jobsImported} job(s) for "${source.name}" via ${result.provider || "bridge"}`
-    );
+    console.log(`capture-all-live imported ${completed} source(s).`);
+    return {
+      completed,
+      pending: false,
+      skipped: false
+    };
+  } finally {
+    await stopAutoStartedBridge(bridgeSession);
   }
-
-  console.log(`capture-all-live imported ${completed} source(s).`);
 }
 
 async function runBridgeServer(portArg, providerArg) {
@@ -397,7 +550,9 @@ async function runBridgeServer(portArg, providerArg) {
     throw new Error("Bridge port must be a positive number.");
   }
 
-  const providerName = String(providerArg || process.env.JOB_FINDER_BRIDGE_PROVIDER || "noop");
+  const providerName = String(
+    providerArg || process.env.JOB_FINDER_BRIDGE_PROVIDER || "chrome_applescript"
+  );
   const { provider } = await startBrowserBridgeServer({
     port,
     providerName
@@ -428,19 +583,31 @@ async function runReview(portArg) {
   console.log("Open that URL in your browser. It will keep one reusable job tab in sync.");
 }
 
-function runPipeline() {
+async function runPipeline() {
+  const sources = loadSources().sources.filter((source) => source.enabled);
+  const hasLinkedIn = sources.some((source) => source.type === "linkedin_capture_file");
+
+  if (hasLinkedIn) {
+    const captureSummary = await runCaptureAllLive();
+
+    if (captureSummary?.pending) {
+      console.log(
+        "LinkedIn capture is pending manual snapshot handoff. Continuing with sync using current source data."
+      );
+    }
+  } else {
+    console.log("No enabled LinkedIn sources. Skipping browser capture.");
+  }
+
   runSync();
   runScore();
   runShortlist();
   runList(10);
+  console.log("Pipeline complete. Start the dashboard with: npm run review");
 }
 
 async function runLivePipeline() {
-  await runCaptureAllLive();
-  runSync();
-  runScore();
-  runShortlist();
-  runList(10);
+  await runPipeline();
 }
 
 function printHelp() {
@@ -453,6 +620,7 @@ Usage:
   node src/cli.js list [limit]
   node src/cli.js sources
   node src/cli.js add-source <label> <url>
+  node src/cli.js add-builtin-source <label> <url>
   node src/cli.js set-source-url <source-id-or-label> <url>
   node src/cli.js normalize-source-urls
   node src/cli.js open-source <source-id-or-label>
@@ -466,7 +634,7 @@ Usage:
   node src/cli.js mark <job-id> <status>
   node src/cli.js review [port]
   node src/cli.js run
-  node src/cli.js run-live
+  node src/cli.js run-live   (alias for run)
   `.trim());
 }
 
@@ -494,6 +662,9 @@ async function main() {
       break;
     case "add-source":
       runAddSource(args[0], args[1]);
+      break;
+    case "add-builtin-source":
+      runAddBuiltinSource(args[0], args[1]);
       break;
     case "set-source-url":
       runSetSourceUrl(args[0], args[1]);
@@ -532,7 +703,7 @@ async function main() {
       await runReview(args[0]);
       break;
     case "run":
-      runPipeline();
+      await runPipeline();
       break;
     case "run-live":
       await runLivePipeline();

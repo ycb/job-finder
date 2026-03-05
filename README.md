@@ -1,6 +1,6 @@
 # Job Finder
 
-*Job intelligence agent that turns LinkedIn saved searches into a ranked action queue.*
+*Job intelligence agent that turns saved searches into a ranked action queue.*
 
 ## Dashboard Preview
 
@@ -12,12 +12,12 @@ The dashboard is designed around the actual workflow:
 - review one de-duped, prioritized queue instead of duplicate listings
 - move completed applications out of the work queue and into a separate applied list
 
-Job Finder is an intelligence agent for turning noisy job discovery into a ranked action queue. Runs locally, uses Codex and Playwrght MCP.
+Job Finder is an intelligence agent for turning noisy job discovery into a ranked action queue. Runs locally, uses Codex and Playwright MCP.
 
 Instead of acting like another job board, generic scraper, or chat wrapper, it models your search as a repeatable system:
 
 - structured profile and preference inputs
-- named LinkedIn saved searches as reusable sources
+- named search sources (LinkedIn and Built In) as reusable inputs
 - browser-driven intake into a local database
 - deterministic fit scoring against your target criteria
 - a de-duped review queue with lightweight application tracking
@@ -28,15 +28,17 @@ The current implementation focuses on:
 
 - profile and source configuration
 - LinkedIn capture by named saved search
+- Built In SF search ingestion by URL
 - job intake into SQLite
 - deterministic scoring
 - shortlist generation
 - de-duped review and application tracking
 
-The current LinkedIn adapter supports two intake paths:
+The current intake adapters support:
 
-- live capture through the local browser bridge (`chrome_applescript` by default on macOS)
-- snapshot import from `output/playwright/<source-id>-snapshot.md` as a fallback
+- LinkedIn live capture through the local browser bridge (`chrome_applescript` by default on macOS)
+- LinkedIn snapshot import from `output/playwright/<source-id>-snapshot.md` as a fallback
+- Built In search ingestion directly from the configured search URL during `sync`
 
 The scoring and review pipeline stays stable across both.
 
@@ -55,19 +57,19 @@ That makes it a stronger demonstration of AI-native product thinking than a thin
 ## Current Workflow
 
 1. Define your profile and preferences in `config/profile.json`.
-2. Add labeled LinkedIn saved searches in `config/sources.json` or with the CLI.
-3. Run live capture against those saved searches.
-4. Score and de-dupe the results.
-5. Review the ranked queue, then mark jobs as applied or rejected with notes.
+2. Add labeled search sources in `config/sources.json` or with the CLI.
+3. Run `npm run run` to execute intake + scoring + shortlist generation.
+4. Open `npm run review` to inspect ranked jobs and attribution.
+5. Mark jobs as applied/rejected and refine sources based on outcomes.
 
 ## Setup
 
 1. Copy and edit `config/profile.example.json` to `config/profile.json`.
 2. Copy and edit `config/sources.example.json` to `config/sources.json`.
 3. Add named LinkedIn sources with `node src/cli.js add-source "<Label>" "<LinkedIn URL>"`.
-4. For the normal live workflow, start `npm run bridge` in one terminal.
-5. In another terminal, run `npm run run:live`.
-6. Open `npm run review` when you want the dashboard UI.
+4. Optionally add Built In sources with `node src/cli.js add-builtin-source "<Label>" "<Built In URL>"`.
+5. Run `npm run run` for the full pipeline. LinkedIn capture auto-starts a local bridge only when needed.
+6. Start `npm run review` when you want the dashboard UI (this is a separate long-running server process).
 
 Fallback snapshot workflow:
 
@@ -75,30 +77,32 @@ Fallback snapshot workflow:
 - run `npm run capture:all`
 - then run `npm run run`
 
-For the full automated daily path with a running browser bridge:
+For the full automated daily path:
 
 ```bash
-npm run bridge
-npm run run:live
+npm run run
 ```
 
 ## Commands
 
+- `npm run run` (recommended daily command; full pipeline)
+- `npm run run:live` (compatibility alias for `run`)
 - `npm run init`
 - `npm run sources`
+- `node src/cli.js add-source <label> <linkedin-url>`
+- `node src/cli.js add-builtin-source <label> <built-in-url>`
+- `node src/cli.js set-source-url <source-id-or-label> <url>`
 - `npm run capture -- <source-id-or-label> [snapshot-path]`
 - `npm run capture:all`
-- `npm run bridge`
 - `npm run capture:live -- <source-id-or-label> [snapshot-path]`
 - `npm run capture:all:live`
+- `npm run bridge`
 - `npm run sync`
 - `npm run score`
 - `npm run shortlist`
 - `npm run list`
 - `npm run mark -- <job-id> <status>`
 - `npm run review`
-- `npm run run`
-- `npm run run:live`
 
 ## Review Dashboard
 
@@ -107,10 +111,12 @@ npm run run:live
 The dashboard includes:
 
 - a profile summary with active and applied counts
-- a searchable list of named LinkedIn saved searches
+- a searchable list of named job search sources
+- per-source quality signals (`jobs found`, `applied`, `high signal %`, `avg score`)
 - per-search run controls (`Run`, `Run All`, `See Results`, `Edit`)
 - a de-duped ranked queue of actionable jobs (`new` and `viewed`)
 - a separate `Applied` list
+- per-job attribution showing which source/search URLs surfaced the role
 
 Jobs found in multiple searches are grouped into one review row and show which searches surfaced them.
 
@@ -125,7 +131,9 @@ Supported statuses: `new`, `viewed`, `applied`, `rejected`.
 
 ## Live Capture Notes
 
-The live capture commands require a running browser bridge service:
+LinkedIn sources require a browser bridge service. `npm run run` and dashboard `Run`/`Run All` auto-start a local bridge when needed.
+
+Manual bridge startup is still available:
 
 - Start it with `node src/cli.js bridge-server [port] [provider]`
 - Default port: `4315`

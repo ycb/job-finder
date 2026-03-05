@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { collectBuiltInJobsFromSearch } from "./builtin-jobs.js";
+
 function readSourceJson(filePath, errorLabel) {
   const resolvedPath = path.resolve(filePath);
 
@@ -266,6 +268,10 @@ export function collectJobsFromSource(source) {
 
   if (source.type === "linkedin_capture_file") {
     return collectLinkedInCaptureFile(source);
+  }
+
+  if (source.type === "builtin_search") {
+    return collectBuiltInJobsFromSearch(source);
   }
 
   throw new Error(`Unsupported source type: ${source.type}`);

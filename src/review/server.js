@@ -2,8 +2,13 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 
-import { captureLinkedInSourceViaBridge } from "../browser-bridge/client.js";
 import {
+  captureLinkedInSourceViaBridge,
+  resolveBrowserBridgeBaseUrl
+} from "../browser-bridge/client.js";
+import { startBrowserBridgeServer } from "../browser-bridge/server.js";
+import {
+  addBuiltinSearchSource,
   addLinkedInCaptureSource,
   loadProfile,
   loadSources,
@@ -55,6 +60,105 @@ function withDatabase(work) {
   } finally {
     db.close();
   }
+}
+
+let managedBridgeSession = null;
+
+function resolveLocalBridgePort(baseUrl) {
+  try {
+    const parsed = new URL(baseUrl);
+    const host = parsed.hostname.toLowerCase();
+
+    if (host !== "127.0.0.1" && host !== "localhost") {
+      return null;
+    }
+
+    const port = Number(parsed.port || (parsed.protocol === "https:" ? 443 : 80));
+    if (!Number.isInteger(port) || port <= 0) {
+      return null;
+    }
+
+    return port;
+  } catch {
+    return null;
+  }
+}
+
+async function isBridgeAvailable(baseUrl) {
+  try {
+    const response = await fetch(`${baseUrl}/health`, {
+      signal: AbortSignal.timeout(1_500)
+    });
+
+    if (!response.ok) {
+      return false;
+    }
+
+    const payload = await response.json();
+    return payload?.ok === true;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureBridgeForSources(sources) {
+  const requiresBridge = Array.isArray(sources)
+    ? sources.some(
+        (source) => source && source.type === "linkedin_capture_file"
+      )
+    : false;
+
+  if (!requiresBridge) {
+    return null;
+  }
+
+  const baseUrl = resolveBrowserBridgeBaseUrl();
+  if (await isBridgeAvailable(baseUrl)) {
+    return {
+      baseUrl,
+      started: false
+    };
+  }
+
+  if (managedBridgeSession?.baseUrl === baseUrl) {
+    return {
+      baseUrl,
+      started: true
+    };
+  }
+
+  const port = resolveLocalBridgePort(baseUrl);
+  if (!port) {
+    throw new Error(
+      `LinkedIn capture requires a local browser bridge. Current bridge URL is ${baseUrl}. Set JOB_FINDER_BROWSER_BRIDGE_URL to http://127.0.0.1:<port> or start the bridge manually.`
+    );
+  }
+
+  const providerName = String(
+    process.env.JOB_FINDER_BRIDGE_PROVIDER || "chrome_applescript"
+  );
+  const started = await startBrowserBridgeServer({ port, providerName });
+  managedBridgeSession = {
+    baseUrl,
+    server: started.server,
+    provider: started.provider
+  };
+  console.log(
+    `[review] Auto-started browser bridge at ${baseUrl} (provider=${started.provider}).`
+  );
+
+  process.once("exit", () => {
+    try {
+      managedBridgeSession?.server?.close();
+    } catch {
+      // noop
+    }
+  });
+
+  return {
+    baseUrl,
+    started: true
+  };
 }
 
 function summarizeBuckets(evaluations) {
@@ -150,6 +254,26 @@ function parseReasons(rawReasons) {
       : [];
   } catch {
     return [];
+  }
+}
+
+function isBuiltInJobsUrl(rawUrl) {
+  const urlText = String(rawUrl || "").trim();
+  if (!urlText) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(urlText);
+    const host = parsed.hostname.toLowerCase();
+
+    return (
+      host === "builtin.com" ||
+      host.endsWith(".builtin.com") ||
+      /^builtin[a-z0-9-]+\.com$/.test(host)
+    );
+  } catch {
+    return false;
   }
 }
 
@@ -310,6 +434,19 @@ async function runSourceCapture(sourceId) {
     throw new Error(`Source not found: ${sourceId}`);
   }
 
+  if (source.type !== "linkedin_capture_file") {
+    return {
+      capture: {
+        provider: "source_fetch",
+        status: "completed",
+        jobsImported: null,
+        message: `Synced source "${source.name}" via direct fetch.`
+      },
+      sync: runSyncAndScore()
+    };
+  }
+
+  await ensureBridgeForSources([source]);
   const capture = await captureLinkedInSourceViaBridge(source, buildSourceSnapshotPath(source));
   const sync = capture.status === "completed" ? runSyncAndScore() : null;
 
@@ -320,17 +457,29 @@ async function runSourceCapture(sourceId) {
 }
 
 async function runAllCaptures() {
-  const sources = loadSources().sources.filter(
-    (source) => source.enabled && source.type === "linkedin_capture_file"
-  );
+  const sources = loadSources().sources.filter((source) => source.enabled);
   const captures = [];
   let completedCount = 0;
 
+  await ensureBridgeForSources(sources);
+
   for (const source of sources) {
-    const capture = await captureLinkedInSourceViaBridge(
-      source,
-      buildSourceSnapshotPath(source)
-    );
+    let capture;
+
+    if (source.type === "linkedin_capture_file") {
+      capture = await captureLinkedInSourceViaBridge(
+        source,
+        buildSourceSnapshotPath(source)
+      );
+    } else {
+      capture = {
+        provider: "source_fetch",
+        status: "completed",
+        jobsImported: null,
+        message: `Source "${source.name}" will be fetched during sync.`
+      };
+    }
+
     captures.push({
       sourceId: source.id,
       sourceName: source.name,
@@ -359,17 +508,33 @@ function buildDashboardData(limit = 200) {
 
   const countsBySourceId = new Map();
 
-  for (const job of queue) {
+  for (const job of groupedQueue) {
     const sourceIds = Array.isArray(job.sourceIds) ? job.sourceIds : [];
     for (const sourceId of sourceIds) {
       const current = countsBySourceId.get(sourceId) || {
+        totalCount: 0,
         activeCount: 0,
-        highSignalCount: 0
+        appliedCount: 0,
+        highSignalCount: 0,
+        scoredCount: 0,
+        scoreTotal: 0
       };
 
-      current.activeCount += 1;
-      if (job.bucket === "high_signal") {
+      current.totalCount += 1;
+      if (job.status === "applied") {
+        current.appliedCount += 1;
+      } else {
+        current.activeCount += 1;
+      }
+
+      if (job.bucket === "high_signal" && job.status !== "applied") {
         current.highSignalCount += 1;
+      }
+
+      const scoreValue = Number(job.score);
+      if (Number.isFinite(scoreValue)) {
+        current.scoredCount += 1;
+        current.scoreTotal += scoreValue;
       }
 
       countsBySourceId.set(sourceId, current);
@@ -389,9 +554,18 @@ function buildDashboardData(limit = 200) {
     sources: sources.map((source) => {
       const capture = readCaptureSummary(source);
       const counts = countsBySourceId.get(source.id) || {
+        totalCount: 0,
         activeCount: 0,
-        highSignalCount: 0
+        appliedCount: 0,
+        highSignalCount: 0,
+        scoredCount: 0,
+        scoreTotal: 0
       };
+      const isFileBackedCapture = Boolean(source.capturePath);
+      const jobCount = isFileBackedCapture ? capture.jobCount : counts.totalCount;
+      const captureStatus = isFileBackedCapture ? capture.status : "live_source";
+      const avgScore =
+        counts.scoredCount > 0 ? Math.round(counts.scoreTotal / counts.scoredCount) : null;
 
       return {
         id: source.id,
@@ -401,11 +575,14 @@ function buildDashboardData(limit = 200) {
         type: source.type,
         capturePath: source.capturePath,
         capturedAt: capture.capturedAt,
-        jobCount: capture.jobCount,
+        jobCount,
         pageUrl: capture.pageUrl,
-        captureStatus: capture.status,
+        captureStatus,
+        totalCount: counts.totalCount,
         activeCount: counts.activeCount,
-        highSignalCount: counts.highSignalCount
+        appliedCount: counts.appliedCount,
+        highSignalCount: counts.highSignalCount,
+        avgScore
       };
     }),
     queue,
@@ -908,6 +1085,23 @@ function renderDashboardPage(dashboard) {
         return "new";
       }
 
+      function formatSourceType(value) {
+        const normalized = typeof value === "string" ? value.trim() : "";
+        if (!normalized) {
+          return "source";
+        }
+
+        if (normalized === "linkedin_capture_file") {
+          return "LinkedIn";
+        }
+
+        if (normalized === "builtin_search") {
+          return "Built In";
+        }
+
+        return normalized.replaceAll("_", " ");
+      }
+
       function reviewLinkLabel(job) {
         return job.reviewTarget && job.reviewTarget.mode === "search"
           ? "Open Search"
@@ -929,6 +1123,27 @@ function renderDashboardPage(dashboard) {
 
       function sourceById(sourceId) {
         return dashboard.sources.find((source) => source.id === sourceId) || null;
+      }
+
+      function sourceAttributions(job) {
+        return (Array.isArray(job?.sourceIds) ? job.sourceIds : [])
+          .map((sourceId) => sourceById(sourceId))
+          .filter(Boolean);
+      }
+
+      function sourceNames(job) {
+        return sourceAttributions(job).map((source) => source.name);
+      }
+
+      function formatPercent(numerator, denominator) {
+        const top = Number(numerator);
+        const bottom = Number(denominator);
+
+        if (!Number.isFinite(top) || !Number.isFinite(bottom) || bottom <= 0) {
+          return "0%";
+        }
+
+        return Math.round((top / bottom) * 100) + "%";
       }
 
       function setFeedback(message, isError = false) {
@@ -1168,11 +1383,19 @@ function renderDashboardPage(dashboard) {
             const safeName = escapeHtml(source.name);
             const safeUrl = escapeHtml(source.searchUrl);
             const lastRun = escapeHtml(formatTime(source.capturedAt));
+            const trackedTotal = Number(source.totalCount || source.jobCount || 0);
+            const highSignalLabel =
+              String(source.highSignalCount || 0) +
+              " (" +
+              formatPercent(source.highSignalCount || 0, trackedTotal) +
+              ")";
             const statusLabel =
               source.captureStatus === "ready"
                 ? "ready"
                 : source.captureStatus === "capture_error"
                   ? "capture error"
+                  : source.captureStatus === "live_source"
+                    ? "live source"
                   : "never run";
 
             return [
@@ -1181,7 +1404,9 @@ function renderDashboardPage(dashboard) {
               "  <td>" + lastRun + "</td>",
               "  <td>" + escapeHtml(statusLabel) + "</td>",
               "  <td>" + escapeHtml(source.jobCount) + "</td>",
-              "  <td>" + escapeHtml(source.highSignalCount) + "</td>",
+              "  <td>" + escapeHtml(source.appliedCount || 0) + "</td>",
+              "  <td>" + escapeHtml(highSignalLabel) + "</td>",
+              "  <td>" + escapeHtml(source.avgScore ?? "n/a") + "</td>",
               '  <td><div class="search-actions">' +
                 '<button class="' + (isActive ? "primary" : "secondary") + '" data-see-results="' + escapeHtml(source.id) + '">See Results</button>' +
                 '<button class="secondary" data-run-source="' + escapeHtml(source.id) + '"' + (busy ? " disabled" : "") + ">Run</button>" +
@@ -1195,10 +1420,7 @@ function renderDashboardPage(dashboard) {
         const queueItems = queue.length
           ? queue
               .map((item) => {
-                const sources = (Array.isArray(item.sourceIds) ? item.sourceIds : [])
-                  .map((sourceId) => sourceById(sourceId))
-                  .filter(Boolean);
-                const sourceNames = sources.map((source) => source.name);
+                const attributionNames = sourceNames(item);
                 const activeClass = item.id === selectedJobId ? " active" : "";
 
                 return [
@@ -1215,8 +1437,8 @@ function renderDashboardPage(dashboard) {
                     escapeHtml(formatBucket(item.bucket)) +
                     "</div>",
                   '  <div class="queue-item-summary">' + escapeHtml(item.summary || "No summary available.") + "</div>",
-                  sourceNames.length
-                    ? '  <div class="queue-item-meta">Found via ' + escapeHtml(sourceNames.join(", ")) + "</div>"
+                  attributionNames.length
+                    ? '  <div class="queue-item-meta">Found via ' + escapeHtml(attributionNames.join(", ")) + "</div>"
                     : "",
                   item.duplicateCount > 1
                     ? '  <div class="queue-item-meta">Seen in ' + escapeHtml(item.duplicateCount) + " searches</div>"
@@ -1238,10 +1460,7 @@ function renderDashboardPage(dashboard) {
         const appliedItems = appliedQueue.length
           ? appliedQueue
               .map((item) => {
-                const sources = (Array.isArray(item.sourceIds) ? item.sourceIds : [])
-                  .map((sourceId) => sourceById(sourceId))
-                  .filter(Boolean);
-                const sourceNames = sources.map((source) => source.name);
+                const attributionNames = sourceNames(item);
 
                 return [
                   '<div class="queue-item">',
@@ -1254,8 +1473,8 @@ function renderDashboardPage(dashboard) {
                     " · " +
                     escapeHtml(formatValue(item.location, "Location unknown")) +
                     "</div>",
-                  sourceNames.length
-                    ? '  <div class="queue-item-meta">Found via ' + escapeHtml(sourceNames.join(", ")) + "</div>"
+                  attributionNames.length
+                    ? '  <div class="queue-item-meta">Found via ' + escapeHtml(attributionNames.join(", ")) + "</div>"
                     : "",
                   item.notes
                     ? '  <div class="queue-item-summary">' + escapeHtml(item.notes) + "</div>"
@@ -1274,13 +1493,28 @@ function renderDashboardPage(dashboard) {
         const detailMarkup = job
           ? [
               (() => {
-                const sourceNames = (Array.isArray(job.sourceIds) ? job.sourceIds : [])
-                  .map((sourceId) => sourceById(sourceId))
-                  .filter(Boolean)
-                  .map((source) => source.name);
-                const sourceSummary = sourceNames.length
-                  ? sourceNames.join(", ")
+                const attributions = sourceAttributions(job);
+                const attributionNames = attributions.map((source) => source.name);
+                const sourceSummary = attributionNames.length
+                  ? attributionNames.join(", ")
                   : "No saved search linked";
+                const attributionList = attributions.length
+                  ? attributions
+                      .map((source) =>
+                        "<li>" +
+                          "<strong>" +
+                          escapeHtml(source.name) +
+                          "</strong>" +
+                          " · " +
+                          '<a href="' +
+                          encodeURI(source.searchUrl) +
+                          '" target="_blank" rel="noreferrer">Search URL</a>' +
+                          " · " +
+                          escapeHtml(formatSourceType(source.type)) +
+                          "</li>"
+                      )
+                      .join("")
+                  : "<li>No source attribution recorded for this job yet.</li>";
 
                 return [
                   '<div class="eyebrow">Review</div>',
@@ -1321,6 +1555,10 @@ function renderDashboardPage(dashboard) {
                   job.notes
                     ? '  <p class="muted" style="margin-top: 12px;">Latest note: ' + escapeHtml(job.notes) + "</p>"
                     : "",
+                  "</div>",
+                  '<div class="card" style="margin-top: 16px;">',
+                  '  <p class="section-label">Attribution</p>',
+                  '  <ul class="reason-list">' + attributionList + "</ul>",
                   "</div>",
                   '<div class="card" style="margin-top: 16px;">',
                   '  <p class="section-label">Role Snapshot</p>',
@@ -1367,7 +1605,7 @@ function renderDashboardPage(dashboard) {
           '      <p class="section-label">My Job Searches</p>',
           '      <div class="search-form">',
           '        <label>Name<input id="source-name" type="text" value="' + escapeHtml(formState.name) + '" placeholder="AI PM"></label>',
-          '        <label>LinkedIn Search URL<input id="source-url" type="text" value="' + escapeHtml(formState.searchUrl) + '" placeholder="https://www.linkedin.com/jobs/search-results/?keywords=..."></label>',
+          '        <label>Search URL<input id="source-url" type="text" value="' + escapeHtml(formState.searchUrl) + '" placeholder="https://www.linkedin.com/jobs/search-results/?keywords=... or https://www.builtinsf.com/jobs/..."></label>',
           '        <div class="inline-actions">',
           '          <button class="primary" id="save-source"' + (busy ? " disabled" : "") + ">" + escapeHtml(formState.actionLabel) + "</button>",
           (editingSourceId
@@ -1378,7 +1616,7 @@ function renderDashboardPage(dashboard) {
           '      <div class="subhead" style="margin-top: 12px;">Edit search labels and URLs here. Profile preferences stay file-based for now.</div>',
           '      <div style="margin-top: 16px; overflow-x: auto;">',
           '        <table>',
-          '          <thead><tr><th>Name / URL</th><th>Last Run</th><th>Status</th><th>Jobs Found</th><th>High Signal</th><th>Actions</th></tr></thead>',
+          '          <thead><tr><th>Name / URL</th><th>Last Run</th><th>Status</th><th>Jobs Found</th><th>Applied</th><th>High Signal</th><th>Avg Score</th><th>Actions</th></tr></thead>',
           '          <tbody>' + searchRows + "</tbody>",
           "        </table>",
           "      </div>",
@@ -1481,7 +1719,9 @@ export function startReviewServer({ port = 4311, limit = 200 } = {}) {
 
         const source = sourceId
           ? updateSourceDefinition(sourceId, { name, searchUrl })
-          : addLinkedInCaptureSource(name, searchUrl);
+          : isBuiltInJobsUrl(searchUrl)
+            ? addBuiltinSearchSource(name, searchUrl)
+            : addLinkedInCaptureSource(name, searchUrl);
 
         response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
         response.end(JSON.stringify({ ok: true, source }));

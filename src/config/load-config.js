@@ -149,6 +149,22 @@ function normalizeLinkedInSearchUrl(rawUrl) {
   return parsedUrl.toString();
 }
 
+function normalizeSearchUrlForSourceType(rawUrl, sourceType) {
+  const urlText = String(rawUrl || "").trim();
+  if (!urlText) {
+    return "";
+  }
+
+  if (
+    sourceType === "linkedin_capture_file" ||
+    sourceType === "mock_linkedin_saved_search"
+  ) {
+    return normalizeLinkedInSearchUrl(urlText);
+  }
+
+  return urlText;
+}
+
 export function updateSourceSearchUrl(
   sourceIdOrName,
   searchUrl,
@@ -171,9 +187,9 @@ export function updateSourceDefinition(
   const normalizedSourceIdOrName = String(sourceIdOrName || "").trim();
   const nextName =
     updates && typeof updates.name === "string" ? String(updates.name).trim() : null;
-  const nextSearchUrl =
+  const rawNextSearchUrl =
     updates && typeof updates.searchUrl === "string"
-      ? normalizeLinkedInSearchUrl(updates.searchUrl)
+      ? String(updates.searchUrl)
       : null;
 
   if (!normalizedSourceIdOrName) {
@@ -184,7 +200,7 @@ export function updateSourceDefinition(
     throw new Error("Source label is required.");
   }
 
-  if (nextSearchUrl !== null && !nextSearchUrl) {
+  if (rawNextSearchUrl !== null && !rawNextSearchUrl.trim()) {
     throw new Error("Search URL is required.");
   }
 
@@ -198,6 +214,10 @@ export function updateSourceDefinition(
   }
 
   const source = sources[sourceIndex];
+  const nextSearchUrl =
+    rawNextSearchUrl !== null
+      ? normalizeSearchUrlForSourceType(rawNextSearchUrl, source.type)
+      : null;
 
   if (nextName !== null) {
     const duplicateNameIndex = sources.findIndex((candidate, candidateIndex) => {
@@ -291,6 +311,56 @@ export function addLinkedInCaptureSource(
   return validated.sources[validated.sources.length - 1];
 }
 
+export function addBuiltinSearchSource(
+  name,
+  searchUrl,
+  sourcesPath = "config/sources.json"
+) {
+  const normalizedName = String(name || "").trim();
+  const normalizedSearchUrl = normalizeSearchUrlForSourceType(
+    searchUrl,
+    "builtin_search"
+  );
+
+  if (!normalizedName) {
+    throw new Error("Source label is required.");
+  }
+
+  if (!normalizedSearchUrl) {
+    throw new Error("Search URL is required.");
+  }
+
+  const { resolvedPath, data } = readJsonFileWithPath(sourcesPath);
+  const sources = requireSourcesArray(data, resolvedPath);
+
+  const duplicateNameIndex = findSourceIndexByIdOrName(sources, normalizedName);
+  if (duplicateNameIndex !== -1) {
+    throw new Error(`A source with that label already exists: ${normalizedName}`);
+  }
+
+  const baseId = slugifySourceId(normalizedName);
+  let sourceId = baseId;
+  let suffix = 2;
+
+  while (sources.some((source) => source && source.id === sourceId)) {
+    sourceId = `${baseId}-${suffix}`;
+    suffix += 1;
+  }
+
+  sources.push({
+    id: sourceId,
+    name: normalizedName,
+    type: "builtin_search",
+    enabled: true,
+    searchUrl: normalizedSearchUrl
+  });
+
+  const validated = validateSources(data);
+  fs.writeFileSync(resolvedPath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+
+  return validated.sources[validated.sources.length - 1];
+}
+
 export function normalizeAllSourceSearchUrls(sourcesPath = "config/sources.json") {
   const { resolvedPath, data } = readJsonFileWithPath(sourcesPath);
   const sources = requireSourcesArray(data, resolvedPath);
@@ -302,7 +372,7 @@ export function normalizeAllSourceSearchUrls(sourcesPath = "config/sources.json"
       continue;
     }
 
-    const nextUrl = normalizeLinkedInSearchUrl(source.searchUrl);
+    const nextUrl = normalizeSearchUrlForSourceType(source.searchUrl, source.type);
     if (nextUrl && nextUrl !== source.searchUrl) {
       source.searchUrl = nextUrl;
       changed += 1;

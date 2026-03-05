@@ -133,8 +133,7 @@ export function listReviewQueue(db, limit = 100) {
       FROM jobs j
       LEFT JOIN evaluations e ON e.job_id = j.id
       LEFT JOIN applications a ON a.job_id = j.id
-      WHERE j.source = 'linkedin_capture_file'
-        AND COALESCE(a.status, 'new') != 'rejected'
+      WHERE COALESCE(a.status, 'new') != 'rejected'
       ORDER BY
         COALESCE(e.score, -1) DESC,
         COALESCE(j.posted_at, j.created_at) DESC
@@ -216,8 +215,7 @@ export function markApplicationStatusByNormalizedHash(
       `
       SELECT id
       FROM jobs
-      WHERE normalized_hash = ?
-        AND source = 'linkedin_capture_file';
+      WHERE normalized_hash = ?;
     `
     )
     .all(normalizedHash);

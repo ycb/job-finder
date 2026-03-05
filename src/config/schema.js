@@ -94,7 +94,8 @@ export function validateSources(raw) {
       const type = assertString(source.type, `Sources.sources[${index}].type`);
       const allowedTypes = new Set([
         "mock_linkedin_saved_search",
-        "linkedin_capture_file"
+        "linkedin_capture_file",
+        "builtin_search"
       ]);
       if (!allowedTypes.has(type)) {
         throw new Error(
@@ -125,6 +126,31 @@ export function validateSources(raw) {
           source.capturePath,
           `Sources.sources[${index}].capturePath`
         );
+      }
+
+      if (type === "builtin_search") {
+        if (source.maxJobs !== undefined) {
+          if (!Number.isInteger(source.maxJobs) || source.maxJobs <= 0) {
+            throw new Error(
+              `Sources.sources[${index}].maxJobs must be a positive integer when provided.`
+            );
+          }
+
+          normalizedSource.maxJobs = source.maxJobs;
+        }
+
+        if (source.requestTimeoutMs !== undefined) {
+          if (
+            !Number.isFinite(source.requestTimeoutMs) ||
+            source.requestTimeoutMs < 1_000
+          ) {
+            throw new Error(
+              `Sources.sources[${index}].requestTimeoutMs must be at least 1000 when provided.`
+            );
+          }
+
+          normalizedSource.requestTimeoutMs = Math.round(source.requestTimeoutMs);
+        }
       }
 
       return normalizedSource;
