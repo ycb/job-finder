@@ -156,6 +156,31 @@ node src/cli.js profile-source
 
 Or switch in the `Profile` tab in the review dashboard.
 
+## Scoring (First-Pass Programmatic)
+
+Scoring is deterministic and profile-driven. Each job is evaluated into `high_signal`, `review_later`, or `reject`.
+
+Base fit signals:
+
+- title family + seniority alignment
+- location/work-type alignment
+- salary floor alignment
+- target company / specialty / industry alignment
+
+Programmatic upgrades in this pass:
+
+- hard filters for explicit deal-breakers (excluded keywords, salary/work-type deal-breakers)
+- freshness adjustment from `posted_at` when available
+- data confidence score based on source completeness
+- source-quality bonus (better-structured sources score slightly higher)
+- history-aware adjustment from your prior outcomes (`applied`, `rejected`, `skip_for_now`) at company level
+
+What the score is used for:
+
+- rank ordering in `Jobs > Active`
+- bucket assignment (`high_signal`, `review_later`, `reject`)
+- per-source quality rollups in `Searches` (high signal %, average score)
+
 ## Status values
 
 Supported statuses: `new`, `viewed`, `applied`, `skip_for_now`, `rejected`.
