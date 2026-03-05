@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import {
+  collectAshbyJobsFromSearch,
   extractAshbyBoardUrlsFromGoogleHtml,
   parseAshbySearchHtml,
   parseGoogleSearchQuery
@@ -60,4 +64,42 @@ test("parseGoogleSearchQuery reads q from google search URL", () => {
     "https://www.google.com/search?q=site%3Aashbyhq.com+%22product+manager%22+%22San+Francisco%22+%22AI%22"
   );
   assert.equal(query, 'site:ashbyhq.com "product manager" "San Francisco" "AI"');
+});
+
+test("collectAshbyJobsFromSearch returns empty when capturePath exists but has no jobs", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-finder-ashby-"));
+
+  try {
+    const capturePath = path.join(tempDir, "ashby-capture.json");
+    fs.writeFileSync(
+      capturePath,
+      `${JSON.stringify(
+        {
+          sourceId: "ashby-source",
+          sourceName: "Ashby Source",
+          searchUrl:
+            "https://www.google.com/search?q=site%3Aashbyhq.com+%22product+manager%22",
+          capturedAt: "2026-03-05T00:00:00.000Z",
+          jobs: []
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const jobs = collectAshbyJobsFromSearch({
+      id: "ashby-source",
+      name: "Ashby Source",
+      type: "ashby_search",
+      enabled: true,
+      searchUrl:
+        "https://www.google.com/search?q=site%3Aashbyhq.com+%22product+manager%22",
+      capturePath
+    });
+
+    assert.deepEqual(jobs, []);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });

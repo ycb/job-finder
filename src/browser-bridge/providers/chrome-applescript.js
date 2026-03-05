@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 
+import { writeAshbyCaptureFile } from "../../sources/ashby-jobs.js";
 import { writeLinkedInCaptureFile } from "../../sources/linkedin-saved-search.js";
 import { writeWellfoundCaptureFile } from "../../sources/wellfound-jobs.js";
 
@@ -455,6 +456,272 @@ function readWellfoundJobsFromChrome(searchUrl, options = {}) {
   throw new Error("Could not extract Wellfound jobs from the active Chrome tab.");
 }
 
+function buildAshbyExtractionScript() {
+  return `
+(() => {
+  const normalize = (value) => typeof value === "string"
+    ? value.replace(/\\s+/g, " ").trim()
+    : "";
+
+  const toAbsoluteUrl = (href) => {
+    const value = normalize(href);
+    if (!value) return "";
+    try {
+      return new URL(value, location.origin).toString();
+    } catch {
+      return value;
+    }
+  };
+
+  const decodeGoogleRedirect = (href) => {
+    const absolute = toAbsoluteUrl(href);
+    if (!absolute) return "";
+    try {
+      const parsed = new URL(absolute);
+      if (!/google\\./i.test(parsed.hostname)) {
+        return absolute;
+      }
+      const redirect = parsed.searchParams.get("q") || parsed.searchParams.get("url");
+      if (!redirect) {
+        return absolute;
+      }
+      return toAbsoluteUrl(decodeURIComponent(redirect));
+    } catch {
+      return absolute;
+    }
+  };
+
+  const extractExternalId = (url) => {
+    const match = String(url || "").match(/\\/([a-f0-9]{24,}|[0-9]{5,})(?:[/?#]|$)/i);
+    return match ? match[1] : "";
+  };
+
+  const titleLooksValid = (value) => {
+    const text = normalize(value);
+    if (!text || text.length < 4 || text.length > 220) {
+      return false;
+    }
+    const lowered = text.toLowerCase();
+    const blocked = new Set(["apply", "learn more", "view all", "all jobs", "careers", "home"]);
+    if (blocked.has(lowered)) {
+      return false;
+    }
+    return /[a-z]/i.test(text);
+  };
+
+  const companyFromUrl = (url) => {
+    try {
+      const parsed = new URL(url);
+      if (parsed.hostname.toLowerCase() === "jobs.ashbyhq.com") {
+        const segment = parsed.pathname.split("/").filter(Boolean)[0] || "";
+        return normalize(segment.replace(/[-_]+/g, " "));
+      }
+
+      const hostPrefix = parsed.hostname.split(".")[0] || "";
+      return normalize(hostPrefix.replace(/[-_]+/g, " "));
+    } catch {
+      return "";
+    }
+  };
+
+  const jobs = [];
+  const seen = new Set();
+
+  const pushJob = ({
+    title,
+    company,
+    location,
+    postedAt,
+    employmentType,
+    salaryText,
+    summary,
+    description,
+    url
+  }) => {
+    const normalizedTitle = normalize(title);
+    const normalizedCompany = normalize(company);
+    const normalizedUrl = toAbsoluteUrl(url).replace(/[?#].*$/, "");
+
+    if (!titleLooksValid(normalizedTitle) || !normalizedCompany || !normalizedUrl) {
+      return;
+    }
+
+    if (!/ashbyhq\\.com/i.test(normalizedUrl)) {
+      return;
+    }
+
+    const externalId = extractExternalId(normalizedUrl) || null;
+    const dedupeKey = (externalId ? "ashby:" + externalId : normalizedUrl.toLowerCase());
+    if (seen.has(dedupeKey)) {
+      return;
+    }
+    seen.add(dedupeKey);
+
+    const normalizedSummary = normalize(summary || description || normalizedTitle);
+    const normalizedDescription = normalize(description || summary || normalizedTitle);
+
+    jobs.push({
+      externalId,
+      title: normalizedTitle,
+      company: normalizedCompany,
+      location: normalize(location) || null,
+      postedAt: normalize(postedAt) || null,
+      employmentType: normalize(employmentType) || null,
+      easyApply: false,
+      salaryText: normalize(salaryText) || null,
+      summary: normalizedSummary.slice(0, 500),
+      description: normalizedDescription || normalizedSummary,
+      url: normalizedUrl
+    });
+  };
+
+  const pageTitle = normalize(document.title || "")
+    .replace(/^jobs at\\s*/i, "")
+    .replace(/^open roles at\\s*/i, "")
+    .replace(/\\s*\\|.*$/, "");
+
+  const nextData = document.querySelector('#__NEXT_DATA__');
+  if (nextData && nextData.textContent) {
+    try {
+      const parsed = JSON.parse(nextData.textContent);
+      const queue = [parsed];
+
+      while (queue.length > 0) {
+        const next = queue.shift();
+        if (!next || typeof next !== "object") {
+          continue;
+        }
+
+        if (Array.isArray(next)) {
+          queue.push(...next);
+          continue;
+        }
+
+        const title = normalize(next.title || next.name || next.jobTitle || "");
+        const url = normalize(
+          next.jobUrl ||
+          next.absoluteUrl ||
+          next.url ||
+          next.applyUrl ||
+          next.canonicalUrl ||
+          next.slug ||
+          next.jobSlug ||
+          ""
+        );
+
+        if (title && url) {
+          pushJob({
+            title,
+            company:
+              normalize(
+                next.companyName ||
+                next.organizationName ||
+                next.company ||
+                next.organization ||
+                pageTitle ||
+                companyFromUrl(url)
+              ) || "Unknown company",
+            location: normalize(
+              next.locationName ||
+              next.location?.name ||
+              next.location ||
+              next.workplaceType ||
+              ""
+            ),
+            postedAt: normalize(next.publishedAt || next.postedAt || next.createdAt || ""),
+            employmentType: normalize(next.employmentType || next.commitment || ""),
+            salaryText: normalize(next.salaryText || next.compensationText || ""),
+            summary: normalize(next.summary || next.description || title),
+            description: normalize(next.description || next.summary || title),
+            url
+          });
+        }
+
+        for (const value of Object.values(next)) {
+          if (value && typeof value === "object") {
+            queue.push(value);
+          }
+        }
+      }
+    } catch {
+      // noop
+    }
+  }
+
+  const anchors = Array.from(document.querySelectorAll("a[href]"));
+  for (const anchor of anchors) {
+    const hrefRaw = anchor.getAttribute("href") || "";
+    const hrefResolved = decodeGoogleRedirect(hrefRaw);
+    if (!/ashbyhq\\.com/i.test(hrefResolved)) {
+      continue;
+    }
+
+    const title = normalize(anchor.innerText || anchor.textContent || "");
+    if (!titleLooksValid(title)) {
+      continue;
+    }
+
+    const card = anchor.closest("article, li, div") || anchor.parentElement;
+    const text = normalize(card?.innerText || card?.textContent || "");
+
+    pushJob({
+      title,
+      company: pageTitle || companyFromUrl(hrefResolved) || "Unknown company",
+      summary: text || title,
+      description: text || title,
+      url: hrefResolved
+    });
+  }
+
+  return JSON.stringify({
+    pageUrl: location.href,
+    capturedAt: new Date().toISOString(),
+    jobs
+  });
+})()
+  `.trim();
+}
+
+function readAshbyJobsFromChrome(searchUrl, options = {}) {
+  navigateFrontTab(searchUrl);
+
+  const settleMs = Number(options.settleMs) > 0 ? Number(options.settleMs) : 3000;
+  const maxAttempts = Number(options.maxAttempts) > 0 ? Number(options.maxAttempts) : 6;
+  const attemptDelayMs =
+    Number(options.attemptDelayMs) > 0 ? Number(options.attemptDelayMs) : 1200;
+  const extractionScript = buildAshbyExtractionScript();
+
+  sleepSync(settleMs);
+
+  let lastPayload = null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const raw = executeInFrontTab(extractionScript);
+    let payload;
+
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      payload = null;
+    }
+
+    if (payload && Array.isArray(payload.jobs)) {
+      lastPayload = payload;
+      if (payload.jobs.length > 0) {
+        return payload;
+      }
+    }
+
+    sleepSync(attemptDelayMs);
+  }
+
+  if (lastPayload && Array.isArray(lastPayload.jobs)) {
+    return lastPayload;
+  }
+
+  throw new Error("Could not extract Ashby jobs from the active Chrome tab.");
+}
+
 export function captureLinkedInSourceWithChromeAppleScript(
   source,
   _snapshotPath,
@@ -497,6 +764,27 @@ export function captureWellfoundSourceWithChromeAppleScript(
   };
 }
 
+export function captureAshbySourceWithChromeAppleScript(
+  source,
+  _snapshotPath,
+  options = {}
+) {
+  if (!source || source.type !== "ashby_search") {
+    throw new Error("Chrome AppleScript capture requires an ashby_search source.");
+  }
+
+  const payload = readAshbyJobsFromChrome(source.searchUrl, options);
+
+  return {
+    ...writeAshbyCaptureFile(source, payload.jobs, {
+      capturedAt: payload.capturedAt,
+      pageUrl: payload.pageUrl
+    }),
+    provider: "chrome_applescript",
+    status: "completed"
+  };
+}
+
 export function captureSourceWithChromeAppleScript(source, snapshotPath, options = {}) {
   if (source?.type === "linkedin_capture_file") {
     return captureLinkedInSourceWithChromeAppleScript(source, snapshotPath, options);
@@ -506,7 +794,11 @@ export function captureSourceWithChromeAppleScript(source, snapshotPath, options
     return captureWellfoundSourceWithChromeAppleScript(source, snapshotPath, options);
   }
 
+  if (source?.type === "ashby_search") {
+    return captureAshbySourceWithChromeAppleScript(source, snapshotPath, options);
+  }
+
   throw new Error(
-    `Chrome AppleScript provider currently supports linkedin_capture_file and wellfound_search. "${source?.name || "unknown"}" is ${source?.type || "unknown"}.`
+    `Chrome AppleScript provider currently supports linkedin_capture_file, wellfound_search, and ashby_search. "${source?.name || "unknown"}" is ${source?.type || "unknown"}.`
   );
 }

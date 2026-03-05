@@ -211,7 +211,9 @@ function runListSources() {
     let captureStatus = "no-capture";
 
     if (
-      (source.type === "linkedin_capture_file" || source.type === "wellfound_search") &&
+      (source.type === "linkedin_capture_file" ||
+        source.type === "wellfound_search" ||
+        source.type === "ashby_search") &&
       source.capturePath
     ) {
       try {
@@ -225,10 +227,7 @@ function runListSources() {
       } catch {
         captureStatus = "capture-unreadable";
       }
-    } else if (
-      source.type === "builtin_search" ||
-      source.type === "ashby_search"
-    ) {
+    } else if (source.type === "builtin_search") {
       captureStatus = "live-fetch";
     }
 
@@ -337,8 +336,12 @@ function isWellfoundSource(source) {
   return source?.type === "wellfound_search";
 }
 
+function isAshbySource(source) {
+  return source?.type === "ashby_search";
+}
+
 function isBrowserCaptureSource(source) {
-  return isLinkedInSource(source) || isWellfoundSource(source);
+  return isLinkedInSource(source) || isWellfoundSource(source) || isAshbySource(source);
 }
 
 function isEnabledLinkedInSource(source) {
@@ -570,7 +573,7 @@ async function runCaptureSourceLive(sourceIdOrName, snapshotPathArg) {
   const source = getSourceByIdOrName(sourceIdOrName);
   if (!isBrowserCaptureSource(source)) {
     throw new Error(
-      `capture-source-live supports linkedin_capture_file and wellfound_search sources. "${source.name}" is ${source.type}.`
+      `capture-source-live supports linkedin_capture_file, wellfound_search, and ashby_search sources. "${source.name}" is ${source.type}.`
     );
   }
 
@@ -602,7 +605,9 @@ async function runCaptureAllLive(snapshotDirArg) {
   const sources = getEnabledBrowserCaptureSources();
 
   if (sources.length === 0) {
-    console.log("No enabled LinkedIn/Wellfound browser-capture sources. Skipping live capture.");
+    console.log(
+      "No enabled LinkedIn/Wellfound/Ashby browser-capture sources. Skipping live capture."
+    );
     return {
       completed: 0,
       pending: false,
@@ -702,7 +707,7 @@ async function runPipeline() {
       );
     }
   } else {
-    console.log("No enabled LinkedIn/Wellfound sources. Skipping browser capture.");
+    console.log("No enabled LinkedIn/Wellfound/Ashby sources. Skipping browser capture.");
   }
 
   runSync();

@@ -381,7 +381,7 @@ function ensureDerivedSourceMetadata(raw, resolvedPath) {
       continue;
     }
 
-    if (source.type !== "wellfound_search") {
+    if (source.type !== "wellfound_search" && source.type !== "ashby_search") {
       continue;
     }
 
@@ -457,7 +457,9 @@ function requireSourcesArray(raw, resolvedPath) {
 function syncCaptureFileMetadata(source) {
   if (
     !source ||
-    (source.type !== "linkedin_capture_file" && source.type !== "wellfound_search")
+    (source.type !== "linkedin_capture_file" &&
+      source.type !== "wellfound_search" &&
+      source.type !== "ashby_search")
   ) {
     return;
   }
@@ -748,7 +750,7 @@ function addLiveFetchSource(
     searchUrl: normalizedSearchUrl
   };
 
-  if (type === "wellfound_search") {
+  if (type === "wellfound_search" || type === "ashby_search") {
     const capturesDir = path.resolve(path.dirname(resolvedPath), "..", "data", "captures");
     fs.mkdirSync(capturesDir, { recursive: true });
     const capturePath = path.join(capturesDir, `${sourceId}.json`);

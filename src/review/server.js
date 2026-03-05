@@ -111,7 +111,9 @@ async function ensureBridgeForSources(sources) {
     ? sources.some(
         (source) =>
           source &&
-          (source.type === "linkedin_capture_file" || source.type === "wellfound_search")
+          (source.type === "linkedin_capture_file" ||
+            source.type === "wellfound_search" ||
+            source.type === "ashby_search")
       )
     : false;
 
@@ -487,7 +489,11 @@ function buildSourceSnapshotPath(source) {
 }
 
 function isBrowserCaptureSource(source) {
-  return source?.type === "linkedin_capture_file" || source?.type === "wellfound_search";
+  return (
+    source?.type === "linkedin_capture_file" ||
+    source?.type === "wellfound_search" ||
+    source?.type === "ashby_search"
+  );
 }
 
 function runSyncAndScore() {

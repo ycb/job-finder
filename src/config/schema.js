@@ -331,7 +331,10 @@ export function validateSources(raw) {
         );
       }
 
-      if (type === "wellfound_search" && source.capturePath !== undefined) {
+      if (
+        (type === "wellfound_search" || type === "ashby_search") &&
+        source.capturePath !== undefined
+      ) {
         normalizedSource.capturePath = assertString(
           source.capturePath,
           `Sources.sources[${index}].capturePath`
