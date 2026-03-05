@@ -1,3 +1,5 @@
+import { normalizeStoredJobForDedupe } from "../jobs/normalize.js";
+
 function hasColumn(db, tableName, columnName) {
   const rows = db.prepare(`PRAGMA table_info(${tableName});`).all();
   return rows.some((row) => row?.name === columnName);
@@ -6,6 +8,60 @@ function hasColumn(db, tableName, columnName) {
 function addColumnIfMissing(db, tableName, columnName, definitionSql) {
   if (!hasColumn(db, tableName, columnName)) {
     db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definitionSql};`);
+  }
+}
+
+function backfillJobNormalization(db) {
+  const rows = db
+    .prepare(
+      `
+      SELECT
+        id,
+        source,
+        source_id,
+        source_url,
+        external_id,
+        title,
+        company,
+        location,
+        normalized_hash
+      FROM jobs;
+    `
+    )
+    .all();
+
+  const update = db.prepare(`
+    UPDATE jobs
+    SET
+      external_id = ?,
+      company = ?,
+      location = ?,
+      normalized_hash = ?
+    WHERE id = ?;
+  `);
+
+  for (const row of rows) {
+    const normalized = normalizeStoredJobForDedupe(row);
+    if (!normalized?.normalizedHash) {
+      continue;
+    }
+
+    const nextExternalId = normalized.externalId || null;
+    const nextCompany = normalized.company || row.company;
+    const nextLocation = normalized.location || null;
+    const nextHash = normalized.normalizedHash;
+
+    const changed =
+      String(row.external_id || "") !== String(nextExternalId || "") ||
+      String(row.company || "") !== String(nextCompany || "") ||
+      String(row.location || "") !== String(nextLocation || "") ||
+      String(row.normalized_hash || "") !== String(nextHash || "");
+
+    if (!changed) {
+      continue;
+    }
+
+    update.run(nextExternalId, nextCompany, nextLocation, nextHash, row.id);
   }
 }
 
@@ -64,4 +120,5 @@ export function runMigrations(db) {
   addColumnIfMissing(db, "evaluations", "confidence", "INTEGER");
   addColumnIfMissing(db, "evaluations", "freshness_days", "INTEGER");
   addColumnIfMissing(db, "evaluations", "hard_filtered", "INTEGER NOT NULL DEFAULT 0");
+  backfillJobNormalization(db);
 }

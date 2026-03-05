@@ -12,6 +12,125 @@ function hashValue(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
 }
 
+function parseUrlSafe(rawUrl) {
+  try {
+    return new URL(String(rawUrl || "").trim());
+  } catch {
+    return null;
+  }
+}
+
+function hostLooksLikeLinkedIn(hostname) {
+  const host = String(hostname || "").toLowerCase();
+  return host === "linkedin.com" || host.endsWith(".linkedin.com");
+}
+
+function extractLinkedInJobIdFromUrl(rawUrl) {
+  const parsed = parseUrlSafe(rawUrl);
+  if (!parsed) {
+    return "";
+  }
+
+  const pathMatch = parsed.pathname.match(/\/jobs\/view\/(\d+)/i);
+  if (pathMatch?.[1]) {
+    return pathMatch[1];
+  }
+
+  const paramId = parsed.searchParams.get("currentJobId") || parsed.searchParams.get("jobId");
+  if (paramId && /^\d+$/.test(paramId)) {
+    return paramId;
+  }
+
+  return "";
+}
+
+function canonicalizeSourceUrl(rawUrl) {
+  const parsed = parseUrlSafe(rawUrl);
+  if (!parsed) {
+    return normalizeText(rawUrl);
+  }
+
+  parsed.hash = "";
+
+  if (hostLooksLikeLinkedIn(parsed.hostname)) {
+    const linkedInId = extractLinkedInJobIdFromUrl(parsed.toString());
+    if (linkedInId) {
+      return `https://www.linkedin.com/jobs/view/${linkedInId}/`;
+    }
+  }
+
+  parsed.search = "";
+  return parsed.toString();
+}
+
+function normalizeCompanyAndLocation(title, company, location) {
+  const normalizedTitle = normalizeText(title);
+  const normalizedCompany = normalizeText(company);
+  const normalizedLocation = normalizeText(location);
+
+  if (
+    normalizedCompany &&
+    normalizedLocation &&
+    normalizedCompany.toLowerCase() === normalizedTitle.toLowerCase()
+  ) {
+    return {
+      company: normalizedLocation,
+      location: null
+    };
+  }
+
+  return {
+    company: normalizedCompany,
+    location: normalizedLocation || null
+  };
+}
+
+function inferExternalId(externalId, sourceUrl, sourceType) {
+  const normalizedExternalId = normalizeText(externalId);
+  if (normalizedExternalId) {
+    return normalizedExternalId;
+  }
+
+  if (sourceType === "linkedin_capture_file") {
+    return extractLinkedInJobIdFromUrl(sourceUrl) || null;
+  }
+
+  return null;
+}
+
+function buildJobIdentity({ sourceType, sourceId, sourceUrl, externalId, title, company, location }) {
+  const canonicalSourceUrl = canonicalizeSourceUrl(sourceUrl);
+  const inferredExternalId = inferExternalId(externalId, canonicalSourceUrl || sourceUrl, sourceType);
+  const normalizedRole = normalizeCompanyAndLocation(title, company, location);
+  const roleSeed = `${normalizedRole.company.toLowerCase()}|${normalizeText(title).toLowerCase()}`;
+
+  let dedupeSeed = "";
+  if (sourceType === "linkedin_capture_file") {
+    // Keep LinkedIn dedupe stable across legacy captures (no external id)
+    // and newer captures that include `/jobs/view/{id}` URLs.
+    dedupeSeed = `linkedin:${roleSeed}`;
+  } else if (inferredExternalId) {
+    dedupeSeed = `${sourceType}:external:${inferredExternalId.toLowerCase()}`;
+  } else if (canonicalSourceUrl && !/\/jobs\/search-results\//i.test(canonicalSourceUrl)) {
+    dedupeSeed = `url:${canonicalSourceUrl.toLowerCase()}`;
+  } else {
+    dedupeSeed = `fallback:${roleSeed}`;
+  }
+
+  const recordKey = inferredExternalId
+    ? `external:${inferredExternalId}`
+    : canonicalSourceUrl || `${normalizeText(title)}|${normalizedRole.company}|${sourceId}`;
+
+  return {
+    id: hashValue(`${sourceId}|${recordKey}`),
+    externalId: inferredExternalId,
+    sourceUrl: canonicalSourceUrl || normalizeText(sourceUrl),
+    company: normalizedRole.company,
+    location: normalizedRole.location,
+    normalizedHash: hashValue(dedupeSeed)
+  };
+}
+
 function parsePostedAt(value) {
   const raw = normalizeText(value);
   if (!raw) {
@@ -68,26 +187,44 @@ export function normalizeJobRecord(rawJob, source) {
 
   const now = new Date().toISOString();
   const retrievedAt = normalizeText(rawJob.retrievedAt) || now;
-  const normalizedHash = hashValue(
-    `${company.toLowerCase()}|${title.toLowerCase()}|${location.toLowerCase()}`
-  );
-
-  return {
-    id: hashValue(`${source.id}|${sourceUrl}`),
-    source: source.type,
+  const identity = buildJobIdentity({
+    sourceType: source.type,
     sourceId: source.id,
     sourceUrl,
-    externalId: normalizeText(rawJob.externalId) || null,
+    externalId: rawJob.externalId,
     title,
     company,
-    location: location || null,
+    location
+  });
+
+  return {
+    id: identity.id,
+    source: source.type,
+    sourceId: source.id,
+    sourceUrl: identity.sourceUrl,
+    externalId: identity.externalId,
+    title,
+    company: identity.company,
+    location: identity.location,
     postedAt: parsePostedAt(rawJob.postedAt),
     employmentType: normalizeText(rawJob.employmentType) || null,
     easyApply: Boolean(rawJob.easyApply),
     salaryText: normalizeText(rawJob.salaryText) || null,
     description,
-    normalizedHash,
+    normalizedHash: identity.normalizedHash,
     createdAt: now,
     updatedAt: retrievedAt
   };
+}
+
+export function normalizeStoredJobForDedupe(job) {
+  return buildJobIdentity({
+    sourceType: job.source,
+    sourceId: job.source_id || job.sourceId || "",
+    sourceUrl: job.source_url || job.sourceUrl || "",
+    externalId: job.external_id || job.externalId || "",
+    title: job.title || "",
+    company: job.company || "",
+    location: job.location || ""
+  });
 }

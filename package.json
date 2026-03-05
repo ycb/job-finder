@@ -18,6 +18,7 @@
     "mark": "node src/cli.js mark",
     "review": "node src/cli.js review",
     "run": "node src/cli.js run",
-    "run:live": "node src/cli.js run-live"
+    "run:live": "node src/cli.js run-live",
+    "test": "node --test"
   }
 }

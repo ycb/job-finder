@@ -93,6 +93,21 @@ function buildExtractionScript() {
     document.querySelectorAll('[aria-label^="Dismiss "][aria-label$=" job"]')
   );
 
+  const toAbsoluteUrl = (href) => {
+    const value = normalize(href);
+    if (!value) return "";
+    try {
+      return new URL(value, location.origin).toString();
+    } catch {
+      return value;
+    }
+  };
+
+  const extractLinkedInExternalId = (url) => {
+    const match = String(url || "").match(/\\/jobs\\/view\\/(\\d+)/i);
+    return match ? match[1] : "";
+  };
+
   const findTextContainer = (dismissButton) => {
     let current = dismissButton?.parentElement || null;
 
@@ -107,6 +122,13 @@ function buildExtractionScript() {
 
     return null;
   };
+
+  const findCardRoot = (dismissButton) =>
+    dismissButton?.closest("li") ||
+    dismissButton?.closest('[data-occludable-job-id]') ||
+    dismissButton?.closest('div[class*="job-card"]') ||
+    dismissButton?.parentElement ||
+    null;
 
   const parseCardLines = (text) => {
     const lines = unique(
@@ -152,23 +174,43 @@ function buildExtractionScript() {
   };
 
   for (const dismissButton of dismissButtons) {
-    const card = findTextContainer(dismissButton);
+    const cardRoot = findCardRoot(dismissButton);
+    const card = findTextContainer(dismissButton) || cardRoot;
     if (!card) {
       continue;
     }
+
+    const titleAnchor = (cardRoot || card).querySelector('a[href*="/jobs/view/"]');
+    const companyNode = (cardRoot || card).querySelector(
+      '.artdeco-entity-lockup__subtitle span, .base-search-card__subtitle a, .base-search-card__subtitle'
+    );
+    const locationNode = (cardRoot || card).querySelector(
+      '.artdeco-entity-lockup__caption, .job-search-card__location, .base-search-card__metadata'
+    );
+
+    const directUrl = toAbsoluteUrl(titleAnchor?.getAttribute("href") || "");
+    const externalId = extractLinkedInExternalId(directUrl) || null;
+    const domTitle = normalizeTitle(titleAnchor?.innerText || titleAnchor?.textContent || "");
+    const domCompany = normalize(companyNode?.innerText || companyNode?.textContent || "");
+    const domLocation = normalize(locationNode?.innerText || locationNode?.textContent || "");
 
     const cardLines = parseCardLines(card.innerText || card.textContent || "");
     if (cardLines.length < 2) {
       continue;
     }
 
-    let title = normalizeTitle(cardLines[0]);
-    let company = normalize(cardLines[1]);
-    let location = normalize(cardLines[2] || "");
+    let title = domTitle || normalizeTitle(cardLines[0]);
+    let company = domCompany || normalize(cardLines[1]);
+    let location = domLocation || normalize(cardLines[2] || "");
 
     if (company && normalizeTitle(company) === title) {
       company = normalize(cardLines[2] || "");
-      location = normalize(cardLines[3] || "");
+      location = location || normalize(cardLines[3] || "");
+    }
+
+    if (company && location && normalizeTitle(company) === title) {
+      company = location;
+      location = "";
     }
 
     if (!title || !company) {
@@ -188,8 +230,10 @@ function buildExtractionScript() {
 
     const easyApply = /easy apply/i.test(card.innerText || "");
 
-    const href = buildSearchUrl(title, company);
-    const dedupeKey = [title, company, location].join("|");
+    const href = directUrl || buildSearchUrl(title, company);
+    const dedupeKey = externalId
+      ? "linkedin:" + externalId
+      : [title.toLowerCase(), company.toLowerCase()].join("|");
 
     if (seenJobs.has(dedupeKey)) {
       continue;
@@ -197,7 +241,7 @@ function buildExtractionScript() {
     seenJobs.add(dedupeKey);
 
     jobs.push({
-      externalId: null,
+      externalId,
       title,
       company,
       location,
