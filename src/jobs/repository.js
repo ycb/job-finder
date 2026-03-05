@@ -18,7 +18,7 @@ export function upsertJobs(db, jobs) {
       created_at,
       updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET
+    ON CONFLICT DO UPDATE SET
       external_id = excluded.external_id,
       title = excluded.title,
       company = excluded.company,
