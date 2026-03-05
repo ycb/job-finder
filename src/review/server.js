@@ -175,6 +175,28 @@ function getReviewQueue(limit = 200) {
   return withDatabase((db) => listReviewQueue(db, limit));
 }
 
+function getSourceLastSeenAtMap() {
+  return withDatabase((db) => {
+    const rows = db
+      .prepare(
+        `
+        SELECT source_id AS sourceId, MAX(updated_at) AS lastSeenAt
+        FROM jobs
+        GROUP BY source_id;
+      `
+      )
+      .all();
+
+    const map = new Map();
+    for (const row of rows) {
+      if (row?.sourceId) {
+        map.set(row.sourceId, row.lastSeenAt || null);
+      }
+    }
+    return map;
+  });
+}
+
 function updateStatus(jobKey, status, reason = "") {
   return withDatabase((db) =>
     markApplicationStatusByNormalizedHash(db, jobKey, status, reason)
@@ -502,13 +524,14 @@ async function runAllCaptures() {
 function buildDashboardData(limit = 200) {
   const profile = loadProfile();
   const sources = loadSources().sources;
-  const groupedQueue = hydrateQueue(getReviewQueue(limit));
-  const queue = groupedQueue.filter((job) => job.status !== "applied");
-  const appliedQueue = groupedQueue.filter((job) => job.status === "applied");
+  const statsQueue = hydrateQueue(getReviewQueue(5_000));
+  const sourceLastSeenAt = getSourceLastSeenAtMap();
+  const queue = statsQueue.filter((job) => job.status !== "applied").slice(0, limit);
+  const appliedQueue = statsQueue.filter((job) => job.status === "applied").slice(0, limit);
 
   const countsBySourceId = new Map();
 
-  for (const job of groupedQueue) {
+  for (const job of statsQueue) {
     const sourceIds = Array.isArray(job.sourceIds) ? job.sourceIds : [];
     for (const sourceId of sourceIds) {
       const current = countsBySourceId.get(sourceId) || {
@@ -564,6 +587,9 @@ function buildDashboardData(limit = 200) {
       const isFileBackedCapture = Boolean(source.capturePath);
       const jobCount = isFileBackedCapture ? capture.jobCount : counts.totalCount;
       const captureStatus = isFileBackedCapture ? capture.status : "live_source";
+      const capturedAt = isFileBackedCapture
+        ? capture.capturedAt
+        : sourceLastSeenAt.get(source.id) || null;
       const avgScore =
         counts.scoredCount > 0 ? Math.round(counts.scoreTotal / counts.scoredCount) : null;
 
@@ -574,7 +600,7 @@ function buildDashboardData(limit = 200) {
         enabled: source.enabled,
         type: source.type,
         capturePath: source.capturePath,
-        capturedAt: capture.capturedAt,
+        capturedAt,
         jobCount,
         pageUrl: capture.pageUrl,
         captureStatus,
