@@ -25,6 +25,16 @@ function hostLooksLikeLinkedIn(hostname) {
   return host === "linkedin.com" || host.endsWith(".linkedin.com");
 }
 
+function hostLooksLikeIndeed(hostname) {
+  const host = String(hostname || "").toLowerCase();
+  return host === "indeed.com" || host.endsWith(".indeed.com");
+}
+
+function hostLooksLikeGoogle(hostname) {
+  const host = String(hostname || "").toLowerCase();
+  return host === "google.com" || host.endsWith(".google.com");
+}
+
 function extractLinkedInJobIdFromUrl(rawUrl) {
   const parsed = parseUrlSafe(rawUrl);
   if (!parsed) {
@@ -44,13 +54,67 @@ function extractLinkedInJobIdFromUrl(rawUrl) {
   return "";
 }
 
+function extractIndeedJobIdFromUrl(rawUrl) {
+  const parsed = parseUrlSafe(rawUrl);
+  if (!parsed || !hostLooksLikeIndeed(parsed.hostname)) {
+    return "";
+  }
+
+  const directId = parsed.searchParams.get("jk") || parsed.searchParams.get("vjk");
+  if (directId) {
+    return normalizeText(directId);
+  }
+
+  return "";
+}
+
+function extractGoogleJobsDocIdFromHash(hashValue) {
+  const rawHash = String(hashValue || "").replace(/^#/, "");
+  if (!rawHash) {
+    return "";
+  }
+
+  const hashParams = new URLSearchParams(rawHash);
+  const vhid = normalizeText(hashParams.get("vhid") || "");
+  if (vhid) {
+    const docIdFromVhid = vhid.match(/(?:^|\/)docid=([^&/]+)/i);
+    if (docIdFromVhid?.[1]) {
+      return normalizeText(docIdFromVhid[1]);
+    }
+  }
+
+  const decodedHash = normalizeText(decodeURIComponent(rawHash));
+  if (!decodedHash) {
+    return "";
+  }
+
+  const docIdFromDecoded = decodedHash.match(/(?:^|[/?&])docid=([^&/]+)/i);
+  if (docIdFromDecoded?.[1]) {
+    return normalizeText(docIdFromDecoded[1]);
+  }
+
+  return "";
+}
+
+function extractGoogleJobsDocIdFromUrl(rawUrl) {
+  const parsed = parseUrlSafe(rawUrl);
+  if (!parsed || !hostLooksLikeGoogle(parsed.hostname)) {
+    return "";
+  }
+
+  const directId = normalizeText(parsed.searchParams.get("docid") || "");
+  if (directId) {
+    return directId;
+  }
+
+  return extractGoogleJobsDocIdFromHash(parsed.hash);
+}
+
 function canonicalizeSourceUrl(rawUrl) {
   const parsed = parseUrlSafe(rawUrl);
   if (!parsed) {
     return normalizeText(rawUrl);
   }
-
-  parsed.hash = "";
 
   if (hostLooksLikeLinkedIn(parsed.hostname)) {
     const linkedInId = extractLinkedInJobIdFromUrl(parsed.toString());
@@ -59,6 +123,21 @@ function canonicalizeSourceUrl(rawUrl) {
     }
   }
 
+  if (hostLooksLikeIndeed(parsed.hostname)) {
+    const indeedJobId = extractIndeedJobIdFromUrl(parsed.toString());
+    if (indeedJobId) {
+      return `https://www.indeed.com/viewjob?jk=${encodeURIComponent(indeedJobId)}`;
+    }
+  }
+
+  if (hostLooksLikeGoogle(parsed.hostname) && parsed.pathname === "/search") {
+    const googleDocId = extractGoogleJobsDocIdFromUrl(parsed.toString());
+    if (googleDocId) {
+      return `https://www.google.com/search?docid=${encodeURIComponent(googleDocId)}`;
+    }
+  }
+
+  parsed.hash = "";
   parsed.search = "";
   return parsed.toString();
 }
@@ -93,6 +172,14 @@ function inferExternalId(externalId, sourceUrl, sourceType) {
 
   if (sourceType === "linkedin_capture_file") {
     return extractLinkedInJobIdFromUrl(sourceUrl) || null;
+  }
+
+  if (sourceType === "indeed_search") {
+    return extractIndeedJobIdFromUrl(sourceUrl) || null;
+  }
+
+  if (sourceType === "google_search") {
+    return extractGoogleJobsDocIdFromUrl(sourceUrl) || null;
   }
 
   return null;

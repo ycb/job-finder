@@ -498,8 +498,10 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
       queryTerms.push(`"${criteria.location}"`);
     }
 
-    if (criteria.minSalary) {
+    if (criteria.minSalary && sourceType !== "ashby_search") {
       queryTerms.push(`${formatUsdAmount(criteria.minSalary)}+`);
+    } else if (criteria.minSalary && sourceType === "ashby_search") {
+      unsupported.push("minSalary");
     }
 
     if (criteria.experienceLevel) {

@@ -14,7 +14,13 @@ test("validateSources accepts wellfound and ashby source types", () => {
         searchUrl: "https://wellfound.com/jobs",
         maxJobs: 30,
         cacheTtlHours: 24,
-        requiredTerms: ["product manager", "ai"]
+        requiredTerms: ["product manager", "ai"],
+        hardFilter: {
+          requiredAny: ["ai", "machine learning"],
+          excludeAny: ["intern"],
+          fields: ["title", "description"],
+          enforceContentOnSnippets: false
+        }
       },
       {
         id: "ashby-pm",
@@ -71,6 +77,10 @@ test("validateSources accepts wellfound and ashby source types", () => {
   assert.equal(parsed.sources[1].type, "ashby_search");
   assert.equal(parsed.sources[1].recencyWindow, "1w");
   assert.deepEqual(parsed.sources[0].requiredTerms, ["product manager", "ai"]);
+  assert.deepEqual(parsed.sources[0].hardFilter.requiredAny, ["ai", "machine learning"]);
+  assert.deepEqual(parsed.sources[0].hardFilter.excludeAny, ["intern"]);
+  assert.deepEqual(parsed.sources[0].hardFilter.fields, ["title", "description"]);
+  assert.equal(parsed.sources[0].hardFilter.enforceContentOnSnippets, false);
   assert.equal(parsed.sources[2].type, "google_search");
   assert.equal(parsed.sources[3].type, "indeed_search");
   assert.equal(parsed.sources[3].searchCriteria.title, "senior product manager");
@@ -163,6 +173,26 @@ test("validateSources rejects invalid searchCriteria values", () => {
           searchCriteria: {
             datePosted: "90d",
             title: 123
+          }
+        }
+      ]
+    })
+  );
+});
+
+test("validateSources rejects invalid hardFilter values", () => {
+  assert.throws(() =>
+    validateSources({
+      sources: [
+        {
+          id: "wf-ai",
+          name: "Wellfound AI",
+          type: "wellfound_search",
+          enabled: true,
+          searchUrl: "https://wellfound.com/jobs",
+          hardFilter: {
+            requiredAny: "ai",
+            enforceContentOnSnippets: "no"
           }
         }
       ]

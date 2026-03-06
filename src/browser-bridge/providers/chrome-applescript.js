@@ -300,6 +300,51 @@ function buildExtractionScript() {
     return "https://www.linkedin.com/jobs/search-results/?" + params.toString();
   };
 
+  const parseExpectedCountFromText = (text) => {
+    const normalized = normalize(text).toLowerCase();
+    if (!normalized) {
+      return null;
+    }
+
+    const match =
+      normalized.match(/([\\d,]+)\\s+results?/) ||
+      normalized.match(/showing\\s+([\\d,]+)\\s+result/);
+    if (!match || !match[1]) {
+      return null;
+    }
+
+    const parsed = Number(String(match[1]).replace(/,/g, ""));
+    return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : null;
+  };
+
+  const extractExpectedCount = () => {
+    const selectors = [
+      ".jobs-search-results-list__subtitle",
+      ".jobs-search-results-list__subtitle span",
+      ".scaffold-layout__list-header .t-black--light",
+      ".jobs-search-results-list__text"
+    ];
+
+    let best = null;
+    for (const selector of selectors) {
+      for (const node of document.querySelectorAll(selector)) {
+        const parsed = parseExpectedCountFromText(
+          node?.innerText || node?.textContent || ""
+        );
+        if (Number.isFinite(parsed) && parsed > 0 && (best === null || parsed > best)) {
+          best = parsed;
+        }
+      }
+    }
+
+    if (best !== null) {
+      return best;
+    }
+
+    const pageText = normalize(document.body?.innerText || "").slice(0, 8000);
+    return parseExpectedCountFromText(pageText);
+  };
+
   for (const dismissButton of dismissButtons) {
     const cardRoot = findCardRoot(dismissButton);
     const card = findTextContainer(dismissButton) || cardRoot;
@@ -385,52 +430,249 @@ function buildExtractionScript() {
   return JSON.stringify({
     pageUrl: location.href,
     capturedAt: new Date().toISOString(),
-    jobs
+    jobs,
+    expectedCount: extractExpectedCount()
   });
 })()
   `.trim();
 }
 
-function readLinkedInJobsFromChrome(searchUrl, options = {}) {
-  navigateAutomationTab(searchUrl, "Refreshing LinkedIn source...");
+function buildLinkedInScrollStepScript() {
+  return `
+(() => {
+  const normalize = (value) => typeof value === "string"
+    ? value.replace(/\\s+/g, " ").trim()
+    : "";
 
+  const dismissButtons = Array.from(
+    document.querySelectorAll('[aria-label^="Dismiss "][aria-label$=" job"]')
+  );
+  const lastButton = dismissButtons.length
+    ? dismissButtons[dismissButtons.length - 1]
+    : null;
+
+  const findScrollableAncestor = (node) => {
+    let current = node?.parentElement || null;
+    while (current) {
+      const style = window.getComputedStyle(current);
+      const overflowY = String(style?.overflowY || "").toLowerCase();
+      const isScrollable = /auto|scroll|overlay/.test(overflowY);
+      if (
+        isScrollable &&
+        Number(current.scrollHeight || 0) > Number(current.clientHeight || 0) + 20
+      ) {
+        return current;
+      }
+      current = current.parentElement;
+    }
+    return null;
+  };
+
+  const buttons = Array.from(document.querySelectorAll("button"));
+  const loadMore = buttons.find((button) => {
+    const label = normalize(
+      button?.innerText ||
+      button?.textContent ||
+      button?.getAttribute("aria-label") ||
+      ""
+    ).toLowerCase();
+
+    if (!label) {
+      return false;
+    }
+
+    if (!/see more jobs|show more jobs|load more/i.test(label)) {
+      return false;
+    }
+
+    return !button.disabled;
+  });
+
+  if (loadMore) {
+    loadMore.click();
+  }
+
+  if (lastButton) {
+    lastButton.scrollIntoView({ behavior: "auto", block: "end", inline: "nearest" });
+  }
+
+  const container = findScrollableAncestor(lastButton);
+  if (container) {
+    const increment = Math.max(700, Math.round((container.clientHeight || 0) * 0.9));
+    container.scrollTop = Math.min(
+      Number(container.scrollTop || 0) + increment,
+      Number(container.scrollHeight || 0)
+    );
+
+    return JSON.stringify({
+      target: "container",
+      scrollTop: Number(container.scrollTop || 0),
+      scrollHeight: Number(container.scrollHeight || 0),
+      cardsVisible: dismissButtons.length,
+      clickedLoadMore: Boolean(loadMore)
+    });
+  }
+
+  const increment = Math.max(700, Math.round(window.innerHeight * 0.9));
+  window.scrollTo(0, Math.min(window.scrollY + increment, document.body.scrollHeight));
+
+  return JSON.stringify({
+    target: "window",
+    scrollTop: Number(window.scrollY || 0),
+    scrollHeight: Number(document.body.scrollHeight || 0),
+    cardsVisible: dismissButtons.length,
+    clickedLoadMore: Boolean(loadMore)
+  });
+})()
+  `.trim();
+}
+
+function harvestLinkedInPageJobs({
+  extractionScript,
+  scrollScript,
+  maxScrollSteps,
+  maxIdleScrollSteps,
+  scrollDelayMs,
+  maxAttempts,
+  attemptDelayMs
+}) {
+  const collected = [];
+  let lastPayload = runExtractionAttempts(extractionScript, maxAttempts, attemptDelayMs);
+  let expectedCount = null;
+  let sawValidPayload = Boolean(lastPayload && Array.isArray(lastPayload.jobs));
+
+  if (Array.isArray(lastPayload?.jobs) && lastPayload.jobs.length > 0) {
+    collected.push(...lastPayload.jobs);
+  }
+  if (Number.isFinite(Number(lastPayload?.expectedCount))) {
+    const parsed = Math.round(Number(lastPayload.expectedCount));
+    if (parsed > 0) {
+      expectedCount = parsed;
+    }
+  }
+
+  let lastCollectedCount = dedupeJobsByIdentity(collected).length;
+  let idleSteps = 0;
+
+  for (let step = 0; step < maxScrollSteps; step += 1) {
+    executeInAutomationTab(scrollScript);
+    sleepSync(scrollDelayMs);
+
+    const payload = runExtractionAttempts(extractionScript, maxAttempts, attemptDelayMs);
+    if (payload) {
+      lastPayload = payload;
+      sawValidPayload = true;
+    }
+
+    if (Array.isArray(payload?.jobs) && payload.jobs.length > 0) {
+      collected.push(...payload.jobs);
+    }
+    if (Number.isFinite(Number(payload?.expectedCount))) {
+      const parsed = Math.round(Number(payload.expectedCount));
+      if (parsed > 0 && (expectedCount === null || parsed > expectedCount)) {
+        expectedCount = parsed;
+      }
+    }
+
+    const dedupedCount = dedupeJobsByIdentity(collected).length;
+    if (dedupedCount > lastCollectedCount) {
+      lastCollectedCount = dedupedCount;
+      idleSteps = 0;
+    } else {
+      idleSteps += 1;
+    }
+
+    if (idleSteps >= maxIdleScrollSteps) {
+      break;
+    }
+  }
+
+  return {
+    pageUrl: lastPayload?.pageUrl || null,
+    capturedAt: new Date().toISOString(),
+    jobs: dedupeJobsByIdentity(collected),
+    expectedCount,
+    sawValidPayload
+  };
+}
+
+export function buildLinkedInPageUrl(searchUrl, pageIndex = 0) {
+  const normalizedPageIndex =
+    Number.isInteger(pageIndex) && pageIndex > 0 ? pageIndex : 0;
+  const startOffset = normalizedPageIndex * 25;
+  return buildUrlWithSearchParam(searchUrl, "start", String(startOffset));
+}
+
+function readLinkedInJobsFromChrome(searchUrl, options = {}) {
   const settleMs = Number(options.settleMs) > 0 ? Number(options.settleMs) : 2500;
   const maxAttempts = Number(options.maxAttempts) > 0 ? Number(options.maxAttempts) : 5;
   const attemptDelayMs =
     Number(options.attemptDelayMs) > 0 ? Number(options.attemptDelayMs) : 1200;
+  const maxPages = Number(options.maxPages) > 0 ? Number(options.maxPages) : 4;
+  const maxScrollSteps = Number(options.maxScrollSteps) > 0
+    ? Number(options.maxScrollSteps)
+    : 14;
+  const maxIdleScrollSteps = Number(options.maxIdleScrollSteps) > 0
+    ? Number(options.maxIdleScrollSteps)
+    : 3;
+  const scrollDelayMs = Number(options.scrollDelayMs) > 0
+    ? Number(options.scrollDelayMs)
+    : 1000;
   const extractionScript = buildExtractionScript();
+  const scrollScript = buildLinkedInScrollStepScript();
 
-  sleepSync(settleMs);
+  const collected = [];
+  let sawValidPayload = false;
+  let expectedCount = null;
 
-  let lastPayload = null;
+  for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
+    const pageUrl = buildLinkedInPageUrl(searchUrl, pageIndex);
+    navigateAutomationTab(pageUrl, "Refreshing LinkedIn source...");
+    sleepSync(settleMs);
 
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const raw = executeInAutomationTab(extractionScript);
-    let payload;
+    const pagePayload = harvestLinkedInPageJobs({
+      extractionScript,
+      scrollScript,
+      maxScrollSteps,
+      maxIdleScrollSteps,
+      scrollDelayMs,
+      maxAttempts,
+      attemptDelayMs
+    });
 
-    try {
-      payload = JSON.parse(raw);
-    } catch {
-      payload = null;
+    if (pagePayload?.sawValidPayload === true) {
+      sawValidPayload = true;
     }
-
-    if (payload && Array.isArray(payload.jobs)) {
-      lastPayload = payload;
-      if (payload.jobs.length > 0) {
-        return payload;
+    if (Number.isFinite(Number(pagePayload?.expectedCount))) {
+      const parsed = Math.round(Number(pagePayload.expectedCount));
+      if (parsed > 0 && (expectedCount === null || parsed > expectedCount)) {
+        expectedCount = parsed;
       }
     }
 
-    sleepSync(attemptDelayMs);
+    const pageJobs = Array.isArray(pagePayload?.jobs) ? pagePayload.jobs : [];
+    if (pageJobs.length === 0) {
+      break;
+    }
+
+    const priorCount = collected.length;
+    collected.push(...pageJobs);
+    const deduped = dedupeJobsByIdentity(collected);
+    collected.length = 0;
+    collected.push(...deduped);
+
+    if (collected.length === priorCount) {
+      break;
+    }
   }
 
-  if (lastPayload && Array.isArray(lastPayload.jobs)) {
-    if (lastPayload.jobs.length === 0 && lastPayload.error) {
-      throw new Error(
-        `Could not extract jobs from the active Chrome tab. ${lastPayload.error} Active tab: ${tabInfo.url || "unknown"} (${tabInfo.title || "untitled"})`
-      );
-    }
-    return lastPayload;
+  if (collected.length > 0 || sawValidPayload) {
+    return {
+      pageUrl: searchUrl,
+      capturedAt: new Date().toISOString(),
+      jobs: dedupeJobsByIdentity(collected),
+      expectedCount
+    };
   }
 
   throw new Error("Could not extract LinkedIn jobs from the active Chrome tab.");
@@ -1872,7 +2114,8 @@ export function captureLinkedInSourceWithChromeAppleScript(
   return {
     ...writeLinkedInCaptureFile(source, payload.jobs, {
       capturedAt: payload.capturedAt,
-      pageUrl: payload.pageUrl
+      pageUrl: payload.pageUrl,
+      expectedCount: payload.expectedCount
     }),
     provider: "chrome_applescript",
     status: "completed"

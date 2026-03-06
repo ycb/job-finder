@@ -9,6 +9,7 @@ import {
   validateGoals,
   validateProfile,
   validateProfileSource,
+  validateSearchCriteria,
   validateSources
 } from "./schema.js";
 
@@ -24,6 +25,7 @@ const DEFAULT_PROFILE_SOURCE_CONFIG = {
     serviceRoleEnv: "NARRATA_SUPABASE_SERVICE_ROLE_KEY"
   }
 };
+const DEFAULT_SEARCH_CRITERIA_PATH = "config/search-criteria.json";
 
 const GOOGLE_RECENCY_WINDOWS = new Set(["any", "1d", "1w", "1m"]);
 const GOOGLE_RECENCY_TO_QDR = new Map([
@@ -31,6 +33,18 @@ const GOOGLE_RECENCY_TO_QDR = new Map([
   ["1w", "w"],
   ["1m", "m"]
 ]);
+
+function resolveSearchCriteriaPathForSources(sourcesPath, explicitSearchCriteriaPath = "") {
+  const explicit = String(explicitSearchCriteriaPath || "").trim();
+  if (explicit) {
+    return explicit;
+  }
+
+  const resolvedSourcesPath = path.resolve(
+    String(sourcesPath || "config/sources.json")
+  );
+  return path.join(path.dirname(resolvedSourcesPath), "search-criteria.json");
+}
 
 function resolveDefaultProfileSourceConfig() {
   const goalsPath = path.resolve("config/my-goals.json");
@@ -160,6 +174,34 @@ export function loadProfile(profilePath = "config/profile.json") {
 
 export function loadGoals(goalsPath = "config/my-goals.json") {
   return validateGoals(readJsonFileWithPath(goalsPath).data);
+}
+
+export function loadSearchCriteria(searchCriteriaPath = DEFAULT_SEARCH_CRITERIA_PATH) {
+  const resolvedPath = path.resolve(searchCriteriaPath);
+  if (!fs.existsSync(resolvedPath)) {
+    return {
+      path: resolvedPath,
+      criteria: {}
+    };
+  }
+
+  const { data } = readJsonFileWithPath(searchCriteriaPath);
+  return {
+    path: resolvedPath,
+    criteria: validateSearchCriteria(data, "Search criteria")
+  };
+}
+
+export function saveSearchCriteria(criteria, searchCriteriaPath = DEFAULT_SEARCH_CRITERIA_PATH) {
+  const normalizedCriteria = validateSearchCriteria(criteria, "Search criteria");
+  const resolvedPath = path.resolve(searchCriteriaPath);
+  fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
+  fs.writeFileSync(resolvedPath, `${JSON.stringify(normalizedCriteria, null, 2)}\n`, "utf8");
+
+  return {
+    path: resolvedPath,
+    criteria: normalizedCriteria
+  };
 }
 
 function deriveRemotePreferenceFromGoals(goals) {
@@ -449,9 +491,17 @@ export function loadSources(sourcesPath = "config/sources.json") {
   };
 }
 
-export function loadSourcesWithPath(sourcesPath = "config/sources.json") {
+export function loadSourcesWithPath(
+  sourcesPath = "config/sources.json",
+  options = {}
+) {
+  const searchCriteriaPath = resolveSearchCriteriaPathForSources(
+    sourcesPath,
+    options.searchCriteriaPath
+  );
+  const searchCriteria = loadSearchCriteria(searchCriteriaPath).criteria;
   const { resolvedPath, data } = readJsonFileWithPath(sourcesPath);
-  const changed = ensureDerivedSourceMetadata(data, resolvedPath);
+  const changed = ensureDerivedSourceMetadata(data, resolvedPath, searchCriteria);
   const validated = validateSources(data);
 
   if (changed) {
@@ -464,7 +514,31 @@ export function loadSourcesWithPath(sourcesPath = "config/sources.json") {
   };
 }
 
-function ensureDerivedSourceMetadata(raw, resolvedPath) {
+function resolveEffectiveSearchCriteria(source, globalSearchCriteria) {
+  const globalCriteria =
+    globalSearchCriteria &&
+    typeof globalSearchCriteria === "object" &&
+    !Array.isArray(globalSearchCriteria)
+      ? globalSearchCriteria
+      : null;
+  const sourceCriteria =
+    source?.searchCriteria &&
+    typeof source.searchCriteria === "object" &&
+    !Array.isArray(source.searchCriteria)
+      ? source.searchCriteria
+      : null;
+
+  if (!globalCriteria && !sourceCriteria) {
+    return null;
+  }
+
+  return {
+    ...(globalCriteria || {}),
+    ...(sourceCriteria || {})
+  };
+}
+
+function ensureDerivedSourceMetadata(raw, resolvedPath, globalSearchCriteria = null) {
   if (!raw || !Array.isArray(raw.sources)) {
     return false;
   }
@@ -520,15 +594,15 @@ function ensureDerivedSourceMetadata(raw, resolvedPath) {
       );
     }
 
-    const hasSearchCriteria =
-      source.searchCriteria &&
-      typeof source.searchCriteria === "object" &&
-      !Array.isArray(source.searchCriteria);
+    const effectiveCriteria = resolveEffectiveSearchCriteria(
+      source,
+      globalSearchCriteria
+    );
 
-    if (hasSearchCriteria) {
+    if (effectiveCriteria) {
       const criteriaRecencyWindow =
         source.type === "ashby_search" || source.type === "google_search"
-          ? toGoogleRecencyWindowFromDatePosted(source.searchCriteria.datePosted)
+          ? toGoogleRecencyWindowFromDatePosted(effectiveCriteria.datePosted)
           : null;
 
       if (
@@ -540,7 +614,7 @@ function ensureDerivedSourceMetadata(raw, resolvedPath) {
         changed = true;
       }
 
-      const built = buildSearchUrlForSourceType(source.type, source.searchCriteria, {
+      const built = buildSearchUrlForSourceType(source.type, effectiveCriteria, {
         baseUrl: source.searchUrl,
         recencyWindow: source.recencyWindow
       });
@@ -1080,7 +1154,7 @@ export function addRemoteOkSearchSource(
   return addLiveFetchSource(name, searchUrl, "remoteok_search", sourcesPath);
 }
 
-function deriveNextSearchMetadata(source) {
+function deriveNextSearchMetadata(source, globalSearchCriteria = null) {
   const currentUrl = String(source?.searchUrl || "").trim();
   const isGoogleLike =
     source?.type === "ashby_search" || source?.type === "google_search";
@@ -1099,20 +1173,20 @@ function deriveNextSearchMetadata(source) {
   let unsupported = [];
   let notes = [];
 
-  const hasSearchCriteria =
-    source?.searchCriteria &&
-    typeof source.searchCriteria === "object" &&
-    !Array.isArray(source.searchCriteria);
+  const effectiveCriteria = resolveEffectiveSearchCriteria(
+    source,
+    globalSearchCriteria
+  );
 
-  if (hasSearchCriteria) {
+  if (effectiveCriteria) {
     const criteriaRecencyWindow = isGoogleLike
-      ? toGoogleRecencyWindowFromDatePosted(source.searchCriteria.datePosted)
+      ? toGoogleRecencyWindowFromDatePosted(effectiveCriteria.datePosted)
       : null;
     if (criteriaRecencyWindow && isGoogleLike) {
       nextRecencyWindow = criteriaRecencyWindow;
     }
 
-    const built = buildSearchUrlForSourceType(source.type, source.searchCriteria, {
+    const built = buildSearchUrlForSourceType(source.type, effectiveCriteria, {
       baseUrl: currentUrl,
       recencyWindow: nextRecencyWindow
     });
@@ -1140,7 +1214,15 @@ function deriveNextSearchMetadata(source) {
   };
 }
 
-export function previewNormalizedSourceSearchUrls(sourcesPath = "config/sources.json") {
+export function previewNormalizedSourceSearchUrls(
+  sourcesPath = "config/sources.json",
+  options = {}
+) {
+  const searchCriteriaPath = resolveSearchCriteriaPathForSources(
+    sourcesPath,
+    options.searchCriteriaPath
+  );
+  const globalSearchCriteria = loadSearchCriteria(searchCriteriaPath).criteria;
   const { resolvedPath, data } = readJsonFileWithPath(sourcesPath);
   const sources = requireSourcesArray(data, resolvedPath);
   const previewRows = [];
@@ -1156,7 +1238,7 @@ export function previewNormalizedSourceSearchUrls(sourcesPath = "config/sources.
       source.type === "ashby_search" || source.type === "google_search"
         ? String(source.recencyWindow || "").trim()
         : null;
-    const derived = deriveNextSearchMetadata(source);
+    const derived = deriveNextSearchMetadata(source, globalSearchCriteria);
 
     const recencyChanged =
       source.type === "ashby_search" || source.type === "google_search"
@@ -1191,7 +1273,15 @@ export function previewNormalizedSourceSearchUrls(sourcesPath = "config/sources.
   };
 }
 
-export function normalizeAllSourceSearchUrls(sourcesPath = "config/sources.json") {
+export function normalizeAllSourceSearchUrls(
+  sourcesPath = "config/sources.json",
+  options = {}
+) {
+  const searchCriteriaPath = resolveSearchCriteriaPathForSources(
+    sourcesPath,
+    options.searchCriteriaPath
+  );
+  const globalSearchCriteria = loadSearchCriteria(searchCriteriaPath).criteria;
   const { resolvedPath, data } = readJsonFileWithPath(sourcesPath);
   const sources = requireSourcesArray(data, resolvedPath);
 
@@ -1202,7 +1292,7 @@ export function normalizeAllSourceSearchUrls(sourcesPath = "config/sources.json"
       continue;
     }
 
-    const derived = deriveNextSearchMetadata(source);
+    const derived = deriveNextSearchMetadata(source, globalSearchCriteria);
 
     if (
       (source.type === "ashby_search" || source.type === "google_search") &&
@@ -1229,9 +1319,18 @@ export function normalizeAllSourceSearchUrls(sourcesPath = "config/sources.json"
   };
 }
 
-export function getSourceByIdOrName(sourceIdOrName, sourcesPath = "config/sources.json") {
+export function getSourceByIdOrName(
+  sourceIdOrName,
+  sourcesPath = "config/sources.json",
+  options = {}
+) {
+  const searchCriteriaPath = resolveSearchCriteriaPathForSources(
+    sourcesPath,
+    options.searchCriteriaPath
+  );
+  const globalSearchCriteria = loadSearchCriteria(searchCriteriaPath).criteria;
   const { resolvedPath, data } = readJsonFileWithPath(sourcesPath);
-  const changed = ensureDerivedSourceMetadata(data, resolvedPath);
+  const changed = ensureDerivedSourceMetadata(data, resolvedPath, globalSearchCriteria);
   const sources = requireSourcesArray(data, resolvedPath);
   const validated = validateSources(data);
   const sourceIndex = findSourceIndexByIdOrName(sources, sourceIdOrName);
@@ -1252,6 +1351,7 @@ export function loadAppConfig() {
   return {
     profile: active.profile,
     profileSource: active.source,
+    searchCriteria: loadSearchCriteria().criteria,
     sources: loadSources()
   };
 }

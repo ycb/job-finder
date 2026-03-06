@@ -33,6 +33,8 @@ export function upsertJobs(db, jobs) {
   `);
 
   let inserted = 0;
+  const newJobIds = [];
+
   for (const job of jobs) {
     const result = statement.run(
       job.id,
@@ -55,10 +57,86 @@ export function upsertJobs(db, jobs) {
 
     if (result.changes > 0) {
       inserted += 1;
+      newJobIds.push({ id: job.id, normalizedHash: job.normalizedHash });
+    }
+  }
+
+  // Inherit application status from existing jobs with the same normalized_hash
+  // This ensures that if a user rejected a job, new captures with the same hash
+  // are also marked as rejected, preventing them from reappearing in the Active queue
+  if (newJobIds.length > 0) {
+    const inheritStatusStmt = db.prepare(`
+      INSERT INTO applications (job_id, status, notes, last_action_at)
+      SELECT ?, a.status, a.notes, a.last_action_at
+      FROM applications a
+      WHERE a.job_id IN (
+        SELECT j.id FROM jobs j
+        WHERE j.normalized_hash = ?
+        AND j.id != ?
+        LIMIT 1
+      )
+      ON CONFLICT(job_id) DO NOTHING;
+    `);
+
+    for (const { id, normalizedHash } of newJobIds) {
+      if (normalizedHash) {
+        inheritStatusStmt.run(id, normalizedHash, id);
+      }
     }
   }
 
   return inserted;
+}
+
+export function pruneSourceJobs(db, sourceId, keepJobIds = []) {
+  const normalizedSourceId = String(sourceId || "").trim();
+  if (!normalizedSourceId) {
+    return 0;
+  }
+
+  const uniqueKeepIds = Array.from(
+    new Set(
+      (Array.isArray(keepJobIds) ? keepJobIds : [])
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+    )
+  );
+
+  let statement;
+  let params;
+
+  if (uniqueKeepIds.length === 0) {
+    statement = db.prepare(`
+      DELETE FROM jobs
+      WHERE source_id = ?
+        AND id IN (
+          SELECT j.id
+          FROM jobs j
+          LEFT JOIN applications a ON a.job_id = j.id
+          WHERE j.source_id = ?
+            AND COALESCE(a.status, 'new') IN ('new', 'viewed')
+        );
+    `);
+    params = [normalizedSourceId, normalizedSourceId];
+  } else {
+    const placeholders = uniqueKeepIds.map(() => "?").join(", ");
+    statement = db.prepare(`
+      DELETE FROM jobs
+      WHERE source_id = ?
+        AND id NOT IN (${placeholders})
+        AND id IN (
+          SELECT j.id
+          FROM jobs j
+          LEFT JOIN applications a ON a.job_id = j.id
+          WHERE j.source_id = ?
+            AND COALESCE(a.status, 'new') IN ('new', 'viewed')
+        );
+    `);
+    params = [normalizedSourceId, ...uniqueKeepIds, normalizedSourceId];
+  }
+
+  const result = statement.run(...params);
+  return Number(result?.changes || 0);
 }
 
 export function listAllJobs(db) {
@@ -147,6 +225,44 @@ export function listReviewQueue(db, limit = 100) {
       ORDER BY
         COALESCE(e.score, -1) DESC,
         COALESCE(j.posted_at, j.created_at) DESC
+      LIMIT ?;
+    `
+    )
+    .all(limit);
+}
+
+export function listAllJobsWithStatus(db, limit = 100) {
+  return db
+    .prepare(
+      `
+      SELECT
+        j.id,
+        j.normalized_hash AS normalizedHash,
+        j.source,
+        j.source_id AS sourceId,
+        j.title,
+        j.company,
+        j.location,
+        j.source_url AS sourceUrl,
+        j.external_id AS externalId,
+        j.posted_at AS postedAt,
+        j.updated_at AS updatedAt,
+        j.employment_type AS employmentType,
+        j.salary_text AS salaryText,
+        e.score,
+        e.bucket,
+        e.summary,
+        e.reasons,
+        e.confidence,
+        e.freshness_days AS freshnessDays,
+        e.hard_filtered AS hardFiltered,
+        COALESCE(a.status, 'new') AS status,
+        COALESCE(a.notes, '') AS notes
+      FROM jobs j
+      LEFT JOIN evaluations e ON e.job_id = j.id
+      LEFT JOIN applications a ON a.job_id = j.id
+      ORDER BY
+        COALESCE(a.last_action_at, j.created_at) DESC
       LIMIT ?;
     `
     )

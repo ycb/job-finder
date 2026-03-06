@@ -5,7 +5,7 @@
 - **Node.js 20+** ([download](https://nodejs.org/))
 - **macOS, Linux, or Windows**
 
-## Option 1: Install from Source (Recommended for Now)
+## Option 1: Install from Source (Recommended)
 
 ```bash
 # Clone repository
@@ -22,98 +22,74 @@ npm link
 jf --version
 ```
 
-## Option 2: NPX (No Install)
+## Option 2: Run from Source Without Global Link
 
 ```bash
-# Run directly without installing
-npx job-finder init
-npx job-finder run
-npx job-finder review
+# Run commands directly from the repo
+node src/cli.js help
+node src/cli.js run
+node src/cli.js review
 ```
 
-**Note:** NPX downloads the package on each run. Use `npm link` for daily use.
-
-## Option 3: Global NPM Install (When Published)
-
-```bash
-# Install globally
-npm install -g job-finder
-
-# Run commands
-jf init
-jf run
-jf review
-```
+Use this if you do not want to run `npm link`. In the rest of this guide, replace `jf` with `node src/cli.js`.
 
 ---
 
 ## First-Time Setup
 
-### 1. Initialize Your Profile
+### 1. Initialize Local Database
 
 ```bash
 jf init
 ```
 
-This interactive wizard will:
-- Create `~/.job-finder/` directory for local data
-- Initialize SQLite database
-- Prompt for your job search preferences
-- Create example config files
+This creates the SQLite database at `data/jobs.db` (relative to your project directory).
 
 ### 2. Configure Your Profile
 
-**Option A: Edit config files directly**
-
-Copy and edit example configs:
 ```bash
-cd config
-cp profile.example.json profile.json
-cp sources.example.json sources.json
+cp config/profile.example.json config/profile.json
+cp config/sources.example.json config/sources.json
+cp config/search-criteria.example.json config/search-criteria.json
 
-# Edit in your preferred editor
-code profile.json
-code sources.json
+# Optional profile providers
+cp config/my-goals.example.json config/my-goals.json
+cp config/profile-source.example.json config/profile-source.json
 ```
 
-**Option B: Use CLI commands**
+Edit the files and add your real preferences/search URLs. `config/search-criteria.json` drives default URL construction and scoring.
+
+Advanced source filtering is available per source via `hardFilter` in `config/sources.json` (`requiredAll`, `requiredAny`, `excludeAny`, `fields`, `enforceContentOnSnippets`).
+Note: `searchCriteria.minSalary` is not applied to `ashby_search` URL construction.
+
+### 3. Add Sources (Optional if `config/sources.json` already has what you need)
 
 ```bash
 # Add job search sources
 jf add-source "Senior PM AI" "https://linkedin.com/jobs/search?keywords=senior+product+manager+ai"
 jf add-builtin-source "Built In SF" "https://builtin.com/jobs?location=san-francisco"
 jf add-wellfound-source "Startups" "https://wellfound.com/jobs"
+jf add-ashby-source "Ashby PM" "https://www.google.com/search?q=site:jobs.ashbyhq.com+product+manager" 1m
 
 # View configured sources
 jf sources
 ```
 
-### 3. Run First Sync
+### 4. Run First Pipeline
 
 ```bash
 jf run
 ```
 
-This will:
-- Collect jobs from all configured sources
-- De-duplicate across platforms
-- Score each job against your profile
-- Store results in local database
+`run` performs capture (when needed), sync, score, shortlist, and prints top rows.
 
-**First sync takes 2-5 minutes** depending on number of sources.
-
-### 4. Review Jobs
+### 5. Review Jobs
 
 ```bash
 jf review
 ```
 
-Opens dashboard at `http://localhost:4311` where you can:
-- See all jobs in one ranked list
-- Filter by score, source, status
-- Click to view full details
-- Mark as applied/rejected/skip
-- Track application progress
+Opens dashboard at `http://localhost:4311`.
 
 ---
 
@@ -122,12 +98,25 @@ Opens dashboard at `http://localhost:4311` where you can:
 ### Manual Sync
 
 ```bash
-# Run whenever you want fresh jobs
+# Refresh data and scoring
 jf run
+
+# Force fresh capture/fetch, ignoring cache TTL
+jf run --force-refresh
+
+# Optional refresh profiles
+JOB_FINDER_REFRESH_PROFILE=safe jf run
+JOB_FINDER_REFRESH_PROFILE=probe jf run
+JOB_FINDER_REFRESH_PROFILE=mock jf run
 
 # Open dashboard to review
 jf review
 ```
+
+Profile modes:
+- `safe` (default): conservative refresh cadence
+- `probe`: shorter intervals with policy guardrails
+- `mock`: cache-only mode (no live refresh)
 
 ### Automated Sync (Recommended)
 
@@ -135,7 +124,7 @@ jf review
 
 ```bash
 # Run daily at 9am
-(crontab -l 2>/dev/null; echo "0 9 * * * cd $HOME && jf run") | crontab -
+(crontab -l 2>/dev/null; echo "0 9 * * * cd /path/to/job-finder && jf run") | crontab -
 ```
 
 **Or use launchd (macOS):**
@@ -153,6 +142,8 @@ Create `~/Library/LaunchAgents/com.job-finder.daily.plist`:
         <string>/usr/local/bin/jf</string>
         <string>run</string>
     </array>
+    <key>WorkingDirectory</key>
+    <string>/path/to/job-finder</string>
     <key>StartCalendarInterval</key>
     <dict>
         <key>Hour</key>
@@ -194,7 +185,23 @@ npm install
 1. Open Chrome
 2. View → Developer → Allow JavaScript from Apple Events
 
-**Alternative:** Use manual snapshot workflow (see README)
+If needed, start bridge manually:
+
+```bash
+jf bridge-server 4315 chrome_applescript
+```
+
+Alternative: use the snapshot workflow in [README.md](README.md#live-capture-notes).
+
+### Source type is hidden/blocked in dashboard
+
+Some source categories are feature-flagged in the review UI.
+
+```bash
+JOB_FINDER_ENABLE_WELLFOUND=1 jf review
+JOB_FINDER_ENABLE_REMOTEOK=1 jf review
+JOB_FINDER_ENABLE_NARRATA_CONNECT=1 jf review
+```
 
 ### Database locked errors
 
@@ -213,7 +220,7 @@ lsof -ti:4311 | xargs kill
 
 Or change the port:
 ```bash
-jf review --port 4312
+jf review 4312
 ```
 
 ---
@@ -224,8 +231,8 @@ jf review --port 4312
 # Remove global link
 npm unlink -g job-finder
 
-# Remove data (optional)
-rm -rf ~/.job-finder
+# Remove local data/output (optional)
+rm -rf data/jobs.db output/shortlist.md output/playwright
 
 # Remove source code
 rm -rf /path/to/job-finder
