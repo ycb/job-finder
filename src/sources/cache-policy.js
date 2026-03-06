@@ -1,7 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
+import { getRefreshPolicyForSource, isLiveRefreshAllowed } from "./refresh-policy.js";
+import {
+  countSourceEventsForUtcDay,
+  readRefreshState,
+  resolveSourceRefreshState
+} from "./refresh-state.js";
 
 const HTTP_SOURCE_TYPES = new Set(["builtin_search", "google_search"]);
+const REFRESH_PROFILES = new Set(["safe", "probe", "mock"]);
 
 export function getDefaultCacheTtlHours(sourceType) {
   if (HTTP_SOURCE_TYPES.has(String(sourceType || "").trim())) {
@@ -27,6 +34,7 @@ export function readSourceCaptureSummary(source) {
       capturePath: null,
       capturedAt: null,
       jobCount: 0,
+      expectedCount: null,
       pageUrl: null,
       status: "no_capture_path"
     };
@@ -38,6 +46,7 @@ export function readSourceCaptureSummary(source) {
       capturePath,
       capturedAt: null,
       jobCount: 0,
+      expectedCount: null,
       pageUrl: null,
       status: "never_run"
     };
@@ -55,6 +64,10 @@ export function readSourceCaptureSummary(source) {
       capturePath,
       capturedAt,
       jobCount: jobs.length,
+      expectedCount:
+        Number.isFinite(Number(payload?.expectedCount)) && Number(payload.expectedCount) > 0
+          ? Math.round(Number(payload.expectedCount))
+          : null,
       pageUrl: typeof payload?.pageUrl === "string" ? payload.pageUrl : null,
       status: "ready",
       payload: {
@@ -63,6 +76,10 @@ export function readSourceCaptureSummary(source) {
         searchUrl: payload?.searchUrl,
         capturedAt,
         jobs,
+        expectedCount:
+          Number.isFinite(Number(payload?.expectedCount)) && Number(payload.expectedCount) > 0
+            ? Math.round(Number(payload.expectedCount))
+            : null,
         pageUrl: typeof payload?.pageUrl === "string" ? payload.pageUrl : null
       }
     };
@@ -71,6 +88,7 @@ export function readSourceCaptureSummary(source) {
       capturePath,
       capturedAt: null,
       jobCount: 0,
+      expectedCount: null,
       pageUrl: null,
       status: "capture_error"
     };
@@ -159,4 +177,120 @@ export function writeSourceCapturePayload(source, jobs, options = {}) {
 
   fs.writeFileSync(capturePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
   return capturePath;
+}
+
+export function normalizeRefreshProfile(value, options = {}) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) {
+    return "safe";
+  }
+
+  if (!REFRESH_PROFILES.has(normalized)) {
+    if (options.strict) {
+      throw new Error(
+        `Invalid refresh profile "${value}". Expected one of: safe, probe, mock.`
+      );
+    }
+    return "safe";
+  }
+
+  return normalized;
+}
+
+export function getSourceRefreshDecision(source, options = {}) {
+  const nowMs = Number.isFinite(options.nowMs) ? options.nowMs : Date.now();
+  const nowIso = new Date(nowMs).toISOString();
+  const forceRefresh = options.forceRefresh === true;
+  const profile = normalizeRefreshProfile(
+    options.profile || process.env.JOB_FINDER_REFRESH_PROFILE || "safe"
+  );
+
+  const cacheSummary = readSourceCaptureSummary(source);
+  const cacheFresh = isTimestampFresh(
+    cacheSummary.capturedAt,
+    getSourceCacheTtlHours(source),
+    nowMs
+  );
+
+  const policy = getRefreshPolicyForSource(source, { profile });
+  const refreshState = readRefreshState(options.statePath);
+  const sourceState = resolveSourceRefreshState(refreshState, source?.id || "");
+  const liveEventsTodayCount = countSourceEventsForUtcDay(
+    refreshState,
+    source?.id || "",
+    nowIso
+  );
+  const liveDecision = isLiveRefreshAllowed({
+    policy,
+    now: nowIso,
+    cooldownUntil: sourceState.cooldownUntil,
+    lastLiveAt: sourceState.lastLiveAt,
+    liveEventsTodayCount
+  });
+
+  if (!forceRefresh && cacheFresh) {
+    return {
+      profile,
+      policy,
+      cacheSummary,
+      cacheFresh,
+      sourceState,
+      liveEventsTodayCount,
+      servedFrom: "cache",
+      allowLive: false,
+      cached: true,
+      reason: "cache_fresh",
+      nextEligibleAt: liveDecision.nextEligibleAt
+    };
+  }
+
+  if (liveDecision.allowed) {
+    return {
+      profile,
+      policy,
+      cacheSummary,
+      cacheFresh,
+      sourceState,
+      liveEventsTodayCount,
+      servedFrom: "live",
+      allowLive: true,
+      cached: false,
+      reason: forceRefresh ? "force_refresh" : "eligible",
+      nextEligibleAt: null
+    };
+  }
+
+  if (
+    forceRefresh &&
+    liveDecision.reason === "min_interval" &&
+    policy.liveEnabled !== false
+  ) {
+    return {
+      profile,
+      policy,
+      cacheSummary,
+      cacheFresh,
+      sourceState,
+      liveEventsTodayCount,
+      servedFrom: "live",
+      allowLive: true,
+      cached: false,
+      reason: "force_refresh",
+      nextEligibleAt: null
+    };
+  }
+
+  return {
+    profile,
+    policy,
+    cacheSummary,
+    cacheFresh,
+    sourceState,
+    liveEventsTodayCount,
+    servedFrom: "cache",
+    allowLive: false,
+    cached: true,
+    reason: liveDecision.reason,
+    nextEligibleAt: liveDecision.nextEligibleAt
+  };
 }
