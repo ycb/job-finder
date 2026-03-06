@@ -1,6 +1,6 @@
 # Job Finder
 
-*Job intelligence agent that turns saved searches into a ranked action queue.*
+*Job intelligence agent that turns generated searches into a ranked action queue.*
 
 Search all major job boards, get one de-duplicated, ranked list of best-match jobs.
 
@@ -16,23 +16,14 @@ npm link  # Makes 'jf' command available globally
 # Initialize local database
 jf init
 
-# Copy starter config files
-cp config/profile.example.json config/profile.json
-cp config/sources.example.json config/sources.json
-cp config/search-criteria.example.json config/search-criteria.json
-
-# Add at least one source
-jf add-source "Senior PM AI" "https://www.linkedin.com/jobs/search/?keywords=senior%20product%20manager%20ai"
-
-# Sync + score jobs (run daily)
-jf run
-
 # Open dashboard to review jobs
 jf review
 # Opens http://localhost:4311
+
+# Enter search input in the dashboard and click "Find Jobs"
 ```
 
-**That's it.** Dashboard shows de-duplicated jobs, ranked by your configured search criteria.
+**That's it.** Dashboard shows de-duplicated jobs ranked from your search input.
 
 ---
 
@@ -42,7 +33,7 @@ jf review
 
 The dashboard is designed around the actual workflow:
 
-- manage named searches and rerun them on demand
+- enter search input and trigger intake from one place
 - review one de-duped, prioritized queue instead of duplicate listings
 - move completed applications out of the work queue and into a separate applied list
 
@@ -50,8 +41,8 @@ Job Finder is an intelligence agent for turning noisy job discovery into a ranke
 
 Instead of acting like another job board, generic scraper, or chat wrapper, it models your search as a repeatable system:
 
-- structured profile and preference inputs
-- named search sources (LinkedIn, Built In, Google, Wellfound, Ashby, Indeed, ZipRecruiter, RemoteOK) as reusable inputs
+- structured search input
+- automatically generated searches across supported job sources
 - browser-driven intake into a local database
 - deterministic fit scoring against your target criteria
 - a de-duped review queue with lightweight application tracking
@@ -60,8 +51,7 @@ This repo is intentionally opinionated about the workflow: automate the repetiti
 
 The current implementation focuses on:
 
-- profile/goals, search criteria, and source configuration
-- source URL normalization from canonical `config/search-criteria.json`
+- search-input-driven intake and scoring
 - browser-capture intake for LinkedIn / Wellfound / Ashby / Google / Indeed / ZipRecruiter / RemoteOK
 - Built In ingestion from configured search URLs
 - job intake into SQLite
@@ -82,8 +72,8 @@ The scoring and review pipeline stays stable across both.
 
 The useful part of this project is not "AI chat for jobs." The differentiation is the system design:
 
-- local-first control over profile data, source configuration, and application history
-- browser automation tied to real saved searches instead of a generic feed
+- local-first control over search input, source execution, and application history
+- browser automation tied to real search runs instead of a generic feed
 - structured, inspectable scoring instead of opaque ranking
 - de-dupe across overlapping searches so the review queue stays actionable
 - a human-in-the-loop review loop that is fast enough to use daily
@@ -92,11 +82,11 @@ That makes it a stronger demonstration of AI-native product thinking than a thin
 
 ## Current Workflow
 
-1. Define global search intent in `config/search-criteria.json`.
-2. Add labeled search sources in `config/sources.json` or with the CLI.
-3. Run `npm run run` to execute capture + sync + prune + scoring + shortlist generation.
-4. Start `npm run review` and use `Find Jobs` in the `Jobs` tab to save criteria and run all sources from the UI.
-5. Mark jobs as applied/skipped/rejected and refine criteria/sources based on outcomes.
+1. Start `npm run review` and open the dashboard.
+2. Enter search input and click `Find Jobs`.
+3. Let the system generate and run searches automatically.
+4. Review ranked jobs and mark outcomes (`applied`, `skip_for_now`, `rejected`).
+5. Iterate search input and rerun.
 
 `run` and `review` are separate processes:
 
@@ -106,28 +96,11 @@ That makes it a stronger demonstration of AI-native product thinking than a thin
 
 ## Setup
 
-1. Copy and edit `config/profile.example.json` to `config/profile.json`.
-2. Copy and edit `config/my-goals.example.json` to `config/my-goals.json` if you want goals-based scoring inputs.
-3. Copy `config/profile-source.example.json` to `config/profile-source.json` if you want to explicitly control provider mode.
-4. Copy and edit `config/search-criteria.example.json` to `config/search-criteria.json`.
-5. Copy and edit `config/sources.example.json` to `config/sources.json`.
-6. Add named LinkedIn sources with `node src/cli.js add-source "<Label>" "<LinkedIn URL>"`.
-7. Optionally add non-LinkedIn sources with:
-   - `node src/cli.js add-builtin-source "<Label>" "<Built In URL>"`
-   - `node src/cli.js add-google-source "<Label>" "<Google URL>" [any|1d|1w|1m]`
-   - `node src/cli.js add-wellfound-source "<Label>" "<Wellfound URL>"`
-   - `node src/cli.js add-ashby-source "<Label>" "<Ashby URL>"`
-   - `node src/cli.js add-indeed-source "<Label>" "<Indeed URL>"`
-   - `node src/cli.js add-ziprecruiter-source "<Label>" "<ZipRecruiter URL>"`
-   - `node src/cli.js add-remoteok-source "<Label>" "<RemoteOK URL>"`
-   - for Ashby discovery, you can also use a Google query URL like `site:ashbyhq.com "product manager" "San Francisco" "AI"`; Job Finder expands discovered company boards and ingests matching roles
-8. Run `npm run run` for the full pipeline. Browser capture auto-starts a local bridge when needed.
-9. Use `npm run run -- --force-refresh` when you want to bypass cache TTL and force fresh browser/HTTP collection.
-10. Start `npm run review` when you want the dashboard UI (this is a separate long-running server process).
-11. Optional refresh-profile tuning:
-    - `JOB_FINDER_REFRESH_PROFILE=safe` (default)
-    - `JOB_FINDER_REFRESH_PROFILE=probe` (shorter intervals, still throttled)
-    - `JOB_FINDER_REFRESH_PROFILE=mock` (no live refresh; cache-only)
+1. Run `jf init` to initialize the SQLite database.
+2. Start the dashboard with `npm run review`.
+3. Use dashboard search input + `Find Jobs` to run the pipeline.
+4. No manual setup files are required for the normal workflow.
+5. No manual search/source creation is required in normal workflow.
 
 Fallback snapshot workflow:
 
@@ -153,21 +126,7 @@ npm run run
 - `JOB_FINDER_REFRESH_PROFILE=mock npm run run` (cache-only mode for UI/scoring iteration)
 - `npm run init`
 - `npm run sources`
-- `node src/cli.js add-source <label> <linkedin-url>`
-- `node src/cli.js add-builtin-source <label> <built-in-url>`
-- `node src/cli.js add-google-source <label> <google-url> [any|1d|1w|1m]`
-- `node src/cli.js add-wellfound-source <label> <wellfound-url>`
-- `node src/cli.js add-ashby-source <label> <ashby-url>`
-- `node src/cli.js add-indeed-source <label> <indeed-url>`
-- `node src/cli.js add-ziprecruiter-source <label> <ziprecruiter-url>`
-- `node src/cli.js add-remoteok-source <label> <remoteok-url>`
-- `node src/cli.js set-source-url <source-id-or-label> <url>`
 - `node src/cli.js normalize-source-urls --dry-run`
-- `node src/cli.js profile-source`
-- `node src/cli.js use-my-goals [goals-path]`
-- `node src/cli.js use-profile-file [profile-path]`
-- `node src/cli.js connect-narrata-file [goals-path]`
-- `node src/cli.js connect-narrata-supabase <supabase-url> <user-id> [service-role-env]`
 - `node src/cli.js open-source <source-id-or-label>`
 - `node src/cli.js open-sources`
 - `npm run capture -- <source-id-or-label> [snapshot-path]`
@@ -183,7 +142,6 @@ npm run run
 - `npm run shortlist`
 - `npm run list`
 - `npm run mark -- <job-id> <status>`
-- `npm run review`
 - `npm run review:safe`
 - `npm run review:probe`
 - `npm run review:mock`
@@ -194,44 +152,22 @@ npm run run
 
 The dashboard includes:
 
-- top-level tabs: `Jobs`, `Searches`, `Profile`
-- `Jobs` tab `Find Jobs` control that saves search criteria and runs all sources
+- top-level tabs: `Jobs`, `Searches`
+- search input controls with a single `Find Jobs` action
+- automatically generated searches across supported sources
 - a de-duped ranked queue with selected-job detail and `Prev/Next` navigation in `Jobs`
 - job views: `All`, `New`, `Best Match`, `Applied`, `Skipped`, `Rejected`
 - source-kind job filters in `Jobs` (for example, LinkedIn/Built In/Ashby)
 - `Searches` tab grouped by source kind with funnel metrics: `Found`, `Filtered`, `Dupes`, `Imported`, `Avg Score`
 - source refresh/capture status signals including cache/live state
 - row click-through from `Searches` into filtered `Jobs` view
-- `Profile` tab path visibility for profile/goals/sources/search criteria configs
-- profile source controls (`profile.json`, `my-goals.json`, Narrata file mode)
 - per-job attribution showing which source/search URLs surfaced the role
 
 Jobs found in multiple searches are grouped into one review row and show which searches surfaced them.
 
-## Profile Source Modes
-
-`job-finder` supports three profile providers:
-
-- `legacy_profile`: reads `config/profile.json`
-- `my_goals`: reads `config/my-goals.json` and maps goals into scoring profile fields
-- `narrata` (`file` mode in first pass): reads Narrata goals JSON via file path
-
-If `config/profile-source.json` is missing, `job-finder` auto-uses `my_goals` when `config/my-goals.json` exists; otherwise it falls back to `profile.json`.
-
-Switch with CLI:
-
-```bash
-node src/cli.js use-profile-file
-node src/cli.js use-my-goals
-node src/cli.js connect-narrata-file config/my-goals.json
-node src/cli.js profile-source
-```
-
-Or switch in the `Profile` tab in the review dashboard. Narrata connection controls are hidden unless `JOB_FINDER_ENABLE_NARRATA_CONNECT=1`.
-
 ## Scoring (Search-Criteria Driven)
 
-Scoring is deterministic and driven by `config/search-criteria.json` (with per-source `searchCriteria` overrides for URL construction).
+Scoring is deterministic and driven by search input (`Find Jobs`).
 
 Each job is evaluated into `high_signal`, `review_later`, or `reject` using weighted criteria:
 
@@ -352,4 +288,3 @@ Dashboard feature flags:
 
 - `JOB_FINDER_ENABLE_WELLFOUND=1`: enable Wellfound source visibility/creation in review UI
 - `JOB_FINDER_ENABLE_REMOTEOK=1`: enable RemoteOK source visibility/creation in review UI
-- `JOB_FINDER_ENABLE_NARRATA_CONNECT=1`: show Narrata connect controls in `Profile` tab

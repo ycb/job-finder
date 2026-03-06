@@ -27,7 +27,7 @@ jf --version
 ```bash
 # Run commands directly from the repo
 node src/cli.js help
-node src/cli.js run
+node src/cli.js init
 node src/cli.js review
 ```
 
@@ -45,51 +45,28 @@ jf init
 
 This creates the SQLite database at `data/jobs.db` (relative to your project directory).
 
-### 2. Configure Your Profile
-
-```bash
-cp config/profile.example.json config/profile.json
-cp config/sources.example.json config/sources.json
-cp config/search-criteria.example.json config/search-criteria.json
-
-# Optional profile providers
-cp config/my-goals.example.json config/my-goals.json
-cp config/profile-source.example.json config/profile-source.json
-```
-
-Edit the files and add your real preferences/search URLs. `config/search-criteria.json` drives default URL construction and scoring.
-
-Advanced source filtering is available per source via `hardFilter` in `config/sources.json` (`requiredAll`, `requiredAny`, `excludeAny`, `fields`, `enforceContentOnSnippets`).
-Note: `searchCriteria.minSalary` is not applied to `ashby_search` URL construction.
-
-### 3. Add Sources (Optional if `config/sources.json` already has what you need)
-
-```bash
-# Add job search sources
-jf add-source "Senior PM AI" "https://linkedin.com/jobs/search?keywords=senior+product+manager+ai"
-jf add-builtin-source "Built In SF" "https://builtin.com/jobs?location=san-francisco"
-jf add-wellfound-source "Startups" "https://wellfound.com/jobs"
-jf add-ashby-source "Ashby PM" "https://www.google.com/search?q=site:jobs.ashbyhq.com+product+manager" 1m
-
-# View configured sources
-jf sources
-```
-
-### 4. Run First Pipeline
-
-```bash
-jf run
-```
-
-`run` performs capture (when needed), sync, score, shortlist, and prints top rows.
-
-### 5. Review Jobs
+### 2. Start the Dashboard
 
 ```bash
 jf review
 ```
 
-Opens dashboard at `http://localhost:4311`.
+Open `http://localhost:4311`.
+
+### 3. Enter Search Input and Run
+
+Use the dashboard `Find Jobs` action.
+
+The system will:
+- generate searches automatically
+- collect jobs from enabled sources
+- de-duplicate results
+- score jobs from your search input
+- store results locally
+
+**First sync takes 2-5 minutes** depending on number of sources.
+
+### 4. Review Jobs
 
 ---
 
@@ -98,25 +75,17 @@ Opens dashboard at `http://localhost:4311`.
 ### Manual Sync
 
 ```bash
-# Refresh data and scoring
-jf run
-
-# Force fresh capture/fetch, ignoring cache TTL
-jf run --force-refresh
-
-# Optional refresh profiles
-JOB_FINDER_REFRESH_PROFILE=safe jf run
-JOB_FINDER_REFRESH_PROFILE=probe jf run
-JOB_FINDER_REFRESH_PROFILE=mock jf run
-
-# Open dashboard to review
+# Preferred workflow
 jf review
+
+# Then update search input and click Find Jobs
 ```
 
-Profile modes:
-- `safe` (default): conservative refresh cadence
-- `probe`: shorter intervals with policy guardrails
-- `mock`: cache-only mode (no live refresh)
+Optional CLI pipeline:
+
+```bash
+jf run
+```
 
 ### Automated Sync (Recommended)
 
@@ -200,7 +169,6 @@ Some source categories are feature-flagged in the review UI.
 ```bash
 JOB_FINDER_ENABLE_WELLFOUND=1 jf review
 JOB_FINDER_ENABLE_REMOTEOK=1 jf review
-JOB_FINDER_ENABLE_NARRATA_CONNECT=1 jf review
 ```
 
 ### Database locked errors
