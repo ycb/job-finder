@@ -21,6 +21,13 @@ const DEFAULT_PROFILE_SOURCE_CONFIG = {
   }
 };
 
+const ASHBY_RECENCY_WINDOWS = new Set(["any", "1d", "1w", "1m"]);
+const ASHBY_RECENCY_TO_QDR = new Map([
+  ["1d", "d"],
+  ["1w", "w"],
+  ["1m", "m"]
+]);
+
 function resolveDefaultProfileSourceConfig() {
   const goalsPath = path.resolve("config/my-goals.json");
   if (fs.existsSync(goalsPath)) {
@@ -57,6 +64,90 @@ function readJsonFileWithPath(filePath) {
   } catch (error) {
     throw new Error(`Invalid JSON in ${resolvedPath}: ${error.message}`);
   }
+}
+
+function normalizeAshbyRecencyWindow(rawValue, fallback = "1m") {
+  const normalized = String(rawValue ?? "").trim().toLowerCase();
+
+  if (!normalized) {
+    return fallback;
+  }
+
+  if (!ASHBY_RECENCY_WINDOWS.has(normalized)) {
+    throw new Error(
+      "Ashby recencyWindow must be one of: any, 1d, 1w, 1m."
+    );
+  }
+
+  return normalized;
+}
+
+function recencyWindowFromGoogleSearchUrl(rawUrl) {
+  const urlText = String(rawUrl || "").trim();
+  if (!urlText) {
+    return null;
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(urlText);
+  } catch {
+    return null;
+  }
+
+  if (!/(^|\.)google\./i.test(parsed.hostname)) {
+    return null;
+  }
+
+  const tbs = String(parsed.searchParams.get("tbs") || "").trim().toLowerCase();
+  if (!tbs) {
+    return null;
+  }
+
+  const match = tbs.match(/(?:^|,)qdr:([dwm])(?:,|$)/);
+  if (!match) {
+    return "any";
+  }
+
+  if (match[1] === "d") {
+    return "1d";
+  }
+
+  if (match[1] === "w") {
+    return "1w";
+  }
+
+  if (match[1] === "m") {
+    return "1m";
+  }
+
+  return "any";
+}
+
+function applyGoogleRecencyWindow(rawUrl, recencyWindow) {
+  const urlText = String(rawUrl || "").trim();
+  if (!urlText) {
+    return "";
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(urlText);
+  } catch {
+    return urlText;
+  }
+
+  if (!/(^|\.)google\./i.test(parsed.hostname)) {
+    return urlText;
+  }
+
+  parsed.searchParams.delete("tbs");
+  const qdr = ASHBY_RECENCY_TO_QDR.get(recencyWindow);
+  if (qdr) {
+    parsed.searchParams.set("tbs", `qdr:${qdr}`);
+  }
+
+  return parsed.toString();
 }
 
 export function loadProfile(profilePath = "config/profile.json") {
@@ -415,6 +506,32 @@ function ensureDerivedSourceMetadata(raw, resolvedPath) {
         "utf8"
       );
     }
+
+    if (source.type === "ashby_search") {
+      const recencyWindow = normalizeAshbyRecencyWindow(
+        source.recencyWindow || recencyWindowFromGoogleSearchUrl(source.searchUrl) || "1m",
+        "1m"
+      );
+
+      if (source.recencyWindow !== recencyWindow) {
+        source.recencyWindow = recencyWindow;
+        changed = true;
+      }
+
+      const normalizedSearchUrl = normalizeSearchUrlForSourceType(
+        source.searchUrl,
+        source.type,
+        { recencyWindow }
+      );
+
+      if (
+        normalizedSearchUrl &&
+        normalizedSearchUrl !== String(source.searchUrl || "").trim()
+      ) {
+        source.searchUrl = normalizedSearchUrl;
+        changed = true;
+      }
+    }
   }
 
   return changed;
@@ -533,7 +650,7 @@ function normalizeLinkedInSearchUrl(rawUrl) {
   return parsedUrl.toString();
 }
 
-function normalizeSearchUrlForSourceType(rawUrl, sourceType) {
+function normalizeSearchUrlForSourceType(rawUrl, sourceType, options = {}) {
   const urlText = String(rawUrl || "").trim();
   if (!urlText) {
     return "";
@@ -544,6 +661,15 @@ function normalizeSearchUrlForSourceType(rawUrl, sourceType) {
     sourceType === "mock_linkedin_saved_search"
   ) {
     return normalizeLinkedInSearchUrl(urlText);
+  }
+
+  if (sourceType === "ashby_search") {
+    const recencyWindow = normalizeAshbyRecencyWindow(
+      options.recencyWindow || recencyWindowFromGoogleSearchUrl(urlText) || "1m",
+      "1m"
+    );
+
+    return applyGoogleRecencyWindow(urlText, recencyWindow);
   }
 
   return urlText;
@@ -575,6 +701,13 @@ export function updateSourceDefinition(
     updates && typeof updates.searchUrl === "string"
       ? String(updates.searchUrl)
       : null;
+  const hasRecencyWindowUpdate =
+    updates &&
+    Object.prototype.hasOwnProperty.call(updates, "recencyWindow");
+  const rawNextRecencyWindow =
+    updates && typeof updates.recencyWindow === "string"
+      ? String(updates.recencyWindow)
+      : "";
 
   if (!normalizedSourceIdOrName) {
     throw new Error("Source id or label is required.");
@@ -598,9 +731,27 @@ export function updateSourceDefinition(
   }
 
   const source = sources[sourceIndex];
+  const currentAshbyRecencyWindow =
+    source.type === "ashby_search"
+      ? normalizeAshbyRecencyWindow(
+          source.recencyWindow || recencyWindowFromGoogleSearchUrl(source.searchUrl) || "1m",
+          "1m"
+        )
+      : null;
+  const nextAshbyRecencyWindow =
+    source.type === "ashby_search"
+      ? hasRecencyWindowUpdate
+        ? normalizeAshbyRecencyWindow(
+            rawNextRecencyWindow,
+            currentAshbyRecencyWindow || "1m"
+          )
+        : currentAshbyRecencyWindow
+      : null;
   const nextSearchUrl =
     rawNextSearchUrl !== null
-      ? normalizeSearchUrlForSourceType(rawNextSearchUrl, source.type)
+      ? normalizeSearchUrlForSourceType(rawNextSearchUrl, source.type, {
+          recencyWindow: nextAshbyRecencyWindow
+        })
       : null;
 
   if (nextName !== null) {
@@ -621,6 +772,17 @@ export function updateSourceDefinition(
 
   if (nextSearchUrl !== null) {
     source.searchUrl = nextSearchUrl;
+  }
+
+  if (source.type === "ashby_search" && nextAshbyRecencyWindow) {
+    source.recencyWindow = nextAshbyRecencyWindow;
+    if (nextSearchUrl === null) {
+      source.searchUrl = normalizeSearchUrlForSourceType(
+        source.searchUrl,
+        source.type,
+        { recencyWindow: nextAshbyRecencyWindow }
+      );
+    }
   }
 
   syncCaptureFileMetadata(sources[sourceIndex]);
@@ -707,7 +869,8 @@ function addLiveFetchSource(
   name,
   searchUrl,
   type,
-  sourcesPath = "config/sources.json"
+  sourcesPath = "config/sources.json",
+  options = {}
 ) {
   const allowedTypes = new Set(["builtin_search", "wellfound_search", "ashby_search"]);
   if (!allowedTypes.has(type)) {
@@ -715,7 +878,16 @@ function addLiveFetchSource(
   }
 
   const normalizedName = String(name || "").trim();
-  const normalizedSearchUrl = normalizeSearchUrlForSourceType(searchUrl, type);
+  const recencyWindow =
+    type === "ashby_search"
+      ? normalizeAshbyRecencyWindow(
+          options.recencyWindow || recencyWindowFromGoogleSearchUrl(searchUrl) || "1m",
+          "1m"
+        )
+      : null;
+  const normalizedSearchUrl = normalizeSearchUrlForSourceType(searchUrl, type, {
+    recencyWindow
+  });
 
   if (!normalizedName) {
     throw new Error("Source label is required.");
@@ -749,6 +921,10 @@ function addLiveFetchSource(
     enabled: true,
     searchUrl: normalizedSearchUrl
   };
+
+  if (type === "ashby_search" && recencyWindow) {
+    nextSource.recencyWindow = recencyWindow;
+  }
 
   if (type === "wellfound_search" || type === "ashby_search") {
     const capturesDir = path.resolve(path.dirname(resolvedPath), "..", "data", "captures");
@@ -788,9 +964,12 @@ export function addWellfoundSearchSource(
 export function addAshbySearchSource(
   name,
   searchUrl,
-  sourcesPath = "config/sources.json"
+  sourcesPath = "config/sources.json",
+  recencyWindow
 ) {
-  return addLiveFetchSource(name, searchUrl, "ashby_search", sourcesPath);
+  return addLiveFetchSource(name, searchUrl, "ashby_search", sourcesPath, {
+    recencyWindow
+  });
 }
 
 export function normalizeAllSourceSearchUrls(sourcesPath = "config/sources.json") {
@@ -804,7 +983,22 @@ export function normalizeAllSourceSearchUrls(sourcesPath = "config/sources.json"
       continue;
     }
 
-    const nextUrl = normalizeSearchUrlForSourceType(source.searchUrl, source.type);
+    let recencyWindow = null;
+    if (source.type === "ashby_search") {
+      recencyWindow = normalizeAshbyRecencyWindow(
+        source.recencyWindow || recencyWindowFromGoogleSearchUrl(source.searchUrl) || "1m",
+        "1m"
+      );
+
+      if (source.recencyWindow !== recencyWindow) {
+        source.recencyWindow = recencyWindow;
+        changed += 1;
+      }
+    }
+
+    const nextUrl = normalizeSearchUrlForSourceType(source.searchUrl, source.type, {
+      recencyWindow
+    });
     if (nextUrl && nextUrl !== source.searchUrl) {
       source.searchUrl = nextUrl;
       changed += 1;

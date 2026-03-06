@@ -273,13 +273,22 @@ function runAddWellfoundSource(label, searchUrl) {
   console.log(`Added Wellfound source "${source.name}" with id=${source.id}`);
 }
 
-function runAddAshbySource(label, searchUrl) {
+function runAddAshbySource(label, searchUrl, recencyWindowArg) {
   if (!label || !searchUrl) {
-    throw new Error("Usage: node src/cli.js add-ashby-source <label> <url>");
+    throw new Error(
+      "Usage: node src/cli.js add-ashby-source <label> <url> [any|1d|1w|1m]"
+    );
   }
 
-  const source = addAshbySearchSource(label, searchUrl);
-  console.log(`Added Ashby source "${source.name}" with id=${source.id}`);
+  const source = addAshbySearchSource(
+    label,
+    searchUrl,
+    "config/sources.json",
+    recencyWindowArg
+  );
+  console.log(
+    `Added Ashby source "${source.name}" with id=${source.id} (recencyWindow=${source.recencyWindow || "n/a"})`
+  );
 }
 
 function runSetSourceUrl(sourceIdOrName, searchUrl) {
@@ -733,7 +742,7 @@ Usage:
   node src/cli.js add-source <label> <url>
   node src/cli.js add-builtin-source <label> <url>
   node src/cli.js add-wellfound-source <label> <url>
-  node src/cli.js add-ashby-source <label> <url>
+  node src/cli.js add-ashby-source <label> <url> [any|1d|1w|1m]
   node src/cli.js set-source-url <source-id-or-label> <url>
   node src/cli.js normalize-source-urls
   node src/cli.js profile-source
@@ -788,7 +797,7 @@ async function main() {
       runAddWellfoundSource(args[0], args[1]);
       break;
     case "add-ashby-source":
-      runAddAshbySource(args[0], args[1]);
+      runAddAshbySource(args[0], args[1], args[2]);
       break;
     case "set-source-url":
       runSetSourceUrl(args[0], args[1]);

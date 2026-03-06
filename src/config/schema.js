@@ -370,6 +370,24 @@ export function validateSources(raw) {
         }
       }
 
+      if (type === "ashby_search") {
+        const recencyRaw =
+          source.recencyWindow === undefined || source.recencyWindow === null
+            ? ""
+            : assertString(
+                source.recencyWindow,
+                `Sources.sources[${index}].recencyWindow`
+              ).toLowerCase();
+
+        if (recencyRaw && !new Set(["any", "1d", "1w", "1m"]).has(recencyRaw)) {
+          throw new Error(
+            `Sources.sources[${index}].recencyWindow must be one of: any, 1d, 1w, 1m.`
+          );
+        }
+
+        normalizedSource.recencyWindow = recencyRaw || "1m";
+      }
+
       return normalizedSource;
     })
   };

@@ -690,6 +690,7 @@ function buildDashboardData(limit = 200) {
         id: source.id,
         name: source.name,
         searchUrl: source.searchUrl,
+        recencyWindow: source.recencyWindow || null,
         enabled: source.enabled,
         type: source.type,
         capturePath: source.capturePath,
@@ -1896,11 +1897,13 @@ function renderDashboardPage(dashboard) {
       async function saveSource() {
         const nameInput = document.getElementById("source-name");
         const urlInput = document.getElementById("source-url");
+        const recencyWindowInput = document.getElementById("source-recency-window");
 
         const body = {
           sourceId: editingSourceId,
           name: nameInput.value,
-          searchUrl: urlInput.value
+          searchUrl: urlInput.value,
+          recencyWindow: recencyWindowInput ? recencyWindowInput.value : "1m"
         };
 
         busy = true;
@@ -2213,7 +2216,8 @@ function renderDashboardPage(dashboard) {
             heading: "Add Search",
             actionLabel: "Save Search",
             name: "",
-            searchUrl: ""
+            searchUrl: "",
+            recencyWindow: "1m"
           };
         }
 
@@ -2223,7 +2227,8 @@ function renderDashboardPage(dashboard) {
             heading: "Add Search",
             actionLabel: "Save Search",
             name: "",
-            searchUrl: ""
+            searchUrl: "",
+            recencyWindow: "1m"
           };
         }
 
@@ -2231,7 +2236,9 @@ function renderDashboardPage(dashboard) {
           heading: "Edit Search",
           actionLabel: "Save Changes",
           name: source.name,
-          searchUrl: source.searchUrl
+          searchUrl: source.searchUrl,
+          recencyWindow:
+            source.type === "ashby_search" ? source.recencyWindow || "1m" : "any"
         };
       }
 
@@ -2287,6 +2294,16 @@ function renderDashboardPage(dashboard) {
             const isActive = selectedSourceId === source.id;
             const safeName = escapeHtml(source.name);
             const safeUrl = escapeHtml(source.searchUrl);
+            const recencyLabel =
+              source.type === "ashby_search"
+                ? source.recencyWindow === "1d"
+                  ? "1 day"
+                  : source.recencyWindow === "1w"
+                    ? "1 week"
+                    : source.recencyWindow === "1m"
+                      ? "1 month"
+                      : "Any time"
+                : null;
             const lastRun = escapeHtml(formatTime(source.capturedAt));
             const sourceKind = sourceKindFromType(source.type);
             const trackedTotal = Number(source.totalCount || source.jobCount || 0);
@@ -2307,7 +2324,9 @@ function renderDashboardPage(dashboard) {
             return [
               "<tr>",
               '  <td><span class="source-badge" data-source-kind="' + escapeHtml(sourceKind) + '">' + escapeHtml(sourceKindLabel(sourceKind)) + "</span></td>",
-              '  <td><div class="search-name">' + safeName + '</div><a class="search-url" href="' + encodeURI(source.searchUrl) + '" target="_blank" rel="noreferrer">' + safeUrl + "</a></td>",
+              '  <td><div class="search-name">' + safeName + "</div>" +
+                (recencyLabel ? '<div class="subhead">Google window: ' + escapeHtml(recencyLabel) + "</div>" : "") +
+                '<a class="search-url" href="' + encodeURI(source.searchUrl) + '" target="_blank" rel="noreferrer">' + safeUrl + "</a></td>",
               "  <td>" + lastRun + "</td>",
               "  <td>" + escapeHtml(statusLabel) + "</td>",
               "  <td>" + escapeHtml(source.jobCount) + "</td>",
@@ -2579,6 +2598,13 @@ function renderDashboardPage(dashboard) {
                 '    <div class="search-form">',
                 '      <label>Name<input id="source-name" type="text" value="' + escapeHtml(formState.name) + '" placeholder="AI PM"></label>',
                 '      <label>Search URL<input id="source-url" type="text" value="' + escapeHtml(formState.searchUrl) + '" placeholder="LinkedIn, Built In, Wellfound, or Ashby jobs URL"></label>',
+                '      <label>Google Time Window<select id="source-recency-window">' +
+                  '<option value="any"' + (formState.recencyWindow === "any" ? " selected" : "") + ">Any time</option>" +
+                  '<option value="1d"' + (formState.recencyWindow === "1d" ? " selected" : "") + ">1 day</option>" +
+                  '<option value="1w"' + (formState.recencyWindow === "1w" ? " selected" : "") + ">1 week</option>" +
+                  '<option value="1m"' + (formState.recencyWindow === "1m" ? " selected" : "") + ">1 month</option>" +
+                "</select></label>",
+                '      <div class="subhead">Applied to Google/Ashby discovery URLs. Default: 1 month.</div>',
                 '      <div class="inline-actions">',
                 '        <button class="primary" id="save-source"' + (busy ? " disabled" : "") + ">" + escapeHtml(formState.actionLabel) + "</button>",
                 '        <button class="ghost" id="cancel-edit"' + (busy ? " disabled" : "") + ">Cancel</button>",
@@ -2864,15 +2890,19 @@ export function startReviewServer({ port = 4311, limit = 200 } = {}) {
             : null;
         const name = typeof parsedBody.name === "string" ? parsedBody.name : "";
         const searchUrl = typeof parsedBody.searchUrl === "string" ? parsedBody.searchUrl : "";
+        const recencyWindow =
+          typeof parsedBody.recencyWindow === "string"
+            ? parsedBody.recencyWindow.trim()
+            : "";
 
         const source = sourceId
-          ? updateSourceDefinition(sourceId, { name, searchUrl })
+          ? updateSourceDefinition(sourceId, { name, searchUrl, recencyWindow })
           : isBuiltInJobsUrl(searchUrl)
             ? addBuiltinSearchSource(name, searchUrl)
             : isWellfoundJobsUrl(searchUrl)
               ? addWellfoundSearchSource(name, searchUrl)
               : isAshbyJobsUrl(searchUrl) || isGoogleAshbyDiscoveryUrl(searchUrl)
-                ? addAshbySearchSource(name, searchUrl)
+                ? addAshbySearchSource(name, searchUrl, "config/sources.json", recencyWindow)
                 : addLinkedInCaptureSource(name, searchUrl);
 
         response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
