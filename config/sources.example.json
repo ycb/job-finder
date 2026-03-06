@@ -6,7 +6,8 @@
       "type": "linkedin_capture_file",
       "enabled": true,
       "searchUrl": "https://www.linkedin.com/jobs/search-results/?keywords=lead%20product%20manager&geoId=90000084&distance=25",
-      "capturePath": "data/captures/linkedin-live-capture.json"
+      "capturePath": "data/captures/linkedin-live-capture.json",
+      "cacheTtlHours": 24
     },
     {
       "id": "builtin-sf-ai-pm",
@@ -34,7 +35,15 @@
       "type": "wellfound_search",
       "enabled": false,
       "searchUrl": "https://wellfound.com/jobs",
-      "maxJobs": 50
+      "maxJobs": 50,
+      "cacheTtlHours": 24,
+      "hardFilter": {
+        "requiredAll": ["product manager"],
+        "requiredAny": ["ai", "machine learning"],
+        "excludeAny": ["intern", "contract"],
+        "fields": ["title", "summary", "description"],
+        "enforceContentOnSnippets": false
+      }
     },
     {
       "id": "ashby-pm-roles",
@@ -42,7 +51,8 @@
       "type": "ashby_search",
       "enabled": false,
       "searchUrl": "https://jobs.ashbyhq.com/",
-      "maxJobs": 50
+      "maxJobs": 50,
+      "cacheTtlHours": 24
     },
     {
       "id": "indeed-ai-pm",
@@ -50,15 +60,8 @@
       "type": "indeed_search",
       "enabled": false,
       "searchUrl": "https://www.indeed.com/jobs",
-      "searchCriteria": {
-        "title": "product manager",
-        "keywords": "ai",
-        "location": "San Francisco, CA",
-        "distanceMiles": 25,
-        "minSalary": 195000,
-        "datePosted": "1w"
-      },
-      "requiredTerms": ["product manager", "ai"]
+      "requiredTerms": ["product manager", "ai"],
+      "cacheTtlHours": 24
     },
     {
       "id": "zip-ai-pm",
@@ -66,7 +69,8 @@
       "type": "ziprecruiter_search",
       "enabled": false,
       "searchUrl": "https://www.ziprecruiter.com/jobs-search?search=product+manager+ai&location=San+Francisco%2C+CA",
-      "requiredTerms": ["product manager", "ai"]
+      "requiredTerms": ["product manager", "ai"],
+      "cacheTtlHours": 24
     },
     {
       "id": "remoteok-ai-pm",
@@ -74,7 +78,8 @@
       "type": "remoteok_search",
       "enabled": false,
       "searchUrl": "https://remoteok.com/remote-manager+saas-jobs",
-      "requiredTerms": ["product manager", "ai"]
+      "requiredTerms": ["product manager", "ai"],
+      "cacheTtlHours": 24
     }
   ]
 }

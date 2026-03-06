@@ -74,6 +74,83 @@ function assertOptionalFiniteNumber(value, label, fallback = null) {
   return Number(value);
 }
 
+const SEARCH_CRITERIA_DATE_POSTED_VALUES = new Set(["any", "1d", "3d", "1w", "2w", "1m"]);
+const SEARCH_CRITERIA_EXPERIENCE_VALUES = new Set([
+  "intern",
+  "entry",
+  "associate",
+  "mid",
+  "senior",
+  "director",
+  "executive"
+]);
+
+export function validateSearchCriteria(raw, label = "Search criteria") {
+  const criteria = assertOptionalObject(raw, label, {});
+  const normalizedCriteria = {};
+
+  const title = assertOptionalString(criteria.title, `${label}.title`, "");
+  if (title) {
+    normalizedCriteria.title = title;
+  }
+
+  const keywords = assertOptionalString(criteria.keywords, `${label}.keywords`, "");
+  if (keywords) {
+    normalizedCriteria.keywords = keywords;
+  }
+
+  const location = assertOptionalString(criteria.location, `${label}.location`, "");
+  if (location) {
+    normalizedCriteria.location = location;
+  }
+
+  const minSalary = assertOptionalFiniteNumber(criteria.minSalary, `${label}.minSalary`, null);
+  if (minSalary !== null) {
+    if (minSalary <= 0) {
+      throw new Error(`${label}.minSalary must be a positive number when provided.`);
+    }
+    normalizedCriteria.minSalary = Math.round(minSalary);
+  }
+
+  const distanceMiles = assertOptionalFiniteNumber(
+    criteria.distanceMiles,
+    `${label}.distanceMiles`,
+    null
+  );
+  if (distanceMiles !== null) {
+    if (distanceMiles <= 0) {
+      throw new Error(`${label}.distanceMiles must be a positive number when provided.`);
+    }
+    normalizedCriteria.distanceMiles = Math.round(distanceMiles);
+  }
+
+  const datePosted = assertOptionalString(criteria.datePosted, `${label}.datePosted`, "").toLowerCase();
+  if (datePosted) {
+    if (!SEARCH_CRITERIA_DATE_POSTED_VALUES.has(datePosted)) {
+      throw new Error(
+        `${label}.datePosted must be one of: any, 1d, 3d, 1w, 2w, 1m.`
+      );
+    }
+    normalizedCriteria.datePosted = datePosted;
+  }
+
+  const experienceLevel = assertOptionalString(
+    criteria.experienceLevel,
+    `${label}.experienceLevel`,
+    ""
+  ).toLowerCase();
+  if (experienceLevel) {
+    if (!SEARCH_CRITERIA_EXPERIENCE_VALUES.has(experienceLevel)) {
+      throw new Error(
+        `${label}.experienceLevel must be one of: intern, entry, associate, mid, senior, director, executive.`
+      );
+    }
+    normalizedCriteria.experienceLevel = experienceLevel;
+  }
+
+  return normalizedCriteria;
+}
+
 export function validateProfile(raw) {
   assertObject(raw, "Profile");
 
@@ -322,107 +399,10 @@ export function validateSources(raw) {
       };
 
       if (source.searchCriteria !== undefined) {
-        const criteria = assertOptionalObject(
+        normalizedSource.searchCriteria = validateSearchCriteria(
           source.searchCriteria,
-          `Sources.sources[${index}].searchCriteria`,
-          {}
+          `Sources.sources[${index}].searchCriteria`
         );
-        const normalizedCriteria = {};
-
-        const title = assertOptionalString(
-          criteria.title,
-          `Sources.sources[${index}].searchCriteria.title`,
-          ""
-        );
-        if (title) {
-          normalizedCriteria.title = title;
-        }
-
-        const keywords = assertOptionalString(
-          criteria.keywords,
-          `Sources.sources[${index}].searchCriteria.keywords`,
-          ""
-        );
-        if (keywords) {
-          normalizedCriteria.keywords = keywords;
-        }
-
-        const location = assertOptionalString(
-          criteria.location,
-          `Sources.sources[${index}].searchCriteria.location`,
-          ""
-        );
-        if (location) {
-          normalizedCriteria.location = location;
-        }
-
-        const minSalary = assertOptionalFiniteNumber(
-          criteria.minSalary,
-          `Sources.sources[${index}].searchCriteria.minSalary`,
-          null
-        );
-        if (minSalary !== null) {
-          if (minSalary <= 0) {
-            throw new Error(
-              `Sources.sources[${index}].searchCriteria.minSalary must be a positive number when provided.`
-            );
-          }
-          normalizedCriteria.minSalary = Math.round(minSalary);
-        }
-
-        const distanceMiles = assertOptionalFiniteNumber(
-          criteria.distanceMiles,
-          `Sources.sources[${index}].searchCriteria.distanceMiles`,
-          null
-        );
-        if (distanceMiles !== null) {
-          if (distanceMiles <= 0) {
-            throw new Error(
-              `Sources.sources[${index}].searchCriteria.distanceMiles must be a positive number when provided.`
-            );
-          }
-          normalizedCriteria.distanceMiles = Math.round(distanceMiles);
-        }
-
-        const datePosted = assertOptionalString(
-          criteria.datePosted,
-          `Sources.sources[${index}].searchCriteria.datePosted`,
-          ""
-        ).toLowerCase();
-        if (datePosted) {
-          if (!new Set(["any", "1d", "3d", "1w", "2w", "1m"]).has(datePosted)) {
-            throw new Error(
-              `Sources.sources[${index}].searchCriteria.datePosted must be one of: any, 1d, 3d, 1w, 2w, 1m.`
-            );
-          }
-          normalizedCriteria.datePosted = datePosted;
-        }
-
-        const experienceLevel = assertOptionalString(
-          criteria.experienceLevel,
-          `Sources.sources[${index}].searchCriteria.experienceLevel`,
-          ""
-        ).toLowerCase();
-        if (experienceLevel) {
-          if (
-            !new Set([
-              "intern",
-              "entry",
-              "associate",
-              "mid",
-              "senior",
-              "director",
-              "executive"
-            ]).has(experienceLevel)
-          ) {
-            throw new Error(
-              `Sources.sources[${index}].searchCriteria.experienceLevel must be one of: intern, entry, associate, mid, senior, director, executive.`
-            );
-          }
-          normalizedCriteria.experienceLevel = experienceLevel;
-        }
-
-        normalizedSource.searchCriteria = normalizedCriteria;
       }
 
       if (source.requiredTerms !== undefined) {
@@ -438,6 +418,85 @@ export function validateSources(raw) {
             `Sources.sources[${index}].requiredTerms[${termIndex}]`
           )
         );
+      }
+
+      if (source.hardFilter !== undefined) {
+        const hardFilter = assertOptionalObject(
+          source.hardFilter,
+          `Sources.sources[${index}].hardFilter`,
+          {}
+        );
+        const normalizedHardFilter = {};
+
+        if (hardFilter.requiredAll !== undefined) {
+          if (!Array.isArray(hardFilter.requiredAll)) {
+            throw new Error(
+              `Sources.sources[${index}].hardFilter.requiredAll must be an array when provided.`
+            );
+          }
+          normalizedHardFilter.requiredAll = hardFilter.requiredAll.map((term, termIndex) =>
+            assertString(
+              term,
+              `Sources.sources[${index}].hardFilter.requiredAll[${termIndex}]`
+            )
+          );
+        }
+
+        if (hardFilter.requiredAny !== undefined) {
+          if (!Array.isArray(hardFilter.requiredAny)) {
+            throw new Error(
+              `Sources.sources[${index}].hardFilter.requiredAny must be an array when provided.`
+            );
+          }
+          normalizedHardFilter.requiredAny = hardFilter.requiredAny.map((term, termIndex) =>
+            assertString(
+              term,
+              `Sources.sources[${index}].hardFilter.requiredAny[${termIndex}]`
+            )
+          );
+        }
+
+        if (hardFilter.excludeAny !== undefined) {
+          if (!Array.isArray(hardFilter.excludeAny)) {
+            throw new Error(
+              `Sources.sources[${index}].hardFilter.excludeAny must be an array when provided.`
+            );
+          }
+          normalizedHardFilter.excludeAny = hardFilter.excludeAny.map((term, termIndex) =>
+            assertString(
+              term,
+              `Sources.sources[${index}].hardFilter.excludeAny[${termIndex}]`
+            )
+          );
+        }
+
+        if (hardFilter.fields !== undefined) {
+          if (!Array.isArray(hardFilter.fields)) {
+            throw new Error(
+              `Sources.sources[${index}].hardFilter.fields must be an array when provided.`
+            );
+          }
+          normalizedHardFilter.fields = hardFilter.fields.map((field, fieldIndex) =>
+            assertString(
+              field,
+              `Sources.sources[${index}].hardFilter.fields[${fieldIndex}]`
+            )
+          );
+        }
+
+        if (hardFilter.enforceContentOnSnippets !== undefined) {
+          if (typeof hardFilter.enforceContentOnSnippets !== "boolean") {
+            throw new Error(
+              `Sources.sources[${index}].hardFilter.enforceContentOnSnippets must be a boolean when provided.`
+            );
+          }
+          normalizedHardFilter.enforceContentOnSnippets =
+            hardFilter.enforceContentOnSnippets;
+        }
+
+        if (Object.keys(normalizedHardFilter).length > 0) {
+          normalizedSource.hardFilter = normalizedHardFilter;
+        }
       }
 
       if (source.cacheTtlHours !== undefined) {

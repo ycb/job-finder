@@ -17,7 +17,10 @@ import {
   addZipRecruiterSearchSource,
   addWellfoundSearchSource,
   connectNarrataGoalsFile,
+  loadSearchCriteria,
   loadActiveProfile,
+  normalizeAllSourceSearchUrls,
+  saveSearchCriteria,
   useLegacyProfileSource,
   useMyGoalsProfileSource,
   loadSources,
@@ -28,16 +31,20 @@ import { runMigrations } from "../db/migrations.js";
 import { normalizeJobRecord } from "../jobs/normalize.js";
 import {
   listAllJobs,
+  listAllJobsWithStatus,
   listReviewQueue,
   markApplicationStatusByNormalizedHash,
+  pruneSourceJobs,
   upsertEvaluations,
   upsertJobs
 } from "../jobs/repository.js";
-import { evaluateJobs } from "../jobs/score.js";
+import { evaluateJobsFromSearchCriteria } from "../jobs/score.js";
 import {
-  isSourceCaptureFresh,
+  getSourceRefreshDecision,
+  normalizeRefreshProfile,
   readSourceCaptureSummary
 } from "../sources/cache-policy.js";
+import { classifyRefreshErrorOutcome, recordRefreshEvent } from "../sources/refresh-state.js";
 import { collectJobsFromSource } from "../sources/linkedin-saved-search.js";
 
 function escapeHtml(value) {
@@ -122,6 +129,7 @@ async function ensureBridgeForSources(sources) {
           (source.type === "linkedin_capture_file" ||
             source.type === "wellfound_search" ||
             source.type === "ashby_search" ||
+            source.type === "google_search" ||
             source.type === "indeed_search" ||
             source.type === "ziprecruiter_search" ||
             source.type === "remoteok_search")
@@ -191,8 +199,130 @@ function summarizeBuckets(evaluations) {
   );
 }
 
+function buildSourceImportVerification(expectedCount, importedCount) {
+  const expected = Number.isFinite(Number(expectedCount)) ? Math.round(Number(expectedCount)) : null;
+  const imported = Number.isFinite(Number(importedCount)) ? Math.max(0, Math.round(Number(importedCount))) : 0;
+
+  if (!expected || expected <= 0) {
+    return {
+      expectedCount: null,
+      importedCount: imported,
+      ratio: null,
+      status: "unknown"
+    };
+  }
+
+  const ratio = imported / expected;
+  const roundedRatio = Math.round(ratio * 1000) / 1000;
+  let status = "critical";
+  if (roundedRatio >= 0.7) {
+    status = "ok";
+  } else if (roundedRatio >= 0.4) {
+    status = "warning";
+  }
+
+  return {
+    expectedCount: expected,
+    importedCount: imported,
+    ratio: roundedRatio,
+    status
+  };
+}
+
+function isCaptureFunnelReadSafeSource(source) {
+  return (
+    source?.type === "linkedin_capture_file" ||
+    source?.type === "wellfound_search" ||
+    source?.type === "ashby_search" ||
+    source?.type === "indeed_search" ||
+    source?.type === "ziprecruiter_search" ||
+    source?.type === "remoteok_search"
+  );
+}
+
+function buildSourceCaptureFunnel(source, captureSummary) {
+  const captureJobCount = Number.isFinite(Number(captureSummary?.jobCount))
+    ? Math.max(0, Math.round(Number(captureSummary.jobCount)))
+    : null;
+
+  if (!source?.capturePath) {
+    return {
+      captureJobCount,
+      keptAfterHardFilterCount: null,
+      keptAfterDedupeCount: null,
+      droppedByHardFilterCount: null,
+      droppedByDedupeCount: null,
+      captureFunnelError: null,
+      importedNormalizedHashes: []
+    };
+  }
+
+  if (!isCaptureFunnelReadSafeSource(source)) {
+    return {
+      captureJobCount,
+      keptAfterHardFilterCount: null,
+      keptAfterDedupeCount: null,
+      droppedByHardFilterCount: null,
+      droppedByDedupeCount: null,
+      captureFunnelError: null,
+      importedNormalizedHashes: []
+    };
+  }
+
+  try {
+    const filteredJobs = collectJobsFromSource(source);
+    const keptAfterHardFilterCount = filteredJobs.length;
+    const normalizedHashes = new Set();
+
+    for (const job of filteredJobs) {
+      try {
+        const normalizedJob = normalizeJobRecord(job, source);
+        if (normalizedJob?.normalizedHash) {
+          normalizedHashes.add(normalizedJob.normalizedHash);
+        }
+      } catch {
+        // Keep funnel metrics resilient even if one record is malformed.
+      }
+    }
+
+    const keptAfterDedupeCount = normalizedHashes.size;
+    const droppedByHardFilterCount =
+      captureJobCount !== null
+        ? Math.max(0, captureJobCount - keptAfterHardFilterCount)
+        : null;
+    const droppedByDedupeCount = Math.max(
+      0,
+      keptAfterHardFilterCount - keptAfterDedupeCount
+    );
+
+    return {
+      captureJobCount,
+      keptAfterHardFilterCount,
+      keptAfterDedupeCount,
+      droppedByHardFilterCount,
+      droppedByDedupeCount,
+      captureFunnelError: null,
+      importedNormalizedHashes: [...normalizedHashes.values()]
+    };
+  } catch (error) {
+    return {
+      captureJobCount,
+      keptAfterHardFilterCount: null,
+      keptAfterDedupeCount: null,
+      droppedByHardFilterCount: null,
+      droppedByDedupeCount: null,
+      captureFunnelError: String(error?.message || "capture_funnel_failed"),
+      importedNormalizedHashes: []
+    };
+  }
+}
+
 function getReviewQueue(limit = 200) {
   return withDatabase((db) => listReviewQueue(db, limit));
+}
+
+function getAllJobsWithStatus(limit = 5000) {
+  return withDatabase((db) => listAllJobsWithStatus(db, limit));
 }
 
 function getSourceLastSeenAtMap() {
@@ -459,7 +589,8 @@ function pickStatus(statuses) {
   return "new";
 }
 
-function hydrateQueue(queue) {
+function hydrateQueue(queue, options = {}) {
+  const includeRejected = options.includeRejected === true;
   const groups = new Map();
 
   for (const rawJob of queue) {
@@ -518,12 +649,12 @@ function hydrateQueue(queue) {
     existing.status = pickStatus(existing._statuses);
   }
 
-  return [...groups.values()]
-    .map((job) => {
-      delete job._statuses;
-      return job;
-    })
-    .filter((job) => job.status !== "rejected");
+  const result = [...groups.values()].map((job) => {
+    delete job._statuses;
+    return job;
+  });
+
+  return includeRejected ? result : result.filter((job) => job.status !== "rejected");
 }
 
 function readCaptureSummary(source) {
@@ -539,34 +670,87 @@ function isBrowserCaptureSource(source) {
     source?.type === "linkedin_capture_file" ||
     source?.type === "wellfound_search" ||
     source?.type === "ashby_search" ||
+    source?.type === "google_search" ||
     source?.type === "indeed_search" ||
     source?.type === "ziprecruiter_search" ||
     source?.type === "remoteok_search"
   );
 }
 
+export function buildSourceRefreshMeta(source, options = {}) {
+  const refreshProfile = normalizeRefreshProfile(
+    options.refreshProfile || process.env.JOB_FINDER_REFRESH_PROFILE || "safe"
+  );
+
+  if (!isBrowserCaptureSource(source)) {
+    return {
+      refreshMode: refreshProfile,
+      servedFrom: "live",
+      lastLiveAt: null,
+      nextEligibleAt: null,
+      cooldownUntil: null,
+      statusLabel: "direct_fetch",
+      statusReason: "fetched_during_sync"
+    };
+  }
+
+  const decision = getSourceRefreshDecision(source, {
+    profile: refreshProfile,
+    forceRefresh: Boolean(options.forceRefresh),
+    statePath: options.refreshStatePath,
+    nowMs: options.nowMs
+  });
+  const statusReason = decision.reason || "eligible";
+  const statusLabelMap = {
+    eligible: "ready_live",
+    force_refresh: "ready_live",
+    cache_fresh: "cache_fresh",
+    cooldown: "cooldown",
+    min_interval: "throttled",
+    daily_cap: "daily_cap",
+    mock_profile: "cache_only"
+  };
+
+  return {
+    refreshMode: refreshProfile,
+    servedFrom: decision.servedFrom,
+    lastLiveAt: decision.sourceState?.lastLiveAt || null,
+    nextEligibleAt: decision.nextEligibleAt || null,
+    cooldownUntil: decision.sourceState?.cooldownUntil || null,
+    statusLabel: statusLabelMap[statusReason] || "cache_only",
+    statusReason
+  };
+}
+
 function runSyncAndScore() {
-  const { profile } = loadActiveProfile();
+  const { criteria } = loadSearchCriteria();
   const sources = loadSources().sources.filter((source) => source.enabled);
 
   return withDatabase((db) => {
     let totalCollected = 0;
     let totalUpserted = 0;
+    let totalPruned = 0;
 
     for (const source of sources) {
       const rawJobs = collectJobsFromSource(source);
       const normalizedJobs = rawJobs.map((job) => normalizeJobRecord(job, source));
       totalCollected += normalizedJobs.length;
       totalUpserted += upsertJobs(db, normalizedJobs);
+      totalPruned += pruneSourceJobs(
+        db,
+        source.id,
+        normalizedJobs.map((job) => job.id)
+      );
     }
 
     const jobs = listAllJobs(db);
-    const evaluations = evaluateJobs(profile, jobs);
+    const evaluations = evaluateJobsFromSearchCriteria(criteria, jobs);
     upsertEvaluations(db, evaluations);
 
     return {
       collected: totalCollected,
       upserted: totalUpserted,
+      pruned: totalPruned,
       evaluated: evaluations.length,
       buckets: summarizeBuckets(evaluations)
     };
@@ -574,6 +758,30 @@ function runSyncAndScore() {
 }
 
 async function runSourceCapture(sourceId) {
+  return runSourceCaptureWithOptions(sourceId, {});
+}
+
+function describeRefreshDecision(source, decision) {
+  if (decision.allowLive) {
+    return null;
+  }
+
+  const sourceName = source?.name || source?.id || "source";
+  const capturedAt = decision?.cacheSummary?.capturedAt || "unknown";
+  const cachedCount = Number(decision?.cacheSummary?.jobCount || 0);
+
+  if (decision.reason === "cache_fresh") {
+    return `Skipped fresh capture for "${sourceName}" (capturedAt=${capturedAt}; jobs=${cachedCount}).`;
+  }
+
+  if (decision.reason === "mock_profile") {
+    return `Using cache for "${sourceName}" (mock profile disables live refresh).`;
+  }
+
+  return `Using cache for "${sourceName}" (live refresh blocked: ${decision.reason}; next eligible=${decision.nextEligibleAt || "unknown"}; capturedAt=${capturedAt}).`;
+}
+
+async function runSourceCaptureWithOptions(sourceId, options = {}) {
   const source = loadSources().sources.find((item) => item.id === sourceId);
 
   if (!source) {
@@ -592,22 +800,57 @@ async function runSourceCapture(sourceId) {
     };
   }
 
-  if (isSourceCaptureFresh(source)) {
-    const summary = readCaptureSummary(source);
+  const refreshProfile = normalizeRefreshProfile(
+    options.refreshProfile || process.env.JOB_FINDER_REFRESH_PROFILE || "safe"
+  );
+  const decision = getSourceRefreshDecision(source, {
+    profile: refreshProfile,
+    forceRefresh: Boolean(options.forceRefresh),
+    statePath: options.refreshStatePath
+  });
+
+  if (!decision.allowLive) {
     return {
       capture: {
         provider: "cache",
         status: "completed",
         cached: true,
-        jobsImported: summary.jobCount,
-        message: `Skipped fresh capture for "${source.name}" (capturedAt=${summary.capturedAt || "unknown"}).`
+        jobsImported: decision.cacheSummary?.jobCount || 0,
+        servedFrom: "cache",
+        policyReason: decision.reason,
+        nextEligibleAt: decision.nextEligibleAt || null,
+        message: describeRefreshDecision(source, decision)
       },
       sync: runSyncAndScore()
     };
   }
 
   await ensureBridgeForSources([source]);
-  const capture = await captureSourceViaBridge(source, buildSourceSnapshotPath(source));
+  let capture;
+  try {
+    capture = await captureSourceViaBridge(source, buildSourceSnapshotPath(source));
+  } catch (error) {
+    const outcome = classifyRefreshErrorOutcome(error);
+    recordRefreshEvent({
+      statePath: options.refreshStatePath,
+      sourceId: source.id,
+      outcome,
+      at: new Date().toISOString(),
+      cooldownMinutes:
+        outcome === "challenge" ? Number(decision?.policy?.cooldownMinutes || 0) : 0
+    });
+    throw error;
+  }
+
+  if (capture.status === "completed") {
+    recordRefreshEvent({
+      statePath: options.refreshStatePath,
+      sourceId: source.id,
+      outcome: "success",
+      at: capture.capturedAt || new Date().toISOString()
+    });
+  }
+
   const sync = capture.status === "completed" ? runSyncAndScore() : null;
 
   return {
@@ -617,35 +860,88 @@ async function runSourceCapture(sourceId) {
 }
 
 async function runAllCaptures() {
+  return runAllCapturesWithOptions({});
+}
+
+async function runAllCapturesWithOptions(options = {}) {
   const sources = loadSources().sources.filter((source) => source.enabled);
   const captures = [];
   let completedCount = 0;
-
-  const staleBrowserSources = sources.filter(
-    (source) => isBrowserCaptureSource(source) && !isSourceCaptureFresh(source)
+  const refreshProfile = normalizeRefreshProfile(
+    options.refreshProfile || process.env.JOB_FINDER_REFRESH_PROFILE || "safe"
   );
-  if (staleBrowserSources.length > 0) {
-    await ensureBridgeForSources(staleBrowserSources);
+  const liveBrowserSources = [];
+  const decisions = new Map();
+
+  for (const source of sources) {
+    if (!isBrowserCaptureSource(source)) {
+      continue;
+    }
+
+    const decision = getSourceRefreshDecision(source, {
+      profile: refreshProfile,
+      forceRefresh: Boolean(options.forceRefresh),
+      statePath: options.refreshStatePath
+    });
+    decisions.set(source.id, decision);
+    if (decision.allowLive) {
+      liveBrowserSources.push(source);
+    }
+  }
+
+  if (liveBrowserSources.length > 0) {
+    await ensureBridgeForSources(liveBrowserSources);
   }
 
   for (const source of sources) {
     let capture;
 
     if (isBrowserCaptureSource(source)) {
-      if (isSourceCaptureFresh(source)) {
-        const summary = readCaptureSummary(source);
+      const decision = decisions.get(source.id) || getSourceRefreshDecision(source, {
+        profile: refreshProfile,
+        forceRefresh: Boolean(options.forceRefresh),
+        statePath: options.refreshStatePath
+      });
+
+      if (!decision.allowLive) {
         capture = {
           provider: "cache",
           status: "completed",
           cached: true,
-          jobsImported: summary.jobCount,
-          message: `Skipped fresh capture for "${source.name}" (capturedAt=${summary.capturedAt || "unknown"}).`
+          servedFrom: "cache",
+          policyReason: decision.reason,
+          nextEligibleAt: decision.nextEligibleAt || null,
+          jobsImported: decision.cacheSummary?.jobCount || 0,
+          message: describeRefreshDecision(source, decision)
         };
       } else {
-        capture = await captureSourceViaBridge(
-          source,
-          buildSourceSnapshotPath(source)
-        );
+        try {
+          capture = await captureSourceViaBridge(
+            source,
+            buildSourceSnapshotPath(source)
+          );
+        } catch (error) {
+          const outcome = classifyRefreshErrorOutcome(error);
+          const decision = decisions.get(source.id);
+          recordRefreshEvent({
+            statePath: options.refreshStatePath,
+            sourceId: source.id,
+            outcome,
+            at: new Date().toISOString(),
+            cooldownMinutes:
+              outcome === "challenge" ? Number(decision?.policy?.cooldownMinutes || 0) : 0
+          });
+          throw error;
+        }
+
+        if (capture.status === "completed") {
+          recordRefreshEvent({
+            statePath: options.refreshStatePath,
+            sourceId: source.id,
+            outcome: "success",
+            at: capture.capturedAt || new Date().toISOString()
+          });
+        }
       }
     } else {
       capture = {
@@ -678,8 +974,27 @@ async function runAllCaptures() {
 function buildDashboardData(limit = 200) {
   const activeProfile = loadActiveProfile();
   const profile = activeProfile.profile;
+  const searchCriteria = loadSearchCriteria();
   const sources = loadSources().sources;
-  const statsQueue = hydrateQueue(getReviewQueue(5_000));
+  const statsQueue = hydrateQueue(getAllJobsWithStatus(5_000), { includeRejected: true });
+  const scoresBySourceIdAndHash = new Map();
+  for (const job of statsQueue) {
+    const sourceIds = Array.isArray(job?.sourceIds) ? job.sourceIds : [];
+    const normalizedHash = typeof job?.normalizedHash === "string" ? job.normalizedHash : "";
+    if (!normalizedHash || sourceIds.length === 0) {
+      continue;
+    }
+    const scoreValue = Number(job?.score);
+    if (!Number.isFinite(scoreValue)) {
+      continue;
+    }
+    for (const sourceId of sourceIds) {
+      const key = `${sourceId}::${normalizedHash}`;
+      if (!scoresBySourceIdAndHash.has(key)) {
+        scoresBySourceIdAndHash.set(key, scoreValue);
+      }
+    }
+  }
   const sourceLastSeenAt = getSourceLastSeenAtMap();
   const queue = statsQueue
     .filter((job) => job.status === "new" || job.status === "viewed")
@@ -688,6 +1003,7 @@ function buildDashboardData(limit = 200) {
   const skippedQueue = statsQueue
     .filter((job) => job.status === "skip_for_now")
     .slice(0, limit);
+  const rejectedQueue = statsQueue.filter((job) => job.status === "rejected").slice(0, limit);
 
   const countsBySourceId = new Map();
 
@@ -699,6 +1015,7 @@ function buildDashboardData(limit = 200) {
         activeCount: 0,
         appliedCount: 0,
         skippedCount: 0,
+        rejectedCount: 0,
         highSignalCount: 0,
         scoredCount: 0,
         scoreTotal: 0
@@ -709,6 +1026,8 @@ function buildDashboardData(limit = 200) {
         current.appliedCount += 1;
       } else if (job.status === "skip_for_now") {
         current.skippedCount += 1;
+      } else if (job.status === "rejected") {
+        current.rejectedCount += 1;
       } else {
         current.activeCount += 1;
       }
@@ -738,15 +1057,20 @@ function buildDashboardData(limit = 200) {
       profileFilePath: activeProfile.source.profilePath || null,
       appliedCount: appliedQueue.length,
       skippedCount: skippedQueue.length,
+      rejectedCount: rejectedQueue.length,
       activeCount: queue.length,
       profilePath: path.resolve(
         activeProfile.source.profilePath || "config/profile.json"
       ),
       goalsFilePath: path.resolve(activeProfile.source.goalsPath || "config/my-goals.json"),
-      sourcesPath: path.resolve("config/sources.json")
+      sourcesPath: path.resolve("config/sources.json"),
+      searchCriteriaPath: searchCriteria.path
     },
+    searchCriteria: searchCriteria.criteria,
     sources: sources.map((source) => {
       const capture = readCaptureSummary(source);
+      const captureFunnel = buildSourceCaptureFunnel(source, capture);
+      const refreshMeta = buildSourceRefreshMeta(source);
       const counts = countsBySourceId.get(source.id) || {
         totalCount: 0,
         activeCount: 0,
@@ -757,13 +1081,49 @@ function buildDashboardData(limit = 200) {
         scoreTotal: 0
       };
       const isFileBackedCapture = Boolean(source.capturePath);
-      const jobCount = isFileBackedCapture ? capture.jobCount : counts.totalCount;
+      const captureJobCount = isFileBackedCapture
+        ? captureFunnel.captureJobCount
+        : null;
+      const captureExpectedCount =
+        isFileBackedCapture && Number.isFinite(Number(capture.expectedCount))
+          ? Math.round(Number(capture.expectedCount))
+          : null;
+      const jobCount = counts.totalCount;
+      const importedCount = Number(
+        Number.isFinite(Number(captureFunnel.keptAfterDedupeCount))
+          ? captureFunnel.keptAfterDedupeCount
+          : jobCount
+      );
       const captureStatus = isFileBackedCapture ? capture.status : "live_source";
       const capturedAt = isFileBackedCapture
         ? capture.capturedAt
         : sourceLastSeenAt.get(source.id) || null;
+      const importedNormalizedHashes = Array.isArray(
+        captureFunnel.importedNormalizedHashes
+      )
+        ? captureFunnel.importedNormalizedHashes
+        : [];
+      let importedScoreTotal = 0;
+      let importedScoredCount = 0;
+      for (const importedHash of importedNormalizedHashes) {
+        const scoreValue = Number(
+          scoresBySourceIdAndHash.get(`${source.id}::${importedHash}`)
+        );
+        if (Number.isFinite(scoreValue)) {
+          importedScoreTotal += scoreValue;
+          importedScoredCount += 1;
+        }
+      }
       const avgScore =
-        counts.scoredCount > 0 ? Math.round(counts.scoreTotal / counts.scoredCount) : null;
+        importedScoredCount > 0
+          ? Math.round(importedScoreTotal / importedScoredCount)
+          : counts.scoredCount > 0
+            ? Math.round(counts.scoreTotal / counts.scoredCount)
+            : null;
+      const importVerification = buildSourceImportVerification(
+        captureExpectedCount,
+        importedCount
+      );
 
       return {
         id: source.id,
@@ -775,24 +1135,65 @@ function buildDashboardData(limit = 200) {
         capturePath: source.capturePath,
         capturedAt,
         jobCount,
+        importedCount,
+        captureJobCount,
+        keptAfterHardFilterCount: captureFunnel.keptAfterHardFilterCount,
+        keptAfterDedupeCount: captureFunnel.keptAfterDedupeCount,
+        droppedByHardFilterCount: captureFunnel.droppedByHardFilterCount,
+        droppedByDedupeCount: captureFunnel.droppedByDedupeCount,
+        captureFunnelError: captureFunnel.captureFunnelError,
+        captureExpectedCount,
+        importVerification,
         pageUrl: capture.pageUrl,
         captureStatus,
         totalCount: counts.totalCount,
         activeCount: counts.activeCount,
         appliedCount: counts.appliedCount,
         skippedCount: counts.skippedCount,
+        rejectedCount: counts.rejectedCount,
         highSignalCount: counts.highSignalCount,
-        avgScore
+        avgScore,
+        ...refreshMeta
       };
     }),
     queue,
     appliedQueue,
-    skippedQueue
+    skippedQueue,
+    rejectedQueue
   };
 }
 
-function renderDashboardPage(dashboard) {
+function isEnabledFlag(rawValue) {
+  const raw = String(rawValue || "").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
+
+export function isNarrataConnectEnabled(env = process.env) {
+  return isEnabledFlag(env?.JOB_FINDER_ENABLE_NARRATA_CONNECT);
+}
+
+export function isWellfoundEnabled(env = process.env) {
+  return isEnabledFlag(env?.JOB_FINDER_ENABLE_WELLFOUND);
+}
+
+export function isRemoteOkEnabled(env = process.env) {
+  return isEnabledFlag(env?.JOB_FINDER_ENABLE_REMOTEOK);
+}
+
+export function renderDashboardPage(dashboard, options = {}) {
   const dashboardJson = JSON.stringify(dashboard);
+  const narrataConnectEnabled =
+    typeof options.narrataConnectEnabled === "boolean"
+      ? options.narrataConnectEnabled
+      : isNarrataConnectEnabled();
+  const wellfoundEnabled =
+    typeof options.wellfoundEnabled === "boolean"
+      ? options.wellfoundEnabled
+      : isWellfoundEnabled();
+  const remoteokEnabled =
+    typeof options.remoteokEnabled === "boolean"
+      ? options.remoteokEnabled
+      : isRemoteOkEnabled();
 
   return `<!doctype html>
 <html lang="en">
@@ -975,6 +1376,65 @@ function renderDashboardPage(dashboard) {
         align-items: end;
       }
 
+      .search-criteria-form {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(160px, 1fr));
+        gap: 10px;
+        align-items: end;
+      }
+
+      .search-criteria-actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .criteria-status {
+        min-height: 20px;
+        font-size: 0.86rem;
+        color: var(--muted);
+      }
+
+      .criteria-status.error {
+        color: var(--error);
+      }
+
+      .criteria-status.is-hidden {
+        visibility: hidden;
+      }
+
+      .cta-find-jobs {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-width: 180px;
+        padding: 12px 18px;
+        font-size: 0.98rem;
+      }
+
+      .btn-spinner {
+        display: none;
+        width: 14px;
+        height: 14px;
+        border-radius: 999px;
+        border: 2px solid rgba(255, 255, 255, 0.42);
+        border-top-color: rgba(255, 255, 255, 0.95);
+      }
+
+      .cta-find-jobs.is-loading .btn-spinner {
+        display: inline-block;
+        animation: spin 0.8s linear infinite;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
       label {
         display: flex;
         flex-direction: column;
@@ -983,7 +1443,8 @@ function renderDashboardPage(dashboard) {
         color: var(--muted);
       }
 
-      input {
+      input,
+      select {
         width: 100%;
         border-radius: 12px;
         border: 1px solid var(--line-strong);
@@ -1020,12 +1481,67 @@ function renderDashboardPage(dashboard) {
         font-size: 15px;
       }
 
-      .search-url {
-        display: inline-block;
-        margin-top: 4px;
+      .search-link-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .search-name-link {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      .search-name-link:hover {
+        text-decoration: underline;
+      }
+
+      .external-link-icon {
         font-size: 12px;
         color: var(--muted);
-        word-break: break-all;
+      }
+
+      .status-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .status-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(0, 0, 0, 0.2);
+        flex: 0 0 auto;
+      }
+
+      .status-dot[data-tone="ok"] {
+        background: #2e8b57;
+      }
+
+      .status-dot[data-tone="warn"] {
+        background: #d39c2f;
+      }
+
+      .status-dot[data-tone="error"] {
+        background: #b64040;
+      }
+
+      .search-row {
+        cursor: pointer;
+      }
+
+      .search-row:hover {
+        background: rgba(255, 255, 255, 0.5);
+      }
+
+      .search-row:hover .search-link-label {
+        text-decoration: underline;
+      }
+
+      .search-totals-row td {
+        font-weight: 700;
+        background: rgba(229, 240, 234, 0.45);
       }
 
       .main-tabs {
@@ -1080,6 +1596,73 @@ function renderDashboardPage(dashboard) {
         cursor: not-allowed;
       }
 
+      .view-dropdown {
+        display: inline-flex;
+        position: relative;
+      }
+
+      .view-dropdown.active .view-select {
+        background-color: var(--accent-soft);
+        background-image: url('data:image/svg+xml;charset=UTF-8,<svg width="12" height="8" viewBox="0 0 12 8" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 1.5L6 6.5L11 1.5" stroke="%231b3a33" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+        background-repeat: no-repeat;
+        background-position: right 12px center;
+        background-size: 12px;
+        border-color: rgba(27, 58, 51, 0.35);
+        color: var(--accent);
+      }
+
+      .view-select {
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid var(--line-strong);
+        color: var(--ink);
+        border-radius: 999px;
+        padding: 8px 14px;
+        padding-right: 32px;
+        font-weight: 700;
+        font-size: 14px;
+        font-family: inherit;
+        cursor: pointer;
+        appearance: none;
+        background-image: url('data:image/svg+xml;charset=UTF-8,<svg width="12" height="8" viewBox="0 0 12 8" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 1.5L6 6.5L11 1.5" stroke="%23333" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+        background-repeat: no-repeat;
+        background-position: right 12px center;
+        background-size: 12px;
+      }
+
+      .view-select:hover {
+        background-color: rgba(255, 255, 255, 1);
+      }
+
+      .view-select:focus {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+
+      .view-select option:disabled {
+        color: #999;
+      }
+
+      .sort-controls {
+        display: flex;
+        gap: 4px;
+      }
+
+      .sort-controls .sub-tab {
+        padding: 4px 10px;
+        font-size: 12px;
+        font-weight: 600;
+        opacity: 0.7;
+        transition: opacity 0.2s;
+      }
+
+      .sort-controls .sub-tab:hover:not(:disabled) {
+        opacity: 1;
+      }
+
+      .sort-controls .sub-tab.active {
+        opacity: 1;
+      }
+
       .filter-chips {
         display: flex;
         gap: 8px;
@@ -1089,21 +1672,21 @@ function renderDashboardPage(dashboard) {
       .filter-chip {
         background: rgba(255, 255, 255, 0.9);
         border: 1px solid var(--line);
-        color: var(--muted);
+        color: var(--ink);
         border-radius: 12px;
-        padding: 8px 10px;
+        padding: 8px 14px;
         font-size: 13px;
-        text-align: left;
+        font-weight: 700;
+        text-align: center;
         display: inline-flex;
-        flex-direction: column;
-        gap: 2px;
+        align-items: center;
+        justify-content: center;
       }
 
       .filter-chip.active {
         color: var(--accent);
         border-color: rgba(27, 58, 51, 0.32);
         background: var(--accent-soft);
-        font-weight: 700;
       }
 
       .filter-chip:disabled {
@@ -1113,12 +1696,7 @@ function renderDashboardPage(dashboard) {
 
       .filter-chip-main {
         font-weight: 700;
-        color: var(--ink);
-      }
-
-      .filter-chip-meta {
-        font-size: 11px;
-        color: var(--muted);
+        color: inherit;
       }
 
       .tag {
@@ -1263,13 +1841,28 @@ function renderDashboardPage(dashboard) {
         display: flex;
         gap: 8px;
         flex-wrap: wrap;
+        justify-content: center;
       }
 
       .jobs-controls-head {
         display: flex;
         align-items: center;
-        justify-content: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .viewing-controls {
+        display: flex;
+        align-items: center;
         gap: 8px;
+        margin-left: auto;
+      }
+
+      .viewing-label {
+        font-size: 14px;
+        font-weight: 700;
+        color: var(--ink);
+        margin-right: 4px;
       }
 
       .disclosure-btn {
@@ -1515,8 +2108,18 @@ function renderDashboardPage(dashboard) {
         }
 
         .search-form,
+        .search-criteria-form,
         .meta-grid {
           grid-template-columns: 1fr;
+        }
+
+        .search-criteria-actions {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .cta-find-jobs {
+          width: 100%;
         }
 
         table,
@@ -1553,12 +2156,11 @@ function renderDashboardPage(dashboard) {
     </div>
     <script>
       let dashboard = ${dashboardJson};
-      let selectedSourceId = null;
+      let selectedSourceFilter = "all";
       let selectedTab = "jobs";
-      let selectedJobsView = "active";
-      let selectedActiveStatusFilter = "all";
+      let selectedJobsView = "all";
       let selectedJobsSort = "score";
-      let jobsFiltersCollapsed = false;
+      let jobsFiltersCollapsed = true;
       let selectedJobsPage = 1;
       let selectedSearchSourceFilter = "all";
       let selectedJobId = dashboard.queue[0] ? dashboard.queue[0].id : null;
@@ -1566,7 +2168,13 @@ function renderDashboardPage(dashboard) {
       let sourceFormOpen = false;
       let feedback = "";
       let feedbackError = false;
+      let criteriaFeedback = "";
+      let criteriaFeedbackError = false;
       let busy = false;
+      let criteriaBusy = false;
+      const narrataConnectEnabled = ${narrataConnectEnabled ? "true" : "false"};
+      const wellfoundEnabled = ${wellfoundEnabled ? "true" : "false"};
+      const remoteokEnabled = ${remoteokEnabled ? "true" : "false"};
 
       const app = document.getElementById("app");
       const JOBS_PAGE_SIZE = 10;
@@ -1582,23 +2190,53 @@ function renderDashboardPage(dashboard) {
 
       function filterBySource(jobs) {
         const items = Array.isArray(jobs) ? jobs : [];
-        return selectedSourceId
-          ? items.filter(
-              (job) => Array.isArray(job.sourceIds) && job.sourceIds.includes(selectedSourceId)
-            )
-          : items;
+        if (selectedSourceFilter === "all") {
+          return items;
+        }
+
+        const matchingSourceIds = new Set(
+          visibleSources()
+            .filter((source) => sourceKindFromType(source.type) === selectedSourceFilter)
+            .map((source) => source.id)
+        );
+        if (matchingSourceIds.size === 0) {
+          return [];
+        }
+
+        return items.filter(
+          (job) =>
+            Array.isArray(job.sourceIds) &&
+            job.sourceIds.some((sourceId) => matchingSourceIds.has(sourceId))
+        );
+      }
+
+      function jobHasVisibleSource(job) {
+        if (!Array.isArray(job?.sourceIds) || job.sourceIds.length === 0) {
+          return true;
+        }
+        return sourceAttributions(job).length > 0;
       }
 
       function activeQueueAllSources() {
-        return Array.isArray(dashboard.queue) ? dashboard.queue : [];
+        return (Array.isArray(dashboard.queue) ? dashboard.queue : []).filter(jobHasVisibleSource);
       }
 
       function appliedQueueAllSources() {
-        return Array.isArray(dashboard.appliedQueue) ? dashboard.appliedQueue : [];
+        return (Array.isArray(dashboard.appliedQueue) ? dashboard.appliedQueue : []).filter(
+          jobHasVisibleSource
+        );
       }
 
       function skippedQueueAllSources() {
-        return Array.isArray(dashboard.skippedQueue) ? dashboard.skippedQueue : [];
+        return (Array.isArray(dashboard.skippedQueue) ? dashboard.skippedQueue : []).filter(
+          jobHasVisibleSource
+        );
+      }
+
+      function rejectedQueueAllSources() {
+        return (Array.isArray(dashboard.rejectedQueue) ? dashboard.rejectedQueue : []).filter(
+          jobHasVisibleSource
+        );
       }
 
       function jobsForSelectedViewAllSources() {
@@ -1610,15 +2248,21 @@ function renderDashboardPage(dashboard) {
           return skippedQueueAllSources();
         }
 
+        if (selectedJobsView === "rejected") {
+          return rejectedQueueAllSources();
+        }
+
         const activeJobs = activeQueueAllSources();
-        if (selectedActiveStatusFilter === "new") {
+
+        if (selectedJobsView === "new") {
           return activeJobs.filter((job) => job?.status === "new");
         }
 
-        if (selectedActiveStatusFilter === "viewed") {
-          return activeJobs.filter((job) => job?.status === "viewed");
+        if (selectedJobsView === "best_match") {
+          return activeJobs.filter((job) => job?.bucket === "high_signal");
         }
 
+        // "all" - return all active jobs (new + viewed)
         return activeJobs;
       }
 
@@ -1732,6 +2376,15 @@ function renderDashboardPage(dashboard) {
         }
 
         return normalized.replaceAll("_", " ");
+      }
+
+      function parseCurrencyToNumber(value) {
+        const normalized = String(value || "").replace(/[^0-9]/g, "");
+        if (!normalized) {
+          return null;
+        }
+        const parsed = Number(normalized);
+        return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : null;
       }
 
       function formatProfileProvider(provider, mode) {
@@ -1902,9 +2555,40 @@ function renderDashboardPage(dashboard) {
         };
       }
 
+      function isSourceTypeEnabled(type) {
+        if (type === "wellfound_search") {
+          return wellfoundEnabled;
+        }
+
+        if (type === "remoteok_search") {
+          return remoteokEnabled;
+        }
+
+        return true;
+      }
+
+      function visibleSources() {
+        return (Array.isArray(dashboard.sources) ? dashboard.sources : []).filter(
+          (source) => source && source.enabled !== false && isSourceTypeEnabled(source.type)
+        );
+      }
+
+      function visibleSourceIds() {
+        return visibleSources().map((source) => source.id);
+      }
+
+      function visibleSourceKinds() {
+        return [...new Set(visibleSources().map((source) => sourceKindFromType(source.type)))];
+      }
+
       function isSourceVisibleForSearchFilter(source) {
-        const kind = sourceKindFromType(source?.type);
-        return selectedSearchSourceFilter === "all" || kind === selectedSearchSourceFilter;
+        if (!source || !isSourceTypeEnabled(source.type)) {
+          return false;
+        }
+        return (
+          selectedSearchSourceFilter === "all" ||
+          sourceKindFromType(source.type) === selectedSearchSourceFilter
+        );
       }
 
       function formatFreshness(job) {
@@ -1942,7 +2626,7 @@ function renderDashboardPage(dashboard) {
       }
 
       function sourceById(sourceId) {
-        return dashboard.sources.find((source) => source.id === sourceId) || null;
+        return visibleSources().find((source) => source.id === sourceId) || null;
       }
 
       function sourceAttributions(job) {
@@ -1969,6 +2653,12 @@ function renderDashboardPage(dashboard) {
       function setFeedback(message, isError = false) {
         feedback = message;
         feedbackError = Boolean(isError);
+        render();
+      }
+
+      function setCriteriaFeedback(message, isError = false) {
+        criteriaFeedback = message;
+        criteriaFeedbackError = Boolean(isError);
         render();
       }
 
@@ -2003,25 +2693,6 @@ function renderDashboardPage(dashboard) {
         render();
       }
 
-      async function refreshAndRescore() {
-        busy = true;
-        setFeedback("Re-scoring jobs from current profile...");
-
-        try {
-          await getJson("/api/sync-score", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" }
-          });
-          await refreshDashboard();
-          setFeedback("Dashboard refreshed and jobs re-scored.");
-        } catch (error) {
-          setFeedback(error.message, true);
-        } finally {
-          busy = false;
-          render();
-        }
-      }
-
       async function applyProfileSource(action, payload = {}) {
         busy = true;
         setFeedback("Updating profile source...");
@@ -2040,6 +2711,78 @@ function renderDashboardPage(dashboard) {
         } catch (error) {
           setFeedback(error.message, true);
         } finally {
+          busy = false;
+          render();
+        }
+      }
+
+      async function saveSearchCriteriaConfig() {
+        const titleInput = document.getElementById("criteria-title");
+        const keywordsInput = document.getElementById("criteria-keywords");
+        const locationInput = document.getElementById("criteria-location");
+        const salaryInput = document.getElementById("criteria-min-salary");
+        const datePostedInput = document.getElementById("criteria-date-posted");
+
+        const body = {
+          title: titleInput ? titleInput.value : "",
+          keywords: keywordsInput ? keywordsInput.value : "",
+          location: locationInput ? locationInput.value : "",
+          minSalary: parseCurrencyToNumber(salaryInput ? salaryInput.value : ""),
+          datePosted: datePostedInput ? datePostedInput.value : ""
+        };
+
+        busy = true;
+        criteriaBusy = true;
+        setCriteriaFeedback("Running searches...");
+
+        try {
+          await getJson("/api/search-criteria", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body)
+          });
+          const runAllPayload = await getJson("/api/sources/run-all", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" }
+          });
+          if (!runAllPayload?.sync) {
+            await getJson("/api/sync-score", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" }
+            });
+          }
+          await refreshDashboard();
+          const captures = Array.isArray(runAllPayload?.captures) ? runAllPayload.captures : [];
+          const completedCaptures = captures.filter((capture) => capture?.status === "completed").length;
+          const liveCaptures = captures.filter(
+            (capture) =>
+              capture?.servedFrom === "live" ||
+              (capture?.provider && capture.provider !== "cache" && capture?.cached !== true)
+          ).length;
+          const cachedCaptures = captures.filter(
+            (capture) =>
+              capture?.servedFrom === "cache" ||
+              capture?.cached === true ||
+              capture?.provider === "cache"
+          ).length;
+          const activeRankedCount = Number(dashboard?.profile?.activeCount || 0);
+          setCriteriaFeedback(
+            "Done. Ran " +
+              String(completedCaptures) +
+              "/" +
+              String(captures.length) +
+              " sources (" +
+              String(liveCaptures) +
+              " live source(s), " +
+              String(cachedCaptures) +
+              " cached source(s)). " +
+              String(activeRankedCount) +
+              " active ranked jobs."
+          );
+        } catch (error) {
+          setCriteriaFeedback(error.message, true);
+        } finally {
+          criteriaBusy = false;
           busy = false;
           render();
         }
@@ -2111,30 +2854,15 @@ function renderDashboardPage(dashboard) {
             headers: { "Content-Type": "application/json" }
           });
           await refreshDashboard();
+          const captureMessage =
+            payload.capture && payload.capture.message
+              ? payload.capture.message
+              : payload.capture && payload.capture.status === "completed"
+                ? "Search run completed."
+                : "Search run queued.";
           setFeedback(
-            payload.capture && payload.capture.status === "completed"
-              ? "Search run completed."
-              : "Search run queued."
+            captureMessage
           );
-        } catch (error) {
-          setFeedback(error.message, true);
-        } finally {
-          busy = false;
-          render();
-        }
-      }
-
-      async function runAll() {
-        busy = true;
-        setFeedback("Running all searches...");
-
-        try {
-          await getJson("/api/sources/run-all", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" }
-          });
-          await refreshDashboard();
-          setFeedback("All searches completed.");
         } catch (error) {
           setFeedback(error.message, true);
         } finally {
@@ -2200,19 +2928,24 @@ function renderDashboardPage(dashboard) {
       }
 
       function setLocalStatus(jobId, status) {
-        if (!Array.isArray(dashboard?.jobs)) {
-          return;
-        }
+        const groups = [
+          Array.isArray(dashboard?.queue) ? dashboard.queue : [],
+          Array.isArray(dashboard?.appliedQueue) ? dashboard.appliedQueue : [],
+          Array.isArray(dashboard?.skippedQueue) ? dashboard.skippedQueue : [],
+          Array.isArray(dashboard?.rejectedQueue) ? dashboard.rejectedQueue : []
+        ];
 
-        for (const item of dashboard.jobs) {
-          if (item.id === jobId) {
-            item.status = status;
+        for (const group of groups) {
+          for (const item of group) {
+            if (item.id === jobId) {
+              item.status = status;
+            }
           }
         }
       }
 
       async function markViewed(jobId) {
-        const target = (dashboard.jobs || []).find((item) => item.id === jobId);
+        const target = (dashboard.queue || []).find((item) => item.id === jobId);
         if (!target || target.status !== "new") {
           return;
         }
@@ -2238,8 +2971,9 @@ function renderDashboardPage(dashboard) {
         await markViewed(job.id);
       }
 
-      function setSourceFilter(sourceId) {
-        selectedSourceId = sourceId || null;
+      function setSourceFilter(sourceFilter) {
+        const normalized = String(sourceFilter || "all").trim().toLowerCase() || "all";
+        selectedSourceFilter = normalized;
         selectedJobsPage = 1;
         ensureSelectedJob();
         render();
@@ -2259,31 +2993,12 @@ function renderDashboardPage(dashboard) {
       }
 
       function setJobsView(viewName) {
-        const normalized = String(viewName || "active").toLowerCase();
-        if (!["active", "applied", "skipped"].includes(normalized)) {
+        const normalized = String(viewName || "all").toLowerCase();
+        if (!["all", "new", "best_match", "applied", "skipped", "rejected"].includes(normalized)) {
           return;
         }
 
         selectedJobsView = normalized;
-        if (selectedJobsView !== "active") {
-          selectedActiveStatusFilter = "all";
-        }
-        selectedJobsPage = 1;
-        ensureSelectedJob();
-        render();
-      }
-
-      function setActiveStatusFilter(filterName) {
-        if (selectedJobsView !== "active") {
-          return;
-        }
-
-        const normalized = String(filterName || "all").toLowerCase();
-        if (!["all", "new", "viewed"].includes(normalized)) {
-          return;
-        }
-
-        selectedActiveStatusFilter = normalized;
         selectedJobsPage = 1;
         ensureSelectedJob();
         render();
@@ -2302,8 +3017,12 @@ function renderDashboardPage(dashboard) {
       }
 
       function setSearchSourceFilter(filterValue) {
-        const normalized = String(filterValue || "all").toLowerCase();
-        if (!["all", "li", "bi", "gg", "wf", "ah", "id", "zr", "ro"].includes(normalized)) {
+        const normalized = String(filterValue || "all").trim();
+        if (!normalized) {
+          return;
+        }
+
+        if (normalized !== "all" && !visibleSourceKinds().includes(normalized)) {
           return;
         }
 
@@ -2399,8 +3118,9 @@ function renderDashboardPage(dashboard) {
         const activeAll = activeQueueAllSources();
         const appliedAll = appliedQueueAllSources();
         const skippedAll = skippedQueueAllSources();
+        const rejectedAll = rejectedQueueAllSources();
         const activeNewCount = activeAll.filter((job) => job?.status === "new").length;
-        const activeViewedCount = activeAll.filter((job) => job?.status === "viewed").length;
+        const bestMatchCount = activeAll.filter((job) => job?.bucket === "high_signal").length;
         const jobsAllInSelectedView = jobsForSelectedViewAllSources();
         const jobsInView = jobsForCurrentView();
         const job = currentJob();
@@ -2427,45 +3147,212 @@ function renderDashboardPage(dashboard) {
         const showingRangeLabel = jobsInView.length
           ? String(pageStartLabel) + "-" + String(pageEndLabel)
           : "0";
-
-        const filteredSearchSources = dashboard.sources.filter((source) =>
-          isSourceVisibleForSearchFilter(source)
+        const currentSearchCriteria =
+          dashboard.searchCriteria &&
+          typeof dashboard.searchCriteria === "object" &&
+          !Array.isArray(dashboard.searchCriteria)
+            ? dashboard.searchCriteria
+            : {};
+        const sourcesForDisplay = visibleSources();
+        const sourceKindBySourceId = new Map(
+          sourcesForDisplay.map((source) => [source.id, sourceKindFromType(source.type)])
         );
-        const sourceJobCounts = new Map();
-        for (const item of jobsAllInSelectedView) {
-          if (!Array.isArray(item?.sourceIds)) {
-            continue;
+        const sourceFilterTotals = new Map();
+        for (const source of sourcesForDisplay) {
+          const sourceKind = sourceKindFromType(source.type);
+          const current = sourceFilterTotals.get(sourceKind) || {
+            kind: sourceKind,
+            label: sourceKindLabel(sourceKind),
+            count: 0
+          };
+          sourceFilterTotals.set(sourceKind, current);
+        }
+        for (const jobItem of jobsAllInSelectedView) {
+          const seenKinds = new Set();
+          for (const sourceId of Array.isArray(jobItem?.sourceIds) ? jobItem.sourceIds : []) {
+            const sourceKind = sourceKindBySourceId.get(sourceId);
+            if (sourceKind) {
+              seenKinds.add(sourceKind);
+            }
           }
 
-          for (const sourceId of item.sourceIds) {
-            sourceJobCounts.set(sourceId, (sourceJobCounts.get(sourceId) || 0) + 1);
+          for (const sourceKind of seenKinds) {
+            const current = sourceFilterTotals.get(sourceKind);
+            if (!current) {
+              continue;
+            }
+            current.count += 1;
           }
         }
+        const sourceFilterOrder = ["li", "bi", "ah", "id", "zr", "gg", "wf", "ro", "unknown"];
+        const sourceFilters = [...sourceFilterTotals.values()].sort((left, right) => {
+          const leftIndex = sourceFilterOrder.indexOf(left.kind);
+          const rightIndex = sourceFilterOrder.indexOf(right.kind);
+          const normalizedLeft = leftIndex >= 0 ? leftIndex : sourceFilterOrder.length;
+          const normalizedRight = rightIndex >= 0 ? rightIndex : sourceFilterOrder.length;
+          if (normalizedLeft !== normalizedRight) {
+            return normalizedLeft - normalizedRight;
+          }
 
-        const searchRows = filteredSearchSources
+          return left.label.localeCompare(right.label);
+        });
+
+        if (
+          selectedSourceFilter !== "all" &&
+          !sourceFilters.some((sourceFilter) => sourceFilter.kind === selectedSourceFilter)
+        ) {
+          selectedSourceFilter = "all";
+        }
+        if (
+          selectedSearchSourceFilter !== "all" &&
+          !sourceFilters.some((sourceFilter) => sourceFilter.kind === selectedSearchSourceFilter)
+        ) {
+          selectedSearchSourceFilter = "all";
+        }
+
+        const searchSourcesByKind = new Map();
+        for (const source of sourcesForDisplay) {
+          const sourceKind = sourceKindFromType(source.type);
+          const current = searchSourcesByKind.get(sourceKind) || {
+            kind: sourceKind,
+            label: sourceKindLabel(sourceKind),
+            sourceIds: [],
+            searchUrl: "",
+            recencyWindow: null,
+            capturedAt: null,
+            captureStatus: "never_run",
+            captureFunnelError: null,
+            hasCacheState: false,
+            jobCount: 0,
+            capturedCount: 0,
+            filteredCount: 0,
+            dedupedCount: 0,
+            importedCount: 0,
+            appliedCount: 0,
+            skippedCount: 0,
+            highSignalCount: 0,
+            weightedAvgScoreTotal: 0,
+            weightedAvgScoreCount: 0
+          };
+
+          current.sourceIds.push(source.id);
+          if (!current.searchUrl && source.searchUrl) {
+            current.searchUrl = source.searchUrl;
+          }
+          if (!current.recencyWindow && source.recencyWindow) {
+            current.recencyWindow = source.recencyWindow;
+          }
+
+          const capturedAtMs = Date.parse(source.capturedAt || "");
+          const currentCapturedAtMs = Date.parse(current.capturedAt || "");
+          if (
+            Number.isFinite(capturedAtMs) &&
+            (!Number.isFinite(currentCapturedAtMs) || capturedAtMs > currentCapturedAtMs)
+          ) {
+            current.capturedAt = source.capturedAt;
+          } else if (!current.capturedAt && source.capturedAt) {
+            current.capturedAt = source.capturedAt;
+          }
+
+          if (source.captureStatus === "capture_error") {
+            current.captureStatus = "capture_error";
+          } else if (
+            source.captureStatus === "live_source" &&
+            current.captureStatus !== "capture_error"
+          ) {
+            current.captureStatus = "live_source";
+          } else if (
+            source.captureStatus === "ready" &&
+            current.captureStatus !== "capture_error" &&
+            current.captureStatus !== "live_source"
+          ) {
+            current.captureStatus = "ready";
+          }
+
+          if (source.captureFunnelError && !current.captureFunnelError) {
+            current.captureFunnelError = source.captureFunnelError;
+          }
+
+          if (
+            source.servedFrom === "cache" ||
+            source.statusReason === "cache_fresh" ||
+            source.statusReason === "cooldown" ||
+            source.statusReason === "min_interval" ||
+            source.statusReason === "daily_cap" ||
+            source.statusReason === "mock_profile"
+          ) {
+            current.hasCacheState = true;
+          }
+
+          const sourceJobCount = Number(source.jobCount || 0);
+          const sourceCapturedCount = Number(source.captureJobCount || 0);
+          const sourceFilteredCount = Number(source.droppedByHardFilterCount || 0);
+          const sourceDedupedCount = Number(source.droppedByDedupeCount || 0);
+          const sourceImportedCount = Number(source.importedCount || 0);
+          const sourceHighSignalCount = Number(source.highSignalCount || 0);
+          const sourceAppliedCount = Number(source.appliedCount || 0);
+          const sourceSkippedCount = Number(source.skippedCount || 0);
+          const sourceAvgScore =
+            source.avgScore === null || source.avgScore === undefined
+              ? null
+              : Number(source.avgScore);
+
+          current.jobCount += sourceJobCount;
+          current.capturedCount += sourceCapturedCount;
+          current.filteredCount += sourceFilteredCount;
+          current.dedupedCount += sourceDedupedCount;
+          current.importedCount += sourceImportedCount;
+          current.highSignalCount += sourceHighSignalCount;
+          current.appliedCount += sourceAppliedCount;
+          current.skippedCount += sourceSkippedCount;
+
+          if (
+            sourceAvgScore !== null &&
+            Number.isFinite(sourceAvgScore) &&
+            sourceImportedCount > 0
+          ) {
+            current.weightedAvgScoreTotal += sourceAvgScore * sourceImportedCount;
+            current.weightedAvgScoreCount += sourceImportedCount;
+          }
+
+          searchSourcesByKind.set(sourceKind, current);
+        }
+
+        const searchSources = [...searchSourcesByKind.values()].sort((left, right) => {
+          const leftIndex = sourceFilterOrder.indexOf(left.kind);
+          const rightIndex = sourceFilterOrder.indexOf(right.kind);
+          const normalizedLeft = leftIndex >= 0 ? leftIndex : sourceFilterOrder.length;
+          const normalizedRight = rightIndex >= 0 ? rightIndex : sourceFilterOrder.length;
+          if (normalizedLeft !== normalizedRight) {
+            return normalizedLeft - normalizedRight;
+          }
+
+          return left.label.localeCompare(right.label);
+        });
+
+        const filteredSearchSources = searchSources.filter((source) =>
+          selectedSearchSourceFilter === "all" || source.kind === selectedSearchSourceFilter
+        );
+        const searchFilterTabs = [
+          '<button class="sub-tab' + (selectedSearchSourceFilter === "all" ? " active" : "") + '" data-search-source="all">All</button>',
+          ...sourceFilters.map((source) =>
+            '<button class="sub-tab' +
+            (selectedSearchSourceFilter === source.kind ? " active" : "") +
+            '" data-search-source="' +
+            escapeHtml(source.kind) +
+            '">' +
+            escapeHtml(source.label) +
+            "</button>"
+          )
+        ].join("");
+        const searchRowMarkup = filteredSearchSources
           .map((source) => {
-            const isActive = selectedSourceId === source.id;
-            const safeName = escapeHtml(source.name);
-            const safeUrl = escapeHtml(source.searchUrl);
-            const recencyLabel =
-              source.type === "ashby_search" || source.type === "google_search"
-                ? source.recencyWindow === "1d"
-                  ? "1 day"
-                  : source.recencyWindow === "1w"
-                    ? "1 week"
-                    : source.recencyWindow === "1m"
-                      ? "1 month"
-                      : "Any time"
-                : null;
+            const sourceKind = source.kind;
+            const isActive = selectedSourceFilter === sourceKind;
+            const safeName = escapeHtml(source.label);
+            const safeSearchUrl = escapeHtml(source.searchUrl || "");
             const lastRun = escapeHtml(formatTime(source.capturedAt));
-            const sourceKind = sourceKindFromType(source.type);
-            const trackedTotal = Number(source.totalCount || source.jobCount || 0);
-            const highSignalLabel =
-              String(source.highSignalCount || 0) +
-              " (" +
-              formatPercent(source.highSignalCount || 0, trackedTotal) +
-              ")";
-            const statusLabel =
+            const statusLabelRaw =
               source.captureStatus === "ready"
                 ? "ready"
                 : source.captureStatus === "capture_error"
@@ -2473,29 +3360,102 @@ function renderDashboardPage(dashboard) {
                   : source.captureStatus === "live_source"
                     ? "live source"
                   : "never run";
+            const statusTone =
+              source.captureStatus === "capture_error"
+                ? "error"
+                : source.hasCacheState
+                  ? "warn"
+                  : "ok";
+            const statusLabel =
+              statusTone === "warn"
+                ? "cache"
+                : statusTone === "error"
+                  ? "error"
+                  : statusLabelRaw;
+            const statusDetail = source.captureFunnelError || null;
+            const sourceLabel = source.searchUrl
+              ? '<a class="search-name search-link-label search-name-link" href="' +
+                safeSearchUrl +
+                '" target="_blank" rel="noopener noreferrer" data-stop-row-open="1">' +
+                safeName +
+                ' <span class="external-link-icon" aria-hidden="true">&#8599;</span></a>'
+              : '<span class="search-name search-link-label">' + safeName + "</span>";
 
             return [
-              "<tr>",
-              '  <td><span class="source-badge" data-source-kind="' + escapeHtml(sourceKind) + '">' + escapeHtml(sourceKindLabel(sourceKind)) + "</span></td>",
-              '  <td><div class="search-name">' + safeName + "</div>" +
-                (recencyLabel ? '<div class="subhead">Google window: ' + escapeHtml(recencyLabel) + "</div>" : "") +
-                '<a class="search-url" href="' + encodeURI(source.searchUrl) + '" target="_blank" rel="noreferrer">' + safeUrl + "</a></td>",
+              '<tr class="search-row" data-open-jobs-row="' + escapeHtml(source.kind) + '">',
+              "  <td>" + sourceLabel + "</td>",
               "  <td>" + lastRun + "</td>",
-              "  <td>" + escapeHtml(statusLabel) + "</td>",
-              "  <td>" + escapeHtml(source.jobCount) + "</td>",
-              "  <td>" + escapeHtml(source.appliedCount || 0) + "</td>",
-              "  <td>" + escapeHtml(source.skippedCount || 0) + "</td>",
-              "  <td>" + escapeHtml(highSignalLabel) + "</td>",
-              "  <td>" + escapeHtml(source.avgScore ?? "n/a") + "</td>",
+              "  <td>" +
+                '<span class="status-chip"><span class="status-dot" data-tone="' +
+                escapeHtml(statusTone) +
+                '" aria-hidden="true"></span><span>' +
+                escapeHtml(statusLabel) +
+                "</span></span>" +
+                (statusDetail
+                  ? '<div class="subhead">' + escapeHtml(statusDetail) + "</div>"
+                  : "") +
+                "</td>",
+              "  <td>" + escapeHtml(source.capturedCount) + "</td>",
+              "  <td>" + escapeHtml(source.filteredCount) + "</td>",
+              "  <td>" + escapeHtml(source.dedupedCount) + "</td>",
+              "  <td>" + escapeHtml(source.importedCount) + "</td>",
+              "  <td>" +
+                escapeHtml(
+                  source.weightedAvgScoreCount > 0
+                    ? Math.round(source.weightedAvgScoreTotal / source.weightedAvgScoreCount)
+                    : "n/a"
+                ) +
+                "</td>",
               '  <td><div class="search-actions">' +
-                '<button class="' + (isActive ? "primary" : "secondary") + '" data-see-results="' + escapeHtml(source.id) + '">See Results</button>' +
-                '<button class="secondary" data-run-source="' + escapeHtml(source.id) + '"' + (busy ? " disabled" : "") + ">Run</button>" +
-                '<button class="ghost" data-edit-source="' + escapeHtml(source.id) + '"' + (busy ? " disabled" : "") + ">Edit</button>" +
+                '<button class="' + (isActive ? "primary" : "secondary") + '" data-stop-row-open="1" data-see-results="' + escapeHtml(sourceKind) + '">See Results</button>' +
                 "</div></td>",
               "</tr>"
             ].join("");
           })
           .join("");
+        const totalsRowMarkup =
+          selectedSearchSourceFilter === "all" && filteredSearchSources.length > 0
+            ? (() => {
+                const totals = filteredSearchSources.reduce(
+                  (accumulator, source) => {
+                    accumulator.captured += Number(source.capturedCount || 0);
+                    accumulator.filtered += Number(source.filteredCount || 0);
+                    accumulator.deduped += Number(source.dedupedCount || 0);
+                    accumulator.imported += Number(source.importedCount || 0);
+                    accumulator.avgScoreTotal += Number(source.weightedAvgScoreTotal || 0);
+                    accumulator.avgScoreCount += Number(source.weightedAvgScoreCount || 0);
+                    return accumulator;
+                  },
+                  {
+                    captured: 0,
+                    filtered: 0,
+                    deduped: 0,
+                    imported: 0,
+                    avgScoreTotal: 0,
+                    avgScoreCount: 0
+                  }
+                );
+                const totalAvgScore =
+                  totals.avgScoreCount > 0
+                    ? Math.round(totals.avgScoreTotal / totals.avgScoreCount)
+                    : "n/a";
+
+                return [
+                  '<tr class="search-totals-row">',
+                  "  <td>All Sources Total</td>",
+                  "  <td>—</td>",
+                  "  <td>—</td>",
+                  "  <td>" + escapeHtml(totals.captured) + "</td>",
+                  "  <td>" + escapeHtml(totals.filtered) + "</td>",
+                  "  <td>" + escapeHtml(totals.deduped) + "</td>",
+                  "  <td>" + escapeHtml(totals.imported) + "</td>",
+                  "  <td>" + escapeHtml(totalAvgScore) + "</td>",
+                  "  <td>—</td>",
+                  "</tr>"
+                ].join("");
+              })()
+            : "";
+        const searchRows = searchRowMarkup + totalsRowMarkup;
 
         const queueItems = jobsInView.length
           ? pagedJobsInView
@@ -2548,39 +3508,50 @@ function renderDashboardPage(dashboard) {
             : "";
 
         const sourceFilterPills = [
-          '<button class="filter-chip' + (selectedSourceId ? "" : " active") + '" data-filter-source="">' +
-            '<span class="filter-chip-main">All Results</span>' +
-            '<span class="filter-chip-meta">All sources · ' + escapeHtml(String(totalInSelectedView)) + " jobs</span>" +
+          '<button class="filter-chip' + (selectedSourceFilter === "all" ? " active" : "") + '" data-filter-source="all">' +
+            '<span class="filter-chip-main">All Results (' + escapeHtml(String(totalInSelectedView)) + ")</span>" +
           "</button>",
-          ...dashboard.sources.map((source) => {
-            const activeClass = selectedSourceId === source.id ? " active" : "";
-            const sourceKind = sourceKindFromType(source.type);
-            const sourceCount = Number(sourceJobCounts.get(source.id) || 0);
-            const isUnavailable = sourceCount === 0 && selectedSourceId !== source.id;
+          ...sourceFilters.map((sourceFilter) => {
+            const activeClass = selectedSourceFilter === sourceFilter.kind ? " active" : "";
+            const sourceFoundCount = Number(sourceFilter.count || 0);
+            const isUnavailable =
+              sourceFoundCount === 0 && selectedSourceFilter !== sourceFilter.kind;
             return (
-              '<button class="filter-chip' + activeClass + '" data-filter-source="' + escapeHtml(source.id) + '"' + (isUnavailable ? " disabled" : "") + ">" +
-                '<span class="filter-chip-main">' + escapeHtml(source.name) + "</span>" +
-                '<span class="filter-chip-meta">' + escapeHtml(sourceKindLabel(sourceKind)) + " · " + escapeHtml(String(sourceCount)) + " jobs</span>" +
+              '<button class="filter-chip filter-chip-source' + activeClass + '" data-filter-source="' + escapeHtml(sourceFilter.kind) + '"' + (isUnavailable ? " disabled" : "") + ">" +
+                '<span class="filter-chip-main">' + escapeHtml(sourceFilter.label) + " (" + escapeHtml(String(sourceFoundCount)) + ")</span>" +
               "</button>"
             );
           })
         ].join("");
+        const activeViewLabel =
+          selectedJobsView === "new" ? "New (" + escapeHtml(String(activeNewCount)) + ")" :
+          selectedJobsView === "best_match" ? "Best Match (" + escapeHtml(String(bestMatchCount)) + ")" :
+          "All (" + escapeHtml(String(activeAll.length)) + ")";
+
+        const processedViewLabel =
+          selectedJobsView === "skipped" ? "Skipped (" + escapeHtml(String(skippedAll.length)) + ")" :
+          selectedJobsView === "rejected" ? "Rejected (" + escapeHtml(String(rejectedAll.length)) + ")" :
+          "Applied (" + escapeHtml(String(appliedAll.length)) + ")";
+
         const jobsViewPills = [
-          '<button class="sub-tab' + (selectedJobsView === "active" ? " active" : "") + '" data-jobs-view="active">Active (' + escapeHtml(String(activeAll.length)) + ')</button>',
-          '<button class="sub-tab' + (selectedJobsView === "applied" ? " active" : "") + '" data-jobs-view="applied">Applied (' + escapeHtml(String(appliedAll.length)) + ')</button>',
-          '<button class="sub-tab' + (selectedJobsView === "skipped" ? " active" : "") + '" data-jobs-view="skipped">Skipped (' + escapeHtml(String(skippedAll.length)) + ')</button>'
+          '<div class="view-dropdown active">',
+          '  <select class="view-select">',
+          '    <option value="all"' + (selectedJobsView === "all" ? " selected" : "") + '>All (' + escapeHtml(String(activeAll.length)) + ')</option>',
+          '    <option value="new"' + (selectedJobsView === "new" ? " selected" : "") + (activeNewCount === 0 ? " disabled" : "") + '>New (' + escapeHtml(String(activeNewCount)) + ')</option>',
+          '    <option value="best_match"' + (selectedJobsView === "best_match" ? " selected" : "") + (bestMatchCount === 0 ? " disabled" : "") + '>Best Match (' + escapeHtml(String(bestMatchCount)) + ')</option>',
+          '    <option value="applied"' + (selectedJobsView === "applied" ? " selected" : "") + '>Applied (' + escapeHtml(String(appliedAll.length)) + ')</option>',
+          '    <option value="skipped"' + (selectedJobsView === "skipped" ? " selected" : "") + '>Skipped (' + escapeHtml(String(skippedAll.length)) + ')</option>',
+          '    <option value="rejected"' + (selectedJobsView === "rejected" ? " selected" : "") + '>Rejected (' + escapeHtml(String(rejectedAll.length)) + ')</option>',
+          '  </select>',
+          '</div>'
         ].join("");
         const jobsSortPills = [
           '<button class="sub-tab' + (selectedJobsSort === "score" ? " active" : "") + '" data-jobs-sort="score">Score</button>',
           '<button class="sub-tab' + (selectedJobsSort === "date" ? " active" : "") + '" data-jobs-sort="date">Date</button>'
         ].join("");
-        const activeStatusPills = selectedJobsView === "active"
-          ? [
-              '<button class="sub-tab' + (selectedActiveStatusFilter === "all" ? " active" : "") + '" data-active-status="all">All Active (' + escapeHtml(String(activeAll.length)) + ')</button>',
-              '<button class="sub-tab' + (selectedActiveStatusFilter === "new" ? " active" : "") + '" data-active-status="new"' + (activeNewCount === 0 && selectedActiveStatusFilter !== "new" ? " disabled" : "") + ">New (" + escapeHtml(String(activeNewCount)) + ')</button>',
-              '<button class="sub-tab' + (selectedActiveStatusFilter === "viewed" ? " active" : "") + '" data-active-status="viewed"' + (activeViewedCount === 0 && selectedActiveStatusFilter !== "viewed" ? " disabled" : "") + ">Viewed (" + escapeHtml(String(activeViewedCount)) + ')</button>'
-            ].join("")
-          : "";
+        const criteriaStatusMessage =
+          typeof criteriaFeedback === "string" ? criteriaFeedback.trim() : "";
+        const findJobsButtonLabel = criteriaBusy ? "Finding jobs..." : "Find Jobs";
         const detailMarkup = job
           ? [
               (() => {
@@ -2642,6 +3613,12 @@ function renderDashboardPage(dashboard) {
                   '  <button class="decision-btn' + (formatStatus(job.status) === "rejected" ? " active" : "") + '" data-status="rejected">Reject</button>',
                   "</div>",
                   '<div class="review-body">',
+                  job.status === "rejected" && job.notes
+                    ? '<div class="card inset" style="background: rgba(122, 29, 29, 0.05); border-color: rgba(122, 29, 29, 0.2);">' +
+                      '  <p class="section-label" style="color: #b91c1c;">Rejection Reason</p>' +
+                      '  <p style="margin: 0;">' + escapeHtml(job.notes) + "</p>" +
+                      "</div>"
+                    : "",
                   '<div class="card inset">',
                   '  <p class="section-label">Why It Fits</p>',
                   '  <div>' + escapeHtml(job.summary || "No summary available.") + "</div>",
@@ -2652,7 +3629,7 @@ function renderDashboardPage(dashboard) {
                         : "<li>No specific fit reasons recorded yet.</li>"
                     ) +
                     "</ul>",
-                  job.notes
+                  job.status !== "rejected" && job.notes
                     ? '  <p class="muted" style="margin-top: 12px;">Latest note: ' + escapeHtml(job.notes) + "</p>"
                     : "",
                   "</div>",
@@ -2684,43 +3661,57 @@ function renderDashboardPage(dashboard) {
         ].join("");
 
         const jobsSection = [
-          '<div class="jobs-view-panel">',
-          '  <div class="jobs-view-nav">' + jobsViewPills + "</div>",
-          "</div>",
+          '<section class="card" style="margin-top: 18px;">',
+          '  <p class="section-label">Search Criteria</p>',
+          '  <div class="subhead">Enter your terms, then click Find Jobs.</div>',
+          '  <div class="search-criteria-form" style="margin-top: 10px;">',
+          '      <label>Title<input id="criteria-title" type="text" value="' + escapeHtml(currentSearchCriteria.title || "") + '" placeholder="senior product manager"></label>',
+          '      <label>Keyword<input id="criteria-keywords" type="text" value="' + escapeHtml(currentSearchCriteria.keywords || "") + '" placeholder="fintech payments"></label>',
+          '      <label>Location<input id="criteria-location" type="text" value="' + escapeHtml(currentSearchCriteria.location || "") + '" placeholder="San Francisco, CA"></label>',
+          '      <label>Salary<input id="criteria-min-salary" type="text" value="' + escapeHtml(currentSearchCriteria.minSalary ? String(currentSearchCriteria.minSalary) : "") + '" placeholder="195000"></label>',
+          '      <label>Posted on<select id="criteria-date-posted">' +
+            '<option value=""' + (!currentSearchCriteria.datePosted ? " selected" : "") + ">Not set</option>" +
+            '<option value="any"' + (currentSearchCriteria.datePosted === "any" ? " selected" : "") + ">Any time</option>" +
+            '<option value="1d"' + (currentSearchCriteria.datePosted === "1d" ? " selected" : "") + ">Past 24 hours</option>" +
+            '<option value="3d"' + (currentSearchCriteria.datePosted === "3d" ? " selected" : "") + ">Past 3 days</option>" +
+            '<option value="1w"' + (currentSearchCriteria.datePosted === "1w" ? " selected" : "") + ">Past week</option>" +
+            '<option value="2w"' + (currentSearchCriteria.datePosted === "2w" ? " selected" : "") + ">Past 2 weeks</option>" +
+            '<option value="1m"' + (currentSearchCriteria.datePosted === "1m" ? " selected" : "") + ">Past month</option>" +
+          "</select></label>",
+          "    </div>",
+          '    <div class="search-criteria-actions">' +
+            '      <span class="criteria-status' + (criteriaFeedbackError ? " error" : "") + (criteriaStatusMessage ? "" : " is-hidden") + '">' + escapeHtml(criteriaStatusMessage || "idle") + "</span>" +
+            '      <button class="primary cta-find-jobs' + (criteriaBusy ? " is-loading" : "") + '" id="save-search-criteria" type="button"' + (busy ? " disabled" : "") + ">" +
+            '        <span class="btn-spinner" aria-hidden="true"></span>' +
+            '        <span>' + escapeHtml(findJobsButtonLabel) + "</span>" +
+            "      </button>" +
+            "    </div>",
+          "</section>",
           '<section class="card jobs-controls-panel">',
           '  <div class="jobs-controls-head">',
             '    <button class="disclosure-btn" id="toggle-job-filters" aria-expanded="' + escapeHtml(String(!jobsFiltersCollapsed)) + '">',
             '      <span class="disclosure-caret">' + (jobsFiltersCollapsed ? "▸" : "▾") + "</span>",
-            '      <span>Filters</span>',
+            '      <span>Filter by Source</span>',
             "    </button>",
+            '<div class="viewing-controls">' +
+              '  <span class="viewing-label">Viewing</span>' +
+              jobsViewPills +
+            '</div>',
           "  </div>",
-          '  <div class="subhead" style="margin-top: 8px;">Showing ' + escapeHtml(showingRangeLabel) + " of " + escapeHtml(String(jobsInView.length)) + " jobs</div>",
           (!jobsFiltersCollapsed
             ? [
-                '  <div class="ranked-controls">',
-                (selectedJobsView === "active"
-                  ? [
-                      '    <div class="controls-group">',
-                      '      <div class="controls-label">Status</div>',
-                      '      <div class="sub-tabs">' + activeStatusPills + "</div>",
-                      "    </div>"
-                    ].join("")
-                  : ""),
-                '    <div class="controls-group">',
-                '      <div class="controls-label">Sort</div>',
-                '      <div class="sub-tabs">' + jobsSortPills + "</div>",
-                "    </div>",
-                '    <div class="controls-group">',
-                '      <div class="controls-label">Source</div>',
-                '      <div class="filter-chips">' + sourceFilterPills + "</div>",
-                "    </div>",
+                '  <div class="ranked-controls" style="margin-top: 12px;">',
+                '    <div class="filter-chips" style="justify-content: flex-end;">' + sourceFilterPills + "</div>",
                 "  </div>"
               ].join("")
             : ""),
           "</section>",
           '<div class="jobs-layout">',
           '  <section class="card">',
-          '    <p class="section-label">Ranked Jobs (' + escapeHtml(String(jobsInView.length)) + ")</p>",
+          '    <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">',
+          '      <p class="section-label" style="margin: 0;">Ranked Jobs (' + escapeHtml(String(jobsInView.length)) + ")</p>",
+          '      <div class="sort-controls">' + jobsSortPills + "</div>",
+          "    </div>",
           '    <div class="queue-list" style="margin-top: 10px;">' + queueItems + "</div>",
           queuePagination,
           "  </section>",
@@ -2734,45 +3725,11 @@ function renderDashboardPage(dashboard) {
           '<section class="card" style="margin-top: 18px;">',
           '  <div class="search-header">',
           '    <p class="section-label">My Job Searches</p>',
-          '    <button class="primary" id="open-add-source"' + (busy ? " disabled" : "") + ">" + (editingSourceId ? "Add Another Search" : "Add Search") + "</button>",
           "  </div>",
-          '  <div class="sub-tabs" style="margin-top: 8px;">' +
-            '<button class="sub-tab' + (selectedSearchSourceFilter === "all" ? " active" : "") + '" data-search-type="all">All</button>' +
-            '<button class="sub-tab' + (selectedSearchSourceFilter === "li" ? " active" : "") + '" data-search-type="li">LinkedIn</button>' +
-            '<button class="sub-tab' + (selectedSearchSourceFilter === "bi" ? " active" : "") + '" data-search-type="bi">Built In</button>' +
-            '<button class="sub-tab' + (selectedSearchSourceFilter === "gg" ? " active" : "") + '" data-search-type="gg">Google</button>' +
-            '<button class="sub-tab' + (selectedSearchSourceFilter === "wf" ? " active" : "") + '" data-search-type="wf">Wellfound</button>' +
-            '<button class="sub-tab' + (selectedSearchSourceFilter === "ah" ? " active" : "") + '" data-search-type="ah">Ashby</button>' +
-            '<button class="sub-tab' + (selectedSearchSourceFilter === "id" ? " active" : "") + '" data-search-type="id">Indeed</button>' +
-            '<button class="sub-tab' + (selectedSearchSourceFilter === "zr" ? " active" : "") + '" data-search-type="zr">ZipRecruiter</button>' +
-            '<button class="sub-tab' + (selectedSearchSourceFilter === "ro" ? " active" : "") + '" data-search-type="ro">RemoteOK</button>' +
-          "</div>",
-          '  <div class="subhead" style="margin-top: 10px;">Source type and freshness are tracked so you can refine where high-signal jobs come from.</div>',
-          (sourceFormOpen || editingSourceId
-            ? [
-                '  <div class="card inset" style="margin-top: 14px;">',
-                '    <p class="section-label">' + escapeHtml(formState.heading) + "</p>",
-                '    <div class="search-form">',
-                '      <label>Name<input id="source-name" type="text" value="' + escapeHtml(formState.name) + '" placeholder="AI PM"></label>',
-                '      <label>Search URL<input id="source-url" type="text" value="' + escapeHtml(formState.searchUrl) + '" placeholder="LinkedIn, Built In, Google, Wellfound, Ashby, Indeed, ZipRecruiter, or RemoteOK jobs URL"></label>',
-                '      <label>Google Time Window<select id="source-recency-window">' +
-                  '<option value="any"' + (formState.recencyWindow === "any" ? " selected" : "") + ">Any time</option>" +
-                  '<option value="1d"' + (formState.recencyWindow === "1d" ? " selected" : "") + ">1 day</option>" +
-                  '<option value="1w"' + (formState.recencyWindow === "1w" ? " selected" : "") + ">1 week</option>" +
-                  '<option value="1m"' + (formState.recencyWindow === "1m" ? " selected" : "") + ">1 month</option>" +
-                "</select></label>",
-                '      <div class="subhead">Applied to Google-based searches. Default: 1 week for Google and 1 month for Ashby discovery.</div>',
-                '      <div class="inline-actions">',
-                '        <button class="primary" id="save-source"' + (busy ? " disabled" : "") + ">" + escapeHtml(formState.actionLabel) + "</button>",
-                '        <button class="ghost" id="cancel-edit"' + (busy ? " disabled" : "") + ">Cancel</button>",
-                "      </div>",
-                "    </div>",
-                "  </div>"
-              ].join("")
-            : ""),
+          '  <div class="sub-tabs" style="margin-top: 8px;">' + searchFilterTabs + "</div>",
           '  <div style="margin-top: 16px; overflow-x: auto;">',
           '    <table>',
-          '      <thead><tr><th>Source</th><th>Name / URL</th><th>Last Run</th><th>Status</th><th>Jobs Found</th><th>Applied</th><th>Skipped</th><th>High Signal</th><th>Avg Score</th><th>Actions</th></tr></thead>',
+          '      <thead><tr><th>Source</th><th>Last Run</th><th>Status</th><th>Found</th><th>Filtered</th><th>Dupes</th><th>Imported</th><th>Avg Score</th><th>Actions</th></tr></thead>',
           '      <tbody>' + searchRows + "</tbody>",
           "    </table>",
           "  </div>",
@@ -2797,21 +3754,26 @@ function renderDashboardPage(dashboard) {
           '    <div class="meta-item"><dt>Profile File</dt><dd>' + escapeHtml(dashboard.profile.profilePath || "") + "</dd></div>",
           '    <div class="meta-item"><dt>My Goals File</dt><dd>' + escapeHtml(dashboard.profile.goalsFilePath || "config/my-goals.json") + "</dd></div>",
           '    <div class="meta-item"><dt>Sources File</dt><dd>' + escapeHtml(dashboard.profile.sourcesPath || "") + "</dd></div>",
+          '    <div class="meta-item"><dt>Search Criteria File</dt><dd>' + escapeHtml(dashboard.profile.searchCriteriaPath || "config/search-criteria.json") + "</dd></div>",
           "  </dl>",
-          '  <div class="card inset" style="margin-top: 14px;">',
-          '    <p class="section-label">Connect Narrata / Goals</p>',
-          '    <div class="subhead">Use standalone profile, standalone goals, or Narrata goals file without changing scoring commands.</div>',
-          '    <div class="inline-actions" style="margin-top: 10px;">',
-          '      <button class="secondary" id="use-profile-json"' + (busy ? " disabled" : "") + ">Use profile.json</button>",
-          '      <button class="secondary" id="use-my-goals"' + (busy ? " disabled" : "") + ">Use my-goals.json</button>",
-          "    </div>",
-          '    <div class="search-form" style="margin-top: 12px;">',
-          '      <label>Narrata Goals Path<input id="narrata-goals-path" type="text" value="' + escapeHtml(dashboard.profile.goalsPath || "config/my-goals.json") + '" placeholder="config/my-goals.json"></label>',
-          '      <div class="inline-actions">',
-          '        <button class="primary" id="connect-narrata-file"' + (busy ? " disabled" : "") + ">Connect Narrata (File)</button>",
-          "      </div>",
-          "    </div>",
-          "  </div>",
+          ...(narrataConnectEnabled
+            ? [
+                '  <div class="card inset" style="margin-top: 14px;">',
+                '    <p class="section-label">Connect Narrata / Goals</p>',
+                '    <div class="subhead">Use standalone profile, standalone goals, or Narrata goals file without changing scoring commands.</div>',
+                '    <div class="inline-actions" style="margin-top: 10px;">',
+                '      <button class="secondary" id="use-profile-json"' + (busy ? " disabled" : "") + ">Use profile.json</button>",
+                '      <button class="secondary" id="use-my-goals"' + (busy ? " disabled" : "") + ">Use my-goals.json</button>",
+                "    </div>",
+                '    <div class="search-form" style="margin-top: 12px;">',
+                '      <label>Narrata Goals Path<input id="narrata-goals-path" type="text" value="' + escapeHtml(dashboard.profile.goalsPath || "config/my-goals.json") + '" placeholder="config/my-goals.json"></label>',
+                '      <div class="inline-actions">',
+                '        <button class="primary" id="connect-narrata-file"' + (busy ? " disabled" : "") + ">Connect Narrata (File)</button>",
+                "      </div>",
+                "    </div>",
+                "  </div>"
+              ]
+            : []),
           '  <div class="feedback' + (feedbackError ? " error" : "") + '">' + escapeHtml(feedback) + "</div>",
           "</section>"
         ].join("");
@@ -2819,13 +3781,8 @@ function renderDashboardPage(dashboard) {
         app.innerHTML = [
           '<div class="header">',
           "  <div>",
-          '    <div class="eyebrow">Dashboard</div>',
           "    <h1>Job Finder</h1>",
           '    <div class="subhead">Manage saved searches, run intake, and review ranked jobs in one place.</div>',
-          "  </div>",
-          '  <div class="top-actions">',
-          '    <button class="primary" id="run-all"' + (busy ? " disabled" : "") + ">Run All Searches</button>",
-          '    <button class="secondary" id="refresh-data"' + (busy ? " disabled" : "") + ">Refresh + Re-score</button>",
           "  </div>",
           "</div>",
           '<div class="main-tabs">' + tabButtons + "</div>",
@@ -2835,14 +3792,16 @@ function renderDashboardPage(dashboard) {
               ? searchesSection
               : profileSection
         ].join("");
-
-        document.getElementById("run-all").addEventListener("click", runAll);
-        document.getElementById("refresh-data").addEventListener("click", refreshAndRescore);
         for (const button of document.querySelectorAll("[data-tab]")) {
           button.addEventListener("click", () => setTab(button.dataset.tab));
         }
 
         if (selectedTab === "jobs") {
+          const saveCriteriaButton = document.getElementById("save-search-criteria");
+          if (saveCriteriaButton) {
+            saveCriteriaButton.addEventListener("click", saveSearchCriteriaConfig);
+          }
+
           const toggleFiltersButton = document.getElementById("toggle-job-filters");
           if (toggleFiltersButton) {
             toggleFiltersButton.addEventListener("click", toggleJobsFilters);
@@ -2856,6 +3815,10 @@ function renderDashboardPage(dashboard) {
             button.addEventListener("click", () => setJobsView(button.dataset.jobsView));
           }
 
+          for (const select of document.querySelectorAll(".view-select")) {
+            select.addEventListener("change", () => setJobsView(select.value));
+          }
+
           for (const button of document.querySelectorAll("[data-jobs-sort]")) {
             button.addEventListener("click", () => setJobsSort(button.dataset.jobsSort));
           }
@@ -2865,10 +3828,6 @@ function renderDashboardPage(dashboard) {
               const step = button.dataset.jobsPageNav === "next" ? 1 : -1;
               setJobsPage(selectedJobsPage + step);
             });
-          }
-
-          for (const button of document.querySelectorAll("[data-active-status]")) {
-            button.addEventListener("click", () => setActiveStatusFilter(button.dataset.activeStatus));
           }
 
           for (const button of document.querySelectorAll("[data-job-id]")) {
@@ -2896,23 +3855,8 @@ function renderDashboardPage(dashboard) {
         }
 
         if (selectedTab === "searches") {
-          const openAddSource = document.getElementById("open-add-source");
-          if (openAddSource) {
-            openAddSource.addEventListener("click", beginAddSource);
-          }
-
-          for (const button of document.querySelectorAll("[data-search-type]")) {
-            button.addEventListener("click", () => setSearchSourceFilter(button.dataset.searchType));
-          }
-
-          const saveSourceButton = document.getElementById("save-source");
-          if (saveSourceButton) {
-            saveSourceButton.addEventListener("click", saveSource);
-          }
-
-          const cancelEdit = document.getElementById("cancel-edit");
-          if (cancelEdit) {
-            cancelEdit.addEventListener("click", resetSourceForm);
+          for (const button of document.querySelectorAll("[data-search-source]")) {
+            button.addEventListener("click", () => setSearchSourceFilter(button.dataset.searchSource));
           }
 
           for (const button of document.querySelectorAll("[data-see-results]")) {
@@ -2922,13 +3866,20 @@ function renderDashboardPage(dashboard) {
             });
           }
 
-          for (const button of document.querySelectorAll("[data-run-source]")) {
-            button.addEventListener("click", () => runSource(button.dataset.runSource));
+          for (const row of document.querySelectorAll("[data-open-jobs-row]")) {
+            row.addEventListener("click", (event) => {
+              if (event.target && event.target.closest("[data-stop-row-open]")) {
+                return;
+              }
+              const sourceKind = String(row.dataset.openJobsRow || "").trim().toLowerCase();
+              if (!sourceKind) {
+                return;
+              }
+              selectedTab = "jobs";
+              setSourceFilter(sourceKind);
+            });
           }
 
-          for (const button of document.querySelectorAll("[data-edit-source]")) {
-            button.addEventListener("click", () => beginEditSource(button.dataset.editSource));
-          }
         }
 
         if (selectedTab === "profile") {
@@ -2971,7 +3922,7 @@ function renderDashboardPage(dashboard) {
 </html>`;
 }
 
-export function startReviewServer({ port = 4311, limit = 200 } = {}) {
+export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
   const server = http.createServer(async (request, response) => {
     try {
       const url = new URL(request.url || "/", `http://${request.headers.host || "127.0.0.1"}`);
@@ -3038,6 +3989,38 @@ export function startReviewServer({ port = 4311, limit = 200 } = {}) {
         return;
       }
 
+      if (request.method === "POST" && url.pathname === "/api/search-criteria") {
+        const rawBody = await readRequestBody(request);
+        const parsedBody = rawBody ? JSON.parse(rawBody) : {};
+
+        const payload = {
+          title: typeof parsedBody.title === "string" ? parsedBody.title : "",
+          keywords: typeof parsedBody.keywords === "string" ? parsedBody.keywords : "",
+          location: typeof parsedBody.location === "string" ? parsedBody.location : "",
+          minSalary:
+            Number.isFinite(Number(parsedBody.minSalary)) && Number(parsedBody.minSalary) > 0
+              ? Math.round(Number(parsedBody.minSalary))
+              : null,
+          datePosted: typeof parsedBody.datePosted === "string" ? parsedBody.datePosted : ""
+        };
+
+        const saved = saveSearchCriteria(payload);
+        const normalized = normalizeAllSourceSearchUrls();
+        const dashboard = buildDashboardData(limit);
+
+        response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+        response.end(
+          JSON.stringify({
+            ok: true,
+            criteria: saved.criteria,
+            normalizedChanged: normalized.changed,
+            searchCriteriaPath: saved.path,
+            dashboard
+          })
+        );
+        return;
+      }
+
       if (request.method === "POST" && url.pathname === "/api/sources/upsert") {
         const rawBody = await readRequestBody(request);
         const parsedBody = rawBody ? JSON.parse(rawBody) : {};
@@ -3051,6 +4034,30 @@ export function startReviewServer({ port = 4311, limit = 200 } = {}) {
           typeof parsedBody.recencyWindow === "string"
             ? parsedBody.recencyWindow.trim()
             : "";
+        const wellfoundEnabled = isWellfoundEnabled();
+        const remoteokEnabled = isRemoteOkEnabled();
+
+        if (!sourceId && isWellfoundJobsUrl(searchUrl) && !wellfoundEnabled) {
+          response.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+          response.end(
+            JSON.stringify({
+              error:
+                "Wellfound sources are currently disabled. Set JOB_FINDER_ENABLE_WELLFOUND=1 to enable."
+            })
+          );
+          return;
+        }
+
+        if (!sourceId && isRemoteOkJobsUrl(searchUrl) && !remoteokEnabled) {
+          response.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+          response.end(
+            JSON.stringify({
+              error:
+                "RemoteOK sources are currently disabled. Set JOB_FINDER_ENABLE_REMOTEOK=1 to enable."
+            })
+          );
+          return;
+        }
 
         const source = sourceId
           ? updateSourceDefinition(sourceId, { name, searchUrl, recencyWindow })
@@ -3078,7 +4085,17 @@ export function startReviewServer({ port = 4311, limit = 200 } = {}) {
       }
 
       if (request.method === "POST" && url.pathname === "/api/sources/run-all") {
-        const result = await runAllCaptures();
+        const rawBody = await readRequestBody(request);
+        const parsedBody = rawBody ? JSON.parse(rawBody) : {};
+        const refreshProfile =
+          typeof parsedBody.refreshProfile === "string"
+            ? parsedBody.refreshProfile
+            : undefined;
+        const forceRefresh = parsedBody.forceRefresh === true;
+        const result = await runAllCapturesWithOptions({
+          refreshProfile,
+          forceRefresh
+        });
         response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
         response.end(JSON.stringify({ ok: true, ...result }));
         return;
@@ -3099,7 +4116,15 @@ export function startReviewServer({ port = 4311, limit = 200 } = {}) {
           return;
         }
 
-        const result = await runSourceCapture(decodeURIComponent(match[1]));
+        const rawBody = await readRequestBody(request);
+        const parsedBody = rawBody ? JSON.parse(rawBody) : {};
+        const result = await runSourceCaptureWithOptions(decodeURIComponent(match[1]), {
+          refreshProfile:
+            typeof parsedBody.refreshProfile === "string"
+              ? parsedBody.refreshProfile
+              : undefined,
+          forceRefresh: parsedBody.forceRefresh === true
+        });
         response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
         response.end(JSON.stringify({ ok: true, ...result }));
         return;

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
   <title id="title">Job Finder dashboard preview</title>
-  <desc id="desc">Illustrated preview of the Job Finder dashboard showing saved searches, ranked jobs, and an applied list.</desc>
+  <desc id="desc">Illustrated preview of the Job Finder dashboard showing criteria-driven intake, grouped search sources, and ranked jobs.</desc>
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#f7f2e5" />
@@ -12,31 +12,31 @@
 
   <text x="72" y="84" font-family="Georgia, serif" font-size="20" fill="#66736d" letter-spacing="2">JOB FINDER</text>
   <text x="72" y="132" font-family="Georgia, serif" font-size="46" font-weight="700" fill="#1f2c28">Local-first job intelligence</text>
-  <text x="72" y="168" font-family="Georgia, serif" font-size="20" fill="#66736d">Run saved searches, de-dupe results, and work a ranked action queue.</text>
+  <text x="72" y="168" font-family="Georgia, serif" font-size="20" fill="#66736d">Set criteria, run intake, de-dupe results, and work a ranked action queue.</text>
 
   <rect x="928" y="86" width="170" height="44" rx="14" fill="#1f2c28" />
-  <text x="1013" y="114" text-anchor="middle" font-family="Georgia, serif" font-size="18" fill="#fffaf0">Run All</text>
+  <text x="1013" y="114" text-anchor="middle" font-family="Georgia, serif" font-size="18" fill="#fffaf0">Find Jobs</text>
 
   <rect x="72" y="208" width="520" height="468" rx="22" fill="#ffffff" stroke="#dccfb7" />
-  <text x="98" y="246" font-family="Georgia, serif" font-size="18" fill="#66736d" letter-spacing="1.5">MY JOB SEARCHES</text>
+  <text x="98" y="246" font-family="Georgia, serif" font-size="18" fill="#66736d" letter-spacing="1.5">SEARCH SOURCES</text>
 
   <rect x="98" y="276" width="468" height="58" rx="14" fill="#f6f1e6" stroke="#e0d5c0" />
-  <text x="118" y="311" font-family="Georgia, serif" font-size="18" fill="#1f2c28">AI PM</text>
-  <text x="330" y="311" font-family="Georgia, serif" font-size="14" fill="#66736d">25 jobs</text>
+  <text x="118" y="311" font-family="Georgia, serif" font-size="18" fill="#1f2c28">LinkedIn</text>
+  <text x="330" y="311" font-family="Georgia, serif" font-size="14" fill="#66736d">Found 25 · Imported 19</text>
   <rect x="448" y="289" width="102" height="32" rx="10" fill="#1f2c28" />
   <text x="499" y="310" text-anchor="middle" font-family="Georgia, serif" font-size="15" fill="#fffaf0">See Results</text>
 
   <rect x="98" y="350" width="468" height="58" rx="14" fill="#f6f1e6" stroke="#e0d5c0" />
-  <text x="118" y="385" font-family="Georgia, serif" font-size="18" fill="#1f2c28">Founding PM</text>
-  <text x="330" y="385" font-family="Georgia, serif" font-size="14" fill="#66736d">24 jobs</text>
+  <text x="118" y="385" font-family="Georgia, serif" font-size="18" fill="#1f2c28">Built In</text>
+  <text x="330" y="385" font-family="Georgia, serif" font-size="14" fill="#66736d">Found 24 · Imported 22</text>
   <rect x="448" y="363" width="102" height="32" rx="10" fill="#ffffff" stroke="#d0c1a4" />
-  <text x="499" y="384" text-anchor="middle" font-family="Georgia, serif" font-size="15" fill="#1f2c28">Run</text>
+  <text x="499" y="384" text-anchor="middle" font-family="Georgia, serif" font-size="15" fill="#1f2c28">See Results</text>
 
   <rect x="98" y="424" width="468" height="58" rx="14" fill="#f6f1e6" stroke="#e0d5c0" />
-  <text x="118" y="459" font-family="Georgia, serif" font-size="18" fill="#1f2c28">Growth PM</text>
-  <text x="330" y="459" font-family="Georgia, serif" font-size="14" fill="#66736d">25 jobs</text>
+  <text x="118" y="459" font-family="Georgia, serif" font-size="18" fill="#1f2c28">Ashby</text>
+  <text x="330" y="459" font-family="Georgia, serif" font-size="14" fill="#66736d">Found 57 · Imported 13</text>
   <rect x="448" y="437" width="102" height="32" rx="10" fill="#ffffff" stroke="#d0c1a4" />
-  <text x="499" y="458" text-anchor="middle" font-family="Georgia, serif" font-size="15" fill="#1f2c28">Edit</text>
+  <text x="499" y="458" text-anchor="middle" font-family="Georgia, serif" font-size="15" fill="#1f2c28">See Results</text>
 
   <rect x="98" y="522" width="220" height="118" rx="18" fill="#f2ece0" stroke="#e0d5c0" />
   <text x="118" y="556" font-family="Georgia, serif" font-size="15" fill="#66736d" letter-spacing="1.2">PROFILE</text>
@@ -48,11 +48,11 @@
 
   <rect x="654" y="274" width="448" height="80" rx="16" fill="#f6f1e6" stroke="#e0d5c0" />
   <text x="676" y="308" font-family="Georgia, serif" font-size="22" font-weight="700" fill="#1f2c28">Product Manager, ChatGPT Business Growth</text>
-  <text x="676" y="334" font-family="Georgia, serif" font-size="15" fill="#66736d">Score 86  ·  Found via AI PM, Growth PM</text>
+  <text x="676" y="334" font-family="Georgia, serif" font-size="15" fill="#66736d">Score 86  ·  Found via LinkedIn, Ashby</text>
 
   <rect x="654" y="368" width="448" height="80" rx="16" fill="#f6f1e6" stroke="#e0d5c0" />
   <text x="676" y="402" font-family="Georgia, serif" font-size="22" font-weight="700" fill="#1f2c28">Lead Product Manager, AI Platform</text>
-  <text x="676" y="428" font-family="Georgia, serif" font-size="15" fill="#66736d">Score 82  ·  Seen in 2 searches</text>
+  <text x="676" y="428" font-family="Georgia, serif" font-size="15" fill="#66736d">Score 82  ·  Seen in 2 sources</text>
 
   <rect x="628" y="544" width="500" height="132" rx="22" fill="#ffffff" stroke="#dccfb7" />
   <text x="654" y="582" font-family="Georgia, serif" font-size="18" fill="#66736d" letter-spacing="1.5">APPLIED</text>

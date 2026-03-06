@@ -338,6 +338,286 @@ function clampScore(score) {
   return Math.round(score);
 }
 
+function normalizeSearchCriteriaText(value) {
+  return String(value || "").trim();
+}
+
+function splitSearchKeywords(value) {
+  const normalized = normalizeSearchCriteriaText(value);
+  if (!normalized) {
+    return [];
+  }
+
+  return normalized
+    .split(/[;,]/)
+    .flatMap((segment) => segment.split(/\band\b/i))
+    .map((token) => normalizeSearchCriteriaText(token).toLowerCase())
+    .filter(Boolean);
+}
+
+const SEARCH_CRITERIA_DATE_POSTED_TO_DAYS = new Map([
+  ["1d", 1],
+  ["3d", 3],
+  ["1w", 7],
+  ["2w", 14],
+  ["1m", 30]
+]);
+
+const SEARCH_CRITERIA_WEIGHTS = {
+  title: 35,
+  keywords: 25,
+  location: 15,
+  salary: 15,
+  freshness: 10
+};
+
+function isAiLikeTerm(term) {
+  return term === "ai" || term === "ml" || term === "llm" || term === "genai";
+}
+
+function termMatchesSearchText(term, text) {
+  if (!term) {
+    return true;
+  }
+
+  if (!text) {
+    return false;
+  }
+
+  if (isAiLikeTerm(term)) {
+    return /\b(ai|a\.i\.|genai|gen ai|llm|ml|machine learning|artificial intelligence)\b/.test(
+      text
+    );
+  }
+
+  if (term === "product manager") {
+    return /\bproduct manager\b/.test(text) || /\bpm\b/.test(text);
+  }
+
+  return text.includes(term);
+}
+
+function normalizeCriteriaTitleTokens(value) {
+  return normalizeSearchCriteriaText(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .map((token) => (token === "pm" ? "product manager" : token))
+    .filter((token) => token !== "and" && token !== "or");
+}
+
+function matchesTitleCriteria(jobTitle, criteriaTitle) {
+  const normalizedJobTitle = normalizeText(jobTitle);
+  const normalizedCriteriaTitle = normalizeSearchCriteriaText(criteriaTitle).toLowerCase();
+
+  if (!normalizedJobTitle || !normalizedCriteriaTitle) {
+    return false;
+  }
+
+  if (termMatchesSearchText(normalizedCriteriaTitle, normalizedJobTitle)) {
+    return true;
+  }
+
+  const tokens = normalizeCriteriaTitleTokens(normalizedCriteriaTitle);
+  if (tokens.length === 0) {
+    return false;
+  }
+
+  return tokens.every((token) => termMatchesSearchText(token, normalizedJobTitle));
+}
+
+function keywordMatchRatio(searchableText, keywordTerms) {
+  const terms = Array.isArray(keywordTerms) ? keywordTerms : [];
+  if (terms.length === 0) {
+    return 0;
+  }
+
+  const matchedCount = terms.filter((term) => termMatchesSearchText(term, searchableText))
+    .length;
+
+  return matchedCount / terms.length;
+}
+
+function matchesLocationCriteria(jobLocation, criteriaLocation) {
+  const normalizedJobLocation = normalizeText(jobLocation);
+  const normalizedCriteriaLocation = normalizeSearchCriteriaText(criteriaLocation).toLowerCase();
+
+  if (!normalizedJobLocation || !normalizedCriteriaLocation) {
+    return false;
+  }
+
+  return (
+    normalizedJobLocation.includes(normalizedCriteriaLocation) ||
+    normalizedCriteriaLocation.includes(normalizedJobLocation)
+  );
+}
+
+function resolveCriteriaFreshnessDays(datePosted) {
+  const normalized = normalizeSearchCriteriaText(datePosted).toLowerCase();
+  if (!normalized || normalized === "any") {
+    return null;
+  }
+
+  return SEARCH_CRITERIA_DATE_POSTED_TO_DAYS.get(normalized) ?? null;
+}
+
+function hasSearchCriteriaSignal(rawCriteria = {}) {
+  const title = normalizeSearchCriteriaText(rawCriteria.title);
+  const keywords = splitSearchKeywords(rawCriteria.keywords);
+  const location = normalizeSearchCriteriaText(rawCriteria.location);
+  const minSalary = Number(rawCriteria.minSalary);
+  const freshnessDays = resolveCriteriaFreshnessDays(rawCriteria.datePosted);
+
+  return (
+    Boolean(title) ||
+    keywords.length > 0 ||
+    Boolean(location) ||
+    (Number.isFinite(minSalary) && minSalary > 0) ||
+    freshnessDays !== null
+  );
+}
+
+export function buildScoringProfileFromSearchCriteria(rawCriteria = {}) {
+  const title = normalizeSearchCriteriaText(rawCriteria.title).toLowerCase();
+  const keywords = splitSearchKeywords(rawCriteria.keywords);
+  const location = normalizeSearchCriteriaText(rawCriteria.location).toLowerCase();
+  const minSalaryValue = Number(rawCriteria.minSalary);
+  const minSalary =
+    Number.isFinite(minSalaryValue) && minSalaryValue > 0
+      ? Math.round(minSalaryValue)
+      : 0;
+
+  return {
+    candidateName: "Search Criteria",
+    targetTitles: title ? [title] : ["product manager"],
+    targetLocations: location ? [location] : [],
+    remotePreference: "onsite_ok",
+    workTypePreferences: [],
+    salaryFloor: minSalary,
+    seniorityLevels: [...KNOWN_SENIORITY_LEVELS],
+    preferredIndustries: [],
+    preferredBusinessModels: [],
+    preferredCompanyMaturity: [],
+    targetCompanies: [],
+    includeKeywords: keywords,
+    excludeKeywords: [],
+    dealBreakers: {
+      salaryMinimum: minSalary,
+      workType: [],
+      companyMaturity: []
+    }
+  };
+}
+
+function evaluateJobFromSearchCriteria(criteria, job) {
+  const titleCriteria = normalizeSearchCriteriaText(criteria?.title).toLowerCase();
+  const keywordCriteria = splitSearchKeywords(criteria?.keywords);
+  const locationCriteria = normalizeSearchCriteriaText(criteria?.location).toLowerCase();
+  const minSalaryValue = Number(criteria?.minSalary);
+  const minSalary =
+    Number.isFinite(minSalaryValue) && minSalaryValue > 0
+      ? Math.round(minSalaryValue)
+      : 0;
+  const freshnessDaysTarget = resolveCriteriaFreshnessDays(criteria?.datePosted);
+
+  const title = normalizeText(job.title);
+  const location = normalizeText(job.location);
+  const description = normalizeText(job.description);
+  const employment = normalizeText(job.employment_type || job.employmentType);
+  const searchableText = [title, location, employment, description].join(" ");
+  const parsedWorkTypes = inferWorkType(searchableText);
+  const salaryFloor = parseCompensationFloor(job.salary_text || job.salaryText);
+  const freshnessDays = calcFreshnessDays(job);
+
+  let matchedWeight = 0;
+  let totalWeight = 0;
+  const reasons = [];
+  let titleMatched = true;
+
+  if (titleCriteria) {
+    totalWeight += SEARCH_CRITERIA_WEIGHTS.title;
+    titleMatched = matchesTitleCriteria(title, titleCriteria);
+    if (titleMatched) {
+      matchedWeight += SEARCH_CRITERIA_WEIGHTS.title;
+      reasons.push("title matched");
+    } else {
+      reasons.push("title did not match");
+    }
+  }
+
+  if (keywordCriteria.length > 0) {
+    totalWeight += SEARCH_CRITERIA_WEIGHTS.keywords;
+    const ratio = keywordMatchRatio(searchableText, keywordCriteria);
+    if (ratio > 0) {
+      matchedWeight += SEARCH_CRITERIA_WEIGHTS.keywords * ratio;
+      const matched = Math.round(ratio * keywordCriteria.length);
+      reasons.push(`keywords matched ${matched}/${keywordCriteria.length}`);
+    } else {
+      reasons.push("keywords did not match");
+    }
+  }
+
+  if (locationCriteria) {
+    totalWeight += SEARCH_CRITERIA_WEIGHTS.location;
+    if (matchesLocationCriteria(location, locationCriteria)) {
+      matchedWeight += SEARCH_CRITERIA_WEIGHTS.location;
+      reasons.push("location matched");
+    } else {
+      reasons.push("location did not match");
+    }
+  }
+
+  if (minSalary > 0) {
+    totalWeight += SEARCH_CRITERIA_WEIGHTS.salary;
+    if (salaryFloor !== null && salaryFloor >= minSalary) {
+      matchedWeight += SEARCH_CRITERIA_WEIGHTS.salary;
+      reasons.push("salary matched");
+    } else if (salaryFloor === null) {
+      reasons.push("salary unavailable");
+    } else {
+      reasons.push("salary below target");
+    }
+  }
+
+  if (freshnessDaysTarget !== null) {
+    totalWeight += SEARCH_CRITERIA_WEIGHTS.freshness;
+    if (freshnessDays !== null && freshnessDays <= freshnessDaysTarget) {
+      matchedWeight += SEARCH_CRITERIA_WEIGHTS.freshness;
+      reasons.push("freshness matched");
+    } else if (freshnessDays === null) {
+      reasons.push("freshness unavailable");
+    } else {
+      reasons.push("freshness outside target");
+    }
+  }
+
+  let finalScore =
+    totalWeight > 0 ? clampScore((matchedWeight / totalWeight) * 100) : 0;
+  if (titleCriteria && !titleMatched) {
+    finalScore = Math.min(finalScore, 25);
+  }
+  const bucket =
+    finalScore >= 70 ? "high_signal" : finalScore >= 40 ? "review_later" : "reject";
+  const summary =
+    reasons.length > 0
+      ? `Score ${finalScore}: ${reasons.slice(0, 3).join(", ")}`
+      : `Score ${finalScore}: no criteria provided`;
+
+  return {
+    jobId: job.id,
+    score: finalScore,
+    bucket,
+    summary,
+    reasons,
+    confidence: calcDataConfidence(job, parsedWorkTypes),
+    freshnessDays,
+    hardFiltered: false,
+    evaluatedAt: new Date().toISOString()
+  };
+}
+
 export function evaluateJob(profile, job) {
   const title = normalizeText(job.title);
   const company = normalizeText(job.company);
@@ -547,4 +827,14 @@ export function evaluateJobs(profile, jobs, options = {}) {
       reasons
     };
   });
+}
+
+export function evaluateJobsFromSearchCriteria(searchCriteria, jobs, options = {}) {
+  const jobList = Array.isArray(jobs) ? jobs : [];
+  if (!hasSearchCriteriaSignal(searchCriteria)) {
+    const fallbackProfile = buildScoringProfileFromSearchCriteria(searchCriteria);
+    return evaluateJobs(fallbackProfile, jobList, options);
+  }
+
+  return jobList.map((job) => evaluateJobFromSearchCriteria(searchCriteria, job, options));
 }

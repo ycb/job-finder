@@ -20,6 +20,7 @@ import {
   connectNarrataSupabase,
   getSourceByIdOrName,
   loadActiveProfile,
+  loadSearchCriteria,
   loadProfileSourceConfig,
   loadSources,
   previewNormalizedSourceSearchUrls,
@@ -37,15 +38,18 @@ import {
   listTopJobs,
   markApplicationStatus,
   upsertEvaluations,
-  upsertJobs
+  upsertJobs,
+  pruneSourceJobs
 } from "./jobs/repository.js";
-import { evaluateJobs } from "./jobs/score.js";
+import { evaluateJobsFromSearchCriteria } from "./jobs/score.js";
 import { writeShortlistFile } from "./output/render.js";
 import { startReviewServer } from "./review/server.js";
 import {
-  isSourceCaptureFresh,
+  getSourceRefreshDecision,
+  normalizeRefreshProfile,
   readSourceCaptureSummary
 } from "./sources/cache-policy.js";
+import { classifyRefreshErrorOutcome, recordRefreshEvent } from "./sources/refresh-state.js";
 import {
   collectJobsFromSource,
   importLinkedInSnapshot
@@ -117,23 +121,31 @@ function runSync() {
 
   let totalCollected = 0;
   let totalUpserted = 0;
+  let totalPruned = 0;
 
   for (const source of sources.sources.filter((item) => item.enabled)) {
     const rawJobs = collectJobsFromSource(source);
     const normalizedJobs = rawJobs.map((job) => normalizeJobRecord(job, source));
     totalCollected += normalizedJobs.length;
     totalUpserted += upsertJobs(db, normalizedJobs);
+    totalPruned += pruneSourceJobs(
+      db,
+      source.id,
+      normalizedJobs.map((job) => job.id)
+    );
   }
 
   db.close();
-  console.log(`Collected ${totalCollected} job(s). Upserted ${totalUpserted} record(s).`);
+  console.log(
+    `Collected ${totalCollected} job(s). Upserted ${totalUpserted} record(s). Pruned ${totalPruned} stale record(s).`
+  );
 }
 
 function runScore() {
-  const { profile } = loadActiveProfile();
+  const { criteria } = loadSearchCriteria();
   const { db } = withDatabase();
   const jobs = listAllJobs(db);
-  const evaluations = evaluateJobs(profile, jobs);
+  const evaluations = evaluateJobsFromSearchCriteria(criteria, jobs);
   upsertEvaluations(db, evaluations);
   const bucketCounts = summarizeBuckets(evaluations);
 
@@ -694,6 +706,34 @@ function runCaptureAll(snapshotDirArg) {
   );
 }
 
+function describeRefreshDecision(source, decision) {
+  if (decision.allowLive) {
+    return null;
+  }
+
+  const sourceName = source?.name || source?.id || "source";
+  const capturedAt = decision?.cacheSummary?.capturedAt || "unknown";
+  const cachedCount = Number(decision?.cacheSummary?.jobCount || 0);
+
+  if (decision.reason === "cache_fresh") {
+    return `Using cached capture for "${sourceName}" (${cachedCount} job(s); capturedAt=${capturedAt}).`;
+  }
+
+  if (decision.reason === "mock_profile") {
+    return `Using cached capture for "${sourceName}" (mock profile disables live refresh).`;
+  }
+
+  const nextEligible = decision?.nextEligibleAt || "unknown";
+  return `Using cached capture for "${sourceName}" (live refresh blocked: ${decision.reason}; next eligible=${nextEligible}; cachedAt=${capturedAt}).`;
+}
+
+function resolveCliRefreshProfile(explicitProfile) {
+  return normalizeRefreshProfile(
+    explicitProfile || process.env.JOB_FINDER_REFRESH_PROFILE || "safe",
+    { strict: true }
+  );
+}
+
 async function runCaptureSourceLive(sourceIdOrName, snapshotPathArg, options = {}) {
   if (!sourceIdOrName) {
     throw new Error(
@@ -708,11 +748,15 @@ async function runCaptureSourceLive(sourceIdOrName, snapshotPathArg, options = {
     );
   }
 
-  if (!options.forceRefresh && isSourceCaptureFresh(source)) {
-    const summary = readSourceCaptureSummary(source);
-    console.log(
-      `Using cached capture for "${source.name}" (${summary.jobCount} job(s); capturedAt=${summary.capturedAt || "unknown"}).`
-    );
+  const refreshProfile = resolveCliRefreshProfile(options.refreshProfile);
+  const decision = getSourceRefreshDecision(source, {
+    profile: refreshProfile,
+    forceRefresh: Boolean(options.forceRefresh),
+    statePath: options.refreshStatePath
+  });
+
+  if (!decision.allowLive) {
+    console.log(describeRefreshDecision(source, decision));
     return;
   }
 
@@ -721,7 +765,20 @@ async function runCaptureSourceLive(sourceIdOrName, snapshotPathArg, options = {
   let result;
 
   try {
-    result = await captureSourceViaBridge(source, snapshotPath);
+    try {
+      result = await captureSourceViaBridge(source, snapshotPath);
+    } catch (error) {
+      const outcome = classifyRefreshErrorOutcome(error);
+      recordRefreshEvent({
+        statePath: options.refreshStatePath,
+        sourceId: source.id,
+        outcome,
+        at: new Date().toISOString(),
+        cooldownMinutes:
+          outcome === "challenge" ? Number(decision?.policy?.cooldownMinutes || 0) : 0
+      });
+      throw error;
+    }
   } finally {
     await stopAutoStartedBridge(bridgeSession);
   }
@@ -735,6 +792,13 @@ async function runCaptureSourceLive(sourceIdOrName, snapshotPathArg, options = {
     return;
   }
 
+  recordRefreshEvent({
+    statePath: options.refreshStatePath,
+    sourceId: source.id,
+    outcome: "success",
+    at: result.capturedAt || new Date().toISOString()
+  });
+
   console.log(
     `Live-captured ${result.jobsImported} job(s) for "${source.name}" via ${result.provider || "bridge"}`
   );
@@ -742,6 +806,7 @@ async function runCaptureSourceLive(sourceIdOrName, snapshotPathArg, options = {
 
 async function runCaptureAllLive(snapshotDirArg, options = {}) {
   const sources = getEnabledBrowserCaptureSources();
+  const refreshProfile = resolveCliRefreshProfile(options.refreshProfile);
 
   if (sources.length === 0) {
     console.log(
@@ -755,25 +820,28 @@ async function runCaptureAllLive(snapshotDirArg, options = {}) {
   }
 
   const snapshotDir = path.resolve(snapshotDirArg || "output/playwright");
-  const staleSources = options.forceRefresh
-    ? [...sources]
-    : sources.filter((source) => !isSourceCaptureFresh(source));
+  const liveSources = [];
+  const liveDecisions = new Map();
   let completed = 0;
   let bridgeSession = null;
 
-  if (!options.forceRefresh) {
-    for (const source of sources) {
-      if (isSourceCaptureFresh(source)) {
-        const summary = readSourceCaptureSummary(source);
-        completed += 1;
-        console.log(
-          `Using cached capture for "${source.name}" (${summary.jobCount} job(s); capturedAt=${summary.capturedAt || "unknown"}).`
-        );
-      }
+  for (const source of sources) {
+    const decision = getSourceRefreshDecision(source, {
+      profile: refreshProfile,
+      forceRefresh: Boolean(options.forceRefresh),
+      statePath: options.refreshStatePath
+    });
+
+    if (decision.allowLive) {
+      liveSources.push(source);
+      liveDecisions.set(source.id, decision);
+    } else {
+      completed += 1;
+      console.log(describeRefreshDecision(source, decision));
     }
   }
 
-  if (staleSources.length === 0) {
+  if (liveSources.length === 0) {
     console.log(`capture-all-live imported ${completed} source(s).`);
     return {
       completed,
@@ -782,12 +850,27 @@ async function runCaptureAllLive(snapshotDirArg, options = {}) {
     };
   }
 
-  bridgeSession = await ensureBridgeForLinkedInSources(staleSources);
+  bridgeSession = await ensureBridgeForLinkedInSources(liveSources);
 
   try {
-    for (const source of staleSources) {
+    for (const source of liveSources) {
       const snapshotPath = getDefaultSnapshotPath(source, snapshotDir);
-      const result = await captureSourceViaBridge(source, snapshotPath);
+      let result;
+      try {
+        result = await captureSourceViaBridge(source, snapshotPath);
+      } catch (error) {
+        const outcome = classifyRefreshErrorOutcome(error);
+        const decision = liveDecisions.get(source.id);
+        recordRefreshEvent({
+          statePath: options.refreshStatePath,
+          sourceId: source.id,
+          outcome,
+          at: new Date().toISOString(),
+          cooldownMinutes:
+            outcome === "challenge" ? Number(decision?.policy?.cooldownMinutes || 0) : 0
+        });
+        throw error;
+      }
 
       if (result.status === "pending") {
         console.log(result.message || `Capture queued for "${source.name}".`);
@@ -802,6 +885,13 @@ async function runCaptureAllLive(snapshotDirArg, options = {}) {
           skipped: false
         };
       }
+
+      recordRefreshEvent({
+        statePath: options.refreshStatePath,
+        sourceId: source.id,
+        outcome: "success",
+        at: result.capturedAt || new Date().toISOString()
+      });
 
       completed += 1;
       console.log(
@@ -844,9 +934,10 @@ async function runReview(portArg) {
   if (!Number.isFinite(port) || port <= 0) {
     throw new Error("Review port must be a positive number.");
   }
+  const reviewLimit = 5000;
 
   const { db } = withDatabase();
-  const queue = listReviewQueue(db, 100);
+  const queue = listReviewQueue(db, reviewLimit);
   db.close();
 
   if (queue.length === 0) {
@@ -854,7 +945,7 @@ async function runReview(portArg) {
     return;
   }
 
-  await startReviewServer({ port, limit: 100 });
+  await startReviewServer({ port, limit: reviewLimit });
   console.log(`Review server running at http://127.0.0.1:${port}`);
   console.log("Open that URL in your browser. It will keep one reusable job tab in sync.");
 }
