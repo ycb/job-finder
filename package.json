@@ -1,8 +1,28 @@
 {
   "name": "job-finder",
   "version": "0.1.0",
-  "private": true,
+  "description": "Search all major job boards, get one ranked list of jobs that match your goals.",
+  "bin": {
+    "jf": "./bin/cli.js"
+  },
+  "keywords": ["job-search", "cli", "linkedin", "indeed", "job-board", "career"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ycb/job-finder.git"
+  },
+  "author": "Peter Spannagle",
+  "license": "MIT",
   "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "files": [
+    "bin",
+    "src",
+    "config/*.example.json",
+    "README.md",
+    "CLAUDE.md"
+  ],
   "scripts": {
     "init": "node src/cli.js init",
     "sync": "node src/cli.js sync",

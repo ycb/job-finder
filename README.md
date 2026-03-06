@@ -2,6 +2,32 @@
 
 *Job intelligence agent that turns saved searches into a ranked action queue.*
 
+Search all major job boards, get one de-duplicated, ranked list of best-match jobs.
+
+## Quick Start
+
+```bash
+# Clone and install
+git clone https://github.com/ycb/job-finder.git
+cd job-finder
+npm install
+npm link  # Makes 'jf' command available globally
+
+# Setup your profile and searches
+jf init
+
+# Sync jobs (run daily)
+jf run
+
+# Open dashboard to review jobs
+jf review
+# Opens http://localhost:4311
+```
+
+**That's it.** Dashboard shows de-duplicated jobs, ranked by your preferences.
+
+---
+
 ## Dashboard Preview
 
 <img width="1532" height="1496" alt="image" src="https://github.com/user-attachments/assets/207ebb5b-288e-4db6-9e03-180afd3b1927" />
@@ -17,7 +43,7 @@ Job Finder is an intelligence agent for turning noisy job discovery into a ranke
 Instead of acting like another job board, generic scraper, or chat wrapper, it models your search as a repeatable system:
 
 - structured profile and preference inputs
-- named search sources (LinkedIn, Built In, Wellfound, Ashby) as reusable inputs
+- named search sources (LinkedIn, Built In, Google, Wellfound, Ashby, Indeed, ZipRecruiter, RemoteOK) as reusable inputs
 - browser-driven intake into a local database
 - deterministic fit scoring against your target criteria
 - a de-duped review queue with lightweight application tracking
@@ -28,7 +54,8 @@ The current implementation focuses on:
 
 - profile/goals and source configuration
 - LinkedIn capture by named saved search
-- Built In / Wellfound / Ashby search ingestion by URL
+- Built In / Google search ingestion by URL (HTTP)
+- Wellfound / Ashby / Indeed / ZipRecruiter / RemoteOK ingestion via browser capture
 - job intake into SQLite
 - deterministic scoring with hard filters, freshness, confidence, and history-aware signals
 - shortlist generation
@@ -75,13 +102,18 @@ That makes it a stronger demonstration of AI-native product thinking than a thin
 3. Copy `config/profile-source.example.json` to `config/profile-source.json` if you want to explicitly control provider mode.
 4. Copy and edit `config/sources.example.json` to `config/sources.json`.
 5. Add named LinkedIn sources with `node src/cli.js add-source "<Label>" "<LinkedIn URL>"`.
-6. Optionally add Built In, Wellfound, or Ashby sources with:
+6. Optionally add non-LinkedIn sources with:
    - `node src/cli.js add-builtin-source "<Label>" "<Built In URL>"`
+   - `node src/cli.js add-google-source "<Label>" "<Google URL>" [any|1d|1w|1m]`
    - `node src/cli.js add-wellfound-source "<Label>" "<Wellfound URL>"`
    - `node src/cli.js add-ashby-source "<Label>" "<Ashby URL>"`
+   - `node src/cli.js add-indeed-source "<Label>" "<Indeed URL>"`
+   - `node src/cli.js add-ziprecruiter-source "<Label>" "<ZipRecruiter URL>"`
+   - `node src/cli.js add-remoteok-source "<Label>" "<RemoteOK URL>"`
    - for Ashby discovery, you can also use a Google query URL like `site:ashbyhq.com "product manager" "San Francisco" "AI"`; Job Finder expands discovered company boards and ingests matching roles
 7. Run `npm run run` for the full pipeline. LinkedIn capture auto-starts a local bridge only when needed.
-8. Start `npm run review` when you want the dashboard UI (this is a separate long-running server process).
+8. Use `npm run run -- --force-refresh` when you want to bypass cache TTL and force fresh browser/HTTP collection.
+9. Start `npm run review` when you want the dashboard UI (this is a separate long-running server process).
 
 Fallback snapshot workflow:
 
@@ -98,13 +130,18 @@ npm run run
 ## Commands
 
 - `npm run run` (recommended daily command; full pipeline)
+- `npm run run -- --force-refresh` (force fresh capture/fetch; ignore cache TTL)
 - `npm run run:live` (compatibility alias for `run`)
 - `npm run init`
 - `npm run sources`
 - `node src/cli.js add-source <label> <linkedin-url>`
 - `node src/cli.js add-builtin-source <label> <built-in-url>`
+- `node src/cli.js add-google-source <label> <google-url> [any|1d|1w|1m]`
 - `node src/cli.js add-wellfound-source <label> <wellfound-url>`
 - `node src/cli.js add-ashby-source <label> <ashby-url>`
+- `node src/cli.js add-indeed-source <label> <indeed-url>`
+- `node src/cli.js add-ziprecruiter-source <label> <ziprecruiter-url>`
+- `node src/cli.js add-remoteok-source <label> <remoteok-url>`
 - `node src/cli.js set-source-url <source-id-or-label> <url>`
 - `node src/cli.js profile-source`
 - `node src/cli.js use-my-goals [goals-path]`
@@ -115,6 +152,7 @@ npm run run
 - `npm run capture:all`
 - `npm run capture:live -- <source-id-or-label> [snapshot-path]`
 - `npm run capture:all:live`
+- `npm run capture:all:live -- --force-refresh`
 - `npm run bridge`
 - `npm run sync`
 - `npm run score`
@@ -176,10 +214,19 @@ Base fit signals:
 Programmatic upgrades in this pass:
 
 - hard filters for explicit deal-breakers (excluded keywords, salary/work-type deal-breakers)
+- hard phrase gate from source search intent (`requiredTerms`, or URL-inferred terms like `"product manager"` + `ai`)
 - freshness adjustment from `posted_at` when available
 - data confidence score based on source completeness
 - source-quality bonus (better-structured sources score slightly higher)
 - history-aware adjustment from your prior outcomes (`applied`, `rejected`, `skip_for_now`) at company level
+
+Per-source quality/caching knobs in `config/sources.json`:
+
+- `requiredTerms` (optional string array): every job must match all terms before it enters scoring/ranking.
+- `cacheTtlHours` (optional number): source-level TTL override.
+- `searchCriteria` (optional object): canonical fields (`title`, `keywords`, `minSalary`, `location`, `distanceMiles`, `datePosted`, `experienceLevel`) auto-formatted into source-specific URL params for URL-driven boards.
+- `searchCriteria` currently stubs (no URL application) for `wellfound_search`; Wellfound is treated as a UI-bootstrap outlier.
+- Default TTLs: `12h` for HTTP sources (for example, Built In) and `24h` for browser-capture sources (LinkedIn/Wellfound/Ashby).
 
 What the score is used for:
 
@@ -211,6 +258,15 @@ Manual bridge startup is still available:
 - Manual handoff fallback provider: `persistent_scaffold`
 
 `chrome_applescript` captures directly from the active Chrome tab and does not require Playwright snapshots.
+
+Browser-capture source types:
+
+- `linkedin_capture_file`
+- `wellfound_search`
+- `ashby_search`
+- `indeed_search`
+- `ziprecruiter_search`
+- `remoteok_search`
 
 One-time Chrome setup:
 

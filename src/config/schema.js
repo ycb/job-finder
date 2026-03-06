@@ -297,8 +297,12 @@ export function validateSources(raw) {
         "mock_linkedin_saved_search",
         "linkedin_capture_file",
         "builtin_search",
+        "google_search",
         "wellfound_search",
-        "ashby_search"
+        "ashby_search",
+        "indeed_search",
+        "ziprecruiter_search",
+        "remoteok_search"
       ]);
       if (!allowedTypes.has(type)) {
         throw new Error(
@@ -317,6 +321,135 @@ export function validateSources(raw) {
         )
       };
 
+      if (source.searchCriteria !== undefined) {
+        const criteria = assertOptionalObject(
+          source.searchCriteria,
+          `Sources.sources[${index}].searchCriteria`,
+          {}
+        );
+        const normalizedCriteria = {};
+
+        const title = assertOptionalString(
+          criteria.title,
+          `Sources.sources[${index}].searchCriteria.title`,
+          ""
+        );
+        if (title) {
+          normalizedCriteria.title = title;
+        }
+
+        const keywords = assertOptionalString(
+          criteria.keywords,
+          `Sources.sources[${index}].searchCriteria.keywords`,
+          ""
+        );
+        if (keywords) {
+          normalizedCriteria.keywords = keywords;
+        }
+
+        const location = assertOptionalString(
+          criteria.location,
+          `Sources.sources[${index}].searchCriteria.location`,
+          ""
+        );
+        if (location) {
+          normalizedCriteria.location = location;
+        }
+
+        const minSalary = assertOptionalFiniteNumber(
+          criteria.minSalary,
+          `Sources.sources[${index}].searchCriteria.minSalary`,
+          null
+        );
+        if (minSalary !== null) {
+          if (minSalary <= 0) {
+            throw new Error(
+              `Sources.sources[${index}].searchCriteria.minSalary must be a positive number when provided.`
+            );
+          }
+          normalizedCriteria.minSalary = Math.round(minSalary);
+        }
+
+        const distanceMiles = assertOptionalFiniteNumber(
+          criteria.distanceMiles,
+          `Sources.sources[${index}].searchCriteria.distanceMiles`,
+          null
+        );
+        if (distanceMiles !== null) {
+          if (distanceMiles <= 0) {
+            throw new Error(
+              `Sources.sources[${index}].searchCriteria.distanceMiles must be a positive number when provided.`
+            );
+          }
+          normalizedCriteria.distanceMiles = Math.round(distanceMiles);
+        }
+
+        const datePosted = assertOptionalString(
+          criteria.datePosted,
+          `Sources.sources[${index}].searchCriteria.datePosted`,
+          ""
+        ).toLowerCase();
+        if (datePosted) {
+          if (!new Set(["any", "1d", "3d", "1w", "2w", "1m"]).has(datePosted)) {
+            throw new Error(
+              `Sources.sources[${index}].searchCriteria.datePosted must be one of: any, 1d, 3d, 1w, 2w, 1m.`
+            );
+          }
+          normalizedCriteria.datePosted = datePosted;
+        }
+
+        const experienceLevel = assertOptionalString(
+          criteria.experienceLevel,
+          `Sources.sources[${index}].searchCriteria.experienceLevel`,
+          ""
+        ).toLowerCase();
+        if (experienceLevel) {
+          if (
+            !new Set([
+              "intern",
+              "entry",
+              "associate",
+              "mid",
+              "senior",
+              "director",
+              "executive"
+            ]).has(experienceLevel)
+          ) {
+            throw new Error(
+              `Sources.sources[${index}].searchCriteria.experienceLevel must be one of: intern, entry, associate, mid, senior, director, executive.`
+            );
+          }
+          normalizedCriteria.experienceLevel = experienceLevel;
+        }
+
+        normalizedSource.searchCriteria = normalizedCriteria;
+      }
+
+      if (source.requiredTerms !== undefined) {
+        if (!Array.isArray(source.requiredTerms)) {
+          throw new Error(
+            `Sources.sources[${index}].requiredTerms must be an array when provided.`
+          );
+        }
+
+        normalizedSource.requiredTerms = source.requiredTerms.map((term, termIndex) =>
+          assertString(
+            term,
+            `Sources.sources[${index}].requiredTerms[${termIndex}]`
+          )
+        );
+      }
+
+      if (source.cacheTtlHours !== undefined) {
+        const parsed = Number(source.cacheTtlHours);
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+          throw new Error(
+            `Sources.sources[${index}].cacheTtlHours must be a positive number when provided.`
+          );
+        }
+        normalizedSource.cacheTtlHours = parsed;
+      }
+
       if (type === "mock_linkedin_saved_search") {
         normalizedSource.mockResultsPath = assertString(
           source.mockResultsPath,
@@ -332,7 +465,13 @@ export function validateSources(raw) {
       }
 
       if (
-        (type === "wellfound_search" || type === "ashby_search") &&
+        (type === "builtin_search" ||
+          type === "google_search" ||
+          type === "wellfound_search" ||
+          type === "ashby_search" ||
+          type === "indeed_search" ||
+          type === "ziprecruiter_search" ||
+          type === "remoteok_search") &&
         source.capturePath !== undefined
       ) {
         normalizedSource.capturePath = assertString(
@@ -343,8 +482,12 @@ export function validateSources(raw) {
 
       if (
         type === "builtin_search" ||
+        type === "google_search" ||
         type === "wellfound_search" ||
-        type === "ashby_search"
+        type === "ashby_search" ||
+        type === "indeed_search" ||
+        type === "ziprecruiter_search" ||
+        type === "remoteok_search"
       ) {
         if (source.maxJobs !== undefined) {
           if (!Number.isInteger(source.maxJobs) || source.maxJobs <= 0) {
@@ -368,9 +511,29 @@ export function validateSources(raw) {
 
           normalizedSource.requestTimeoutMs = Math.round(source.requestTimeoutMs);
         }
+
+        if (source.maxPages !== undefined) {
+          if (!Number.isInteger(source.maxPages) || source.maxPages <= 0) {
+            throw new Error(
+              `Sources.sources[${index}].maxPages must be a positive integer when provided.`
+            );
+          }
+
+          normalizedSource.maxPages = source.maxPages;
+        }
       }
 
-      if (type === "ashby_search") {
+      if (type === "ashby_search" && source.maxBoards !== undefined) {
+        if (!Number.isInteger(source.maxBoards) || source.maxBoards <= 0) {
+          throw new Error(
+            `Sources.sources[${index}].maxBoards must be a positive integer when provided.`
+          );
+        }
+
+        normalizedSource.maxBoards = source.maxBoards;
+      }
+
+      if (type === "ashby_search" || type === "google_search") {
         const recencyRaw =
           source.recencyWindow === undefined || source.recencyWindow === null
             ? ""
@@ -385,7 +548,7 @@ export function validateSources(raw) {
           );
         }
 
-        normalizedSource.recencyWindow = recencyRaw || "1m";
+        normalizedSource.recencyWindow = recencyRaw || (type === "google_search" ? "1w" : "1m");
       }
 
       return normalizedSource;

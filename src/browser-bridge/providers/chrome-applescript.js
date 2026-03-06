@@ -1,8 +1,13 @@
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
 
 import { writeAshbyCaptureFile } from "../../sources/ashby-jobs.js";
+import { writeGoogleCaptureFile } from "../../sources/google-jobs.js";
+import { writeIndeedCaptureFile } from "../../sources/indeed-jobs.js";
 import { writeLinkedInCaptureFile } from "../../sources/linkedin-saved-search.js";
+import { writeRemoteOkCaptureFile } from "../../sources/remoteok-jobs.js";
 import { writeWellfoundCaptureFile } from "../../sources/wellfound-jobs.js";
+import { writeZipRecruiterCaptureFile } from "../../sources/ziprecruiter-jobs.js";
 
 function sleepSync(milliseconds) {
   const buffer = new SharedArrayBuffer(4);
@@ -45,31 +50,151 @@ function runAppleScript(script, timeoutMs = 15_000) {
   return String(result.stdout || "").trim();
 }
 
-function navigateFrontTab(url) {
-  const escapedUrl = escapeAppleScriptString(url);
+let automationWindowId = null;
+
+function buildAutomationStatusUrl(message) {
+  const content = `
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Job Finder Automation</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: Georgia, serif;
+        background: #f6f3eb;
+        color: #21312f;
+      }
+      .panel {
+        max-width: 680px;
+        margin: 12vh auto 0;
+        padding: 28px 30px;
+        border: 1px solid #cbbfa6;
+        border-radius: 14px;
+        background: #fffefb;
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-size: 32px;
+      }
+      p {
+        margin: 0;
+        font-size: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="panel">
+      <h1>Job Finder Automation</h1>
+      <p>${String(message || "Refreshing sources...")}</p>
+    </div>
+  </body>
+</html>`;
+  return `data:text/html,${encodeURIComponent(content)}`;
+}
+
+function ensureAutomationWindow(message) {
+  if (Number.isInteger(automationWindowId)) {
+    try {
+      runAppleScript(
+        [
+          'tell application "Google Chrome"',
+          `set _window to window id ${automationWindowId}`,
+          "if _window is missing value then error \"missing\"",
+          "end tell"
+        ].join("\n")
+      );
+      return automationWindowId;
+    } catch {
+      automationWindowId = null;
+    }
+  }
+
+  const escapedStatusUrl = escapeAppleScriptString(
+    buildAutomationStatusUrl(message)
+  );
+  const rawId = runAppleScript(
+    [
+      'tell application "Google Chrome"',
+      "set _window to make new window",
+      `set URL of active tab of _window to "${escapedStatusUrl}"`,
+      "set bounds of _window to {80, 80, 1260, 880}",
+      "return id of _window",
+      "end tell"
+    ].join("\n")
+  );
+
+  const parsedId = Number(String(rawId || "").trim());
+  if (!Number.isInteger(parsedId)) {
+    throw new Error("Could not create automation Chrome window.");
+  }
+  automationWindowId = parsedId;
+  return automationWindowId;
+}
+
+function showAutomationMessage(message) {
+  const windowId = ensureAutomationWindow(message);
+  const escapedStatusUrl = escapeAppleScriptString(
+    buildAutomationStatusUrl(message)
+  );
+
   runAppleScript(
     [
       'tell application "Google Chrome"',
-      "if (count of windows) = 0 then make new window",
-      `set URL of active tab of front window to "${escapedUrl}"`,
-      "activate",
+      `set _window to window id ${windowId}`,
+      `set URL of active tab of _window to "${escapedStatusUrl}"`,
       "end tell"
     ].join("\n")
   );
 }
 
-function executeInFrontTab(javaScript) {
-  const escapedJavaScript = escapeAppleScriptString(javaScript);
+function navigateAutomationTab(url, message) {
+  const windowId = ensureAutomationWindow(message);
+  showAutomationMessage(message);
+  runAppleScript(
+    [
+      'tell application "Google Chrome"',
+      `set _window to window id ${windowId}`,
+      `set URL of active tab of _window to "${escapeAppleScriptString(url)}"`,
+      "end tell"
+    ].join("\n")
+  );
+}
+
+function executeInAutomationTab(javaScript) {
+  const windowId = ensureAutomationWindow("Refreshing sources...");
   return runAppleScript(
     [
       'tell application "Google Chrome"',
-      'tell active tab of front window',
-      `set resultText to execute javascript "${escapedJavaScript}"`,
+      `set _window to window id ${windowId}`,
+      'tell active tab of _window',
+      `set resultText to execute javascript "${escapeAppleScriptString(javaScript)}"`,
       "end tell",
       "return resultText",
       "end tell"
     ].join("\n")
   );
+}
+
+function readAutomationTabInfo() {
+  const windowId = ensureAutomationWindow("Refreshing sources...");
+  const raw = runAppleScript(
+    [
+      'tell application "Google Chrome"',
+      `set _window to window id ${windowId}`,
+      "set tabUrl to URL of active tab of _window",
+      "set tabTitle to title of active tab of _window",
+      "return tabUrl & \"\\n\" & tabTitle",
+      "end tell"
+    ].join("\n")
+  );
+
+  const [url = "", title = ""] = String(raw || "").split(/\r?\n/, 2);
+  return {
+    url: String(url || "").trim(),
+    title: String(title || "").trim()
+  };
 }
 
 function buildExtractionScript() {
@@ -267,7 +392,7 @@ function buildExtractionScript() {
 }
 
 function readLinkedInJobsFromChrome(searchUrl, options = {}) {
-  navigateFrontTab(searchUrl);
+  navigateAutomationTab(searchUrl, "Refreshing LinkedIn source...");
 
   const settleMs = Number(options.settleMs) > 0 ? Number(options.settleMs) : 2500;
   const maxAttempts = Number(options.maxAttempts) > 0 ? Number(options.maxAttempts) : 5;
@@ -280,7 +405,7 @@ function readLinkedInJobsFromChrome(searchUrl, options = {}) {
   let lastPayload = null;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const raw = executeInFrontTab(extractionScript);
+    const raw = executeInAutomationTab(extractionScript);
     let payload;
 
     try {
@@ -300,6 +425,11 @@ function readLinkedInJobsFromChrome(searchUrl, options = {}) {
   }
 
   if (lastPayload && Array.isArray(lastPayload.jobs)) {
+    if (lastPayload.jobs.length === 0 && lastPayload.error) {
+      throw new Error(
+        `Could not extract jobs from the active Chrome tab. ${lastPayload.error} Active tab: ${tabInfo.url || "unknown"} (${tabInfo.title || "untitled"})`
+      );
+    }
     return lastPayload;
   }
 
@@ -446,7 +576,7 @@ function buildWellfoundExtractionScript() {
 }
 
 function readWellfoundJobsFromChrome(searchUrl, options = {}) {
-  navigateFrontTab(searchUrl);
+  navigateAutomationTab(searchUrl, "Refreshing Wellfound source...");
 
   const settleMs = Number(options.settleMs) > 0 ? Number(options.settleMs) : 3000;
   const maxAttempts = Number(options.maxAttempts) > 0 ? Number(options.maxAttempts) : 6;
@@ -459,7 +589,7 @@ function readWellfoundJobsFromChrome(searchUrl, options = {}) {
   let lastPayload = null;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const raw = executeInFrontTab(extractionScript);
+    const raw = executeInAutomationTab(extractionScript);
     let payload;
 
     try {
@@ -483,6 +613,785 @@ function readWellfoundJobsFromChrome(searchUrl, options = {}) {
   }
 
   throw new Error("Could not extract Wellfound jobs from the active Chrome tab.");
+}
+
+function buildGenericBoardExtractionScript({
+  siteKey,
+  hostIncludes = [],
+  urlIncludes = [],
+  blockedIncludes = []
+}) {
+  return `
+(() => {
+  try {
+  const normalize = (value) => typeof value === "string"
+    ? value.replace(/\\s+/g, " ").trim()
+    : "";
+
+  const toAbsoluteUrl = (href) => {
+    const value = normalize(href);
+    if (!value) return "";
+    try {
+      return new URL(value, location.origin).toString();
+    } catch {
+      return value;
+    }
+  };
+
+  const hostIncludes = ${JSON.stringify(
+    (Array.isArray(hostIncludes) ? hostIncludes : []).map((value) =>
+      String(value || "").toLowerCase()
+    )
+  )};
+  const urlIncludes = ${JSON.stringify(
+    (Array.isArray(urlIncludes) ? urlIncludes : []).map((value) =>
+      String(value || "").toLowerCase()
+    )
+  )};
+  const blockedIncludes = ${JSON.stringify(
+    (Array.isArray(blockedIncludes) ? blockedIncludes : []).map((value) =>
+      String(value || "").toLowerCase()
+    )
+  )};
+  const titleNoise = /^(apply|save|share|learn more|continue|see more|show more|company|location)$/i;
+
+  const parseExternalId = (url) => {
+    try {
+      const parsed = new URL(url);
+      const jk = parsed.searchParams.get("jk") || parsed.searchParams.get("jobId");
+      if (jk) {
+        return jk;
+      }
+    } catch {
+      // noop
+    }
+
+    const match = String(url || "").match(/\\/(?:jobs?|job|viewjob|remote-jobs?)\\/([^/?#]+)/i);
+    return match ? match[1] : "";
+  };
+
+  const findBestCompany = (card, cardLines, title) => {
+    const selectors = [
+      '[data-testid*="company"]',
+      '[class*="company"]',
+      '[data-company]',
+      'h3 + div',
+      'h2 + div'
+    ];
+
+    for (const selector of selectors) {
+      const node = card ? card.querySelector(selector) : null;
+      const text = normalize(node?.innerText || node?.textContent || "");
+      if (text && text.length <= 120 && !text.includes(title)) {
+        return text;
+      }
+    }
+
+    const candidate = cardLines.find((line) =>
+      line &&
+      line.length <= 90 &&
+      !line.includes(title) &&
+      !/(remote|hybrid|on-site|onsite|full-time|part-time|contract|hour|day|week|month|year|ago|posted)/i.test(line)
+    );
+    return candidate || "";
+  };
+
+  const findCardRoot = (anchor) =>
+    anchor.closest("article") ||
+    anchor.closest("li") ||
+    anchor.closest("tr") ||
+    anchor.closest('[data-jk], [data-jobkey], [data-testid*="job"], [class*="job"]') ||
+    anchor.parentElement ||
+    null;
+
+  const findLocation = (card, cardLines) => {
+    const selectors = [
+      '[data-testid*="location"]',
+      '[class*="location"]'
+    ];
+    for (const selector of selectors) {
+      const node = card ? card.querySelector(selector) : null;
+      const text = normalize(node?.innerText || node?.textContent || "");
+      if (text && text.length <= 100) {
+        return text;
+      }
+    }
+
+    const candidate = cardLines.find((line) =>
+      /(remote|hybrid|on-site|onsite|san francisco|new york|seattle|austin|los angeles|california|united states)/i.test(line)
+    );
+    return candidate || "";
+  };
+
+  const findPostedAt = (cardLines) => {
+    const candidate = cardLines.find((line) =>
+      /(\\d+\\s+(hour|day|week|month|year)s?\\s+ago|today|yesterday|posted)/i.test(line)
+    );
+    return candidate || null;
+  };
+
+  const findSalary = (cardLines) => {
+    const candidate = cardLines.find((line) =>
+      /[$€£]\\s*\\d|\\b\\d+(?:\\.\\d+)?[Kk]\\b.*\\/(?:yr|year|hr|hour)/i.test(line)
+    );
+    return candidate || null;
+  };
+
+  const findEmploymentType = (cardLines) => {
+    const candidate = cardLines.find((line) =>
+      /(full-time|part-time|contract|temporary|internship|freelance)/i.test(line)
+    );
+    return candidate || null;
+  };
+
+  const jobs = [];
+  const seen = new Set();
+  const anchors = Array.from(document.querySelectorAll("a[href]"));
+  const debug = {
+    anchors: anchors.length,
+    hrefMatches: 0,
+    titlePass: 0,
+    cardPass: 0
+  };
+
+  for (const anchor of anchors) {
+    const href = toAbsoluteUrl(anchor.getAttribute("href") || "");
+    const hrefLower = String(href || "").toLowerCase();
+    const hostMatch =
+      hostIncludes.length === 0 ||
+      hostIncludes.some((needle) => hrefLower.includes(needle));
+    const urlMatch =
+      urlIncludes.length === 0 ||
+      urlIncludes.some((needle) => hrefLower.includes(needle));
+    const blockedMatch = blockedIncludes.some((needle) => hrefLower.includes(needle));
+
+    if (!href || !hostMatch || !urlMatch || blockedMatch) {
+      continue;
+    }
+    debug.hrefMatches += 1;
+
+    const title = normalize(anchor.innerText || anchor.textContent || "");
+    if (!title || title.length < 4 || title.length > 220 || titleNoise.test(title)) {
+      continue;
+    }
+    debug.titlePass += 1;
+
+    const card = findCardRoot(anchor);
+    const rawCardText = String(card?.innerText || card?.textContent || "").slice(0, 1500);
+    const cardText = normalize(rawCardText);
+    if (!cardText) {
+      continue;
+    }
+    debug.cardPass += 1;
+
+    const cardLines = cardText
+      .split(/\\n+/)
+      .map((line) => normalize(line))
+      .filter(Boolean)
+      .slice(0, 24);
+
+    const company = findBestCompany(card, cardLines, title) || "Unknown company";
+
+    const externalId = parseExternalId(href) || null;
+    const dedupeKey = externalId
+      ? "${siteKey}:" + externalId
+      : (title.toLowerCase() + "|" + href.toLowerCase());
+    if (seen.has(dedupeKey)) {
+      continue;
+    }
+    seen.add(dedupeKey);
+
+    jobs.push({
+      externalId,
+      title,
+      company,
+      location: findLocation(card, cardLines) || null,
+      postedAt: findPostedAt(cardLines),
+      employmentType: findEmploymentType(cardLines),
+      easyApply: false,
+      salaryText: findSalary(cardLines),
+      summary: cardLines.slice(0, 6).join(" · ").slice(0, 500),
+      description: cardText.slice(0, 1000),
+      url: href
+    });
+
+    if (jobs.length >= 200) {
+      break;
+    }
+  }
+
+  return JSON.stringify({
+    pageUrl: location.href,
+    capturedAt: new Date().toISOString(),
+    jobs,
+    debug
+  });
+  } catch (error) {
+    return JSON.stringify({
+      pageUrl: location.href,
+      capturedAt: new Date().toISOString(),
+      jobs: [],
+      debug: null,
+      error: String(error && error.message ? error.message : error)
+    });
+  }
+})()
+  `.trim();
+}
+
+function dedupeJobsByIdentity(jobs) {
+  const deduped = new Map();
+
+  for (const job of Array.isArray(jobs) ? jobs : []) {
+    if (!job || typeof job !== "object") {
+      continue;
+    }
+
+    const key = String(
+      job.externalId ||
+        job.url ||
+        `${job.title || ""}|${job.company || ""}|${job.location || ""}`
+    )
+      .trim()
+      .toLowerCase();
+    if (!key) {
+      continue;
+    }
+
+    if (!deduped.has(key)) {
+      deduped.set(key, job);
+    }
+  }
+
+  return Array.from(deduped.values());
+}
+
+function buildUrlWithSearchParam(urlText, key, value) {
+  try {
+    const parsed = new URL(String(urlText || "").trim());
+    parsed.searchParams.set(String(key || ""), String(value || ""));
+    return parsed.toString();
+  } catch {
+    return String(urlText || "").trim();
+  }
+}
+
+function capturePaginatedGenericBoardJobs({
+  searchUrl,
+  extractionScript,
+  maxPages,
+  pageUrlForIndex,
+  options = {}
+}) {
+  const resolvedMaxPages = Number(maxPages);
+  const pages = Number.isInteger(resolvedMaxPages) && resolvedMaxPages > 0
+    ? resolvedMaxPages
+    : 1;
+
+  const collected = [];
+  let lastPayload = null;
+
+  for (let index = 0; index < pages; index += 1) {
+    const pageUrl = pageUrlForIndex(index);
+    const payload = readGenericBoardJobsFromChrome(pageUrl, extractionScript, options);
+    lastPayload = payload;
+
+    const jobs = Array.isArray(payload?.jobs) ? payload.jobs : [];
+    if (jobs.length === 0) {
+      if (index === 0) {
+        break;
+      }
+      break;
+    }
+
+    const priorCount = collected.length;
+    collected.push(...jobs);
+    const deduped = dedupeJobsByIdentity(collected);
+    collected.length = 0;
+    collected.push(...deduped);
+
+    if (collected.length === priorCount) {
+      break;
+    }
+  }
+
+  if (collected.length > 0 || lastPayload) {
+    return {
+      pageUrl: searchUrl,
+      capturedAt: new Date().toISOString(),
+      jobs: collected
+    };
+  }
+
+  throw new Error("Could not extract jobs from the active Chrome tab.");
+}
+
+function readGenericBoardJobsFromChrome(searchUrl, extractionScript, options = {}) {
+  navigateAutomationTab(searchUrl, "Refreshing source...");
+
+  const settleMs = Number(options.settleMs) > 0 ? Number(options.settleMs) : 3000;
+  const maxAttempts = Number(options.maxAttempts) > 0 ? Number(options.maxAttempts) : 6;
+  const attemptDelayMs =
+    Number(options.attemptDelayMs) > 0 ? Number(options.attemptDelayMs) : 1500;
+
+  sleepSync(settleMs);
+  const tabInfo = readAutomationTabInfo();
+  const debugScriptPath = String(process.env.JOB_FINDER_DEBUG_SCRIPT_PATH || "").trim();
+  if (debugScriptPath) {
+    fs.writeFileSync(debugScriptPath, `${extractionScript}\n`, "utf8");
+  }
+  const debugResultPath = String(process.env.JOB_FINDER_DEBUG_RESULT_PATH || "").trim();
+
+  let lastPayload = null;
+  let lastRaw = "";
+  let lastError = null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const raw = executeInAutomationTab(extractionScript);
+    lastRaw = raw;
+    if (debugResultPath) {
+      fs.writeFileSync(debugResultPath, `${String(raw || "").trim()}\n`, "utf8");
+    }
+    let payload;
+
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      payload = null;
+    }
+
+    if (payload && Array.isArray(payload.jobs)) {
+      lastPayload = payload;
+      if (payload.error) {
+        lastError = payload.error;
+      }
+      if (payload.jobs.length > 0) {
+        return payload;
+      }
+    }
+
+    sleepSync(attemptDelayMs);
+  }
+
+  if (lastPayload && Array.isArray(lastPayload.jobs)) {
+    return lastPayload;
+  }
+
+  const rawPreview = String(lastRaw || "").trim().slice(0, 240);
+  if (lastError) {
+    throw new Error(
+      `Could not extract jobs from the active Chrome tab. ${lastError} Active tab: ${tabInfo.url || "unknown"} (${tabInfo.title || "untitled"})`
+    );
+  }
+  if (rawPreview) {
+    throw new Error(
+      `Could not extract jobs from the active Chrome tab. Raw result: ${rawPreview} Active tab: ${tabInfo.url || "unknown"} (${tabInfo.title || "untitled"})`
+    );
+  }
+
+  throw new Error(
+    `Could not extract jobs from the active Chrome tab. Active tab: ${tabInfo.url || "unknown"} (${tabInfo.title || "untitled"})`
+  );
+}
+
+function readIndeedJobsFromChrome(searchUrl, options = {}) {
+  const extractionScript = buildGenericBoardExtractionScript({
+    siteKey: "indeed",
+    hostIncludes: ["indeed.com"],
+    urlIncludes: ["/viewjob", "/rc/clk", "jk="],
+    blockedIncludes: ["/cmp/", "/companies/", "/career-advice/"]
+  });
+  const maxPages = Number(options.maxPages) > 0 ? Number(options.maxPages) : 8;
+  return capturePaginatedGenericBoardJobs({
+    searchUrl,
+    extractionScript,
+    maxPages,
+    pageUrlForIndex: (index) =>
+      buildUrlWithSearchParam(searchUrl, "start", String(index * 10)),
+    options
+  });
+}
+
+function readZipRecruiterJobsFromChrome(searchUrl, options = {}) {
+  const extractionScript = `
+(() => {
+  const normalize = (value) => typeof value === "string"
+    ? value.replace(/\\s+/g, " ").trim()
+    : "";
+
+  const toAbsoluteUrl = (href) => {
+    const value = normalize(href);
+    if (!value) return "";
+    try {
+      return new URL(value, location.origin).toString();
+    } catch {
+      return value;
+    }
+  };
+
+  const jobs = [];
+  const seen = new Set();
+  const cards = Array.from(
+    document.querySelectorAll('div[class*="job_result_two_pane"], article[class*="job_result"]')
+  );
+
+  for (const card of cards) {
+    const titleNode = card.querySelector("h2");
+    const title = normalize(titleNode?.innerText || titleNode?.textContent || "");
+    if (!title || title.length < 4 || title.length > 180) {
+      continue;
+    }
+
+    const companyLink =
+      card.querySelector('a[href*="/co/"]') ||
+      card.querySelector("a[href]");
+    const company = normalize(
+      companyLink?.innerText || companyLink?.textContent || ""
+    ) || "Unknown company";
+    const url = toAbsoluteUrl(companyLink?.getAttribute("href") || location.href);
+
+    const locationNode = card.querySelector('a[href*="jobs-search?location="]');
+    const location = normalize(
+      locationNode?.innerText || locationNode?.textContent || ""
+    ) || null;
+
+    const cardText = normalize(card.innerText || card.textContent || "");
+    const salaryText =
+      normalize(
+        cardText.match(/\\$\\d[\\d,]*(?:K)?\\s*-\\s*\\$\\d[\\d,]*(?:K)?\\/?(?:yr|year|hr|hour)?/i)?.[0]
+      ) || null;
+    const postedAt =
+      normalize(cardText.match(/\\b(new|\\d+\\s*[dhm])\\b/i)?.[0]) || null;
+
+    const externalId = normalize([company, title, location || ""].join("|"));
+    if (seen.has(externalId)) {
+      continue;
+    }
+    seen.add(externalId);
+
+    jobs.push({
+      externalId: externalId || null,
+      title,
+      company,
+      location,
+      postedAt,
+      employmentType: null,
+      easyApply: false,
+      salaryText,
+      summary: cardText.slice(0, 500),
+      description: cardText.slice(0, 1000),
+      url
+    });
+  }
+
+  return JSON.stringify({
+    pageUrl: location.href,
+    capturedAt: new Date().toISOString(),
+    jobs
+  });
+})()
+  `.trim();
+  const maxPages = Number(options.maxPages) > 0 ? Number(options.maxPages) : 3;
+  return capturePaginatedGenericBoardJobs({
+    searchUrl,
+    extractionScript,
+    maxPages,
+    pageUrlForIndex: (index) =>
+      buildUrlWithSearchParam(searchUrl, "page", String(index + 1)),
+    options
+  });
+}
+
+function readRemoteOkJobsFromChrome(searchUrl, options = {}) {
+  const extractionScript = `
+(() => {
+  const normalize = (value) => typeof value === "string"
+    ? value.replace(/\\s+/g, " ").trim()
+    : "";
+
+  const toAbsoluteUrl = (href) => {
+    const value = normalize(href);
+    if (!value) return "";
+    try {
+      return new URL(value, location.origin).toString();
+    } catch {
+      return value;
+    }
+  };
+
+  const jobs = [];
+  const seen = new Set();
+  const rows = Array.from(document.querySelectorAll("tr.job"));
+
+  for (const row of rows) {
+    const titleNode =
+      row.querySelector(".company_and_position h2") ||
+      row.querySelector("h2");
+    const companyNode =
+      row.querySelector(".company_and_position h3") ||
+      row.querySelector("h3");
+    const linkNode =
+      row.querySelector('a[itemprop="url"]') ||
+      row.querySelector('td.company_and_position a[href*="/remote-"]');
+
+    const title = normalize(titleNode?.innerText || titleNode?.textContent || "");
+    const company = normalize(
+      companyNode?.innerText || companyNode?.textContent || ""
+    );
+    const url = toAbsoluteUrl(linkNode?.getAttribute("href") || "");
+
+    if (!title || !company || !url || !/\\/remote-jobs\\//i.test(url)) {
+      continue;
+    }
+
+    const externalId = normalize(url.split("/remote-jobs/")[1]?.split(/[?#]/)[0] || "");
+    const dedupeKey = externalId || url.toLowerCase();
+    if (seen.has(dedupeKey)) {
+      continue;
+    }
+    seen.add(dedupeKey);
+
+    const rowText = normalize(row.innerText || row.textContent || "");
+    const location =
+      normalize(
+        row.querySelector(".location")?.innerText ||
+        row.querySelector(".company_and_position .location")?.textContent ||
+        ""
+      ) || null;
+    const postedAt = normalize(row.querySelector(".time")?.innerText || "") || null;
+    const salaryText =
+      normalize(row.querySelector(".salary")?.innerText || "") || null;
+
+    jobs.push({
+      externalId: externalId || null,
+      title,
+      company,
+      location,
+      postedAt,
+      employmentType: null,
+      easyApply: false,
+      salaryText,
+      summary: rowText.slice(0, 500),
+      description: rowText.slice(0, 1000),
+      url
+    });
+  }
+
+  return JSON.stringify({
+    pageUrl: location.href,
+    capturedAt: new Date().toISOString(),
+    jobs
+  });
+})()
+  `.trim();
+  return readGenericBoardJobsFromChrome(searchUrl, extractionScript, options);
+}
+
+function buildGoogleBrowserExtractionScript() {
+  return `
+(() => {
+  const normalize = (value) => typeof value === "string"
+    ? value.replace(/\\s+/g, " ").trim()
+    : "";
+
+  const toAbsoluteUrl = (href) => {
+    const value = normalize(href);
+    if (!value) return "";
+    try {
+      return new URL(value, location.origin).toString();
+    } catch {
+      return value;
+    }
+  };
+
+  const decodeGoogleRedirect = (url) => {
+    const absolute = toAbsoluteUrl(url);
+    if (!absolute) return "";
+    try {
+      const parsed = new URL(absolute);
+      const redirected = parsed.searchParams.get("q") || parsed.searchParams.get("url");
+      if (!redirected) return absolute;
+      return toAbsoluteUrl(decodeURIComponent(redirected));
+    } catch {
+      return absolute;
+    }
+  };
+
+  const isGoogleUrl = (url) => {
+    try {
+      const host = new URL(url).hostname.toLowerCase();
+      return host.includes("google.");
+    } catch {
+      return false;
+    }
+  };
+
+  const isLikelyJobUrl = (url) => {
+    const value = String(url || "").toLowerCase();
+    return (
+      value.includes("/jobs/") ||
+      value.includes("jobid=") ||
+      value.includes("gh_jid=") ||
+      value.includes("jk=") ||
+      value.includes("lever.co") ||
+      value.includes("greenhouse.io") ||
+      value.includes("ashbyhq.com")
+    );
+  };
+
+  const extractGoogleWidgetId = (url) => {
+    const text = String(url || "");
+    const encodedMatch = text.match(/docid%3D([^%&]+)/i);
+    if (encodedMatch) return encodedMatch[1];
+    const plainMatch = text.match(/[?#&]docid=([^&]+)/i);
+    if (plainMatch) return plainMatch[1];
+    const vhidMatch = text.match(/[?#&]vhid=([^&]+)/i);
+    return vhidMatch ? vhidMatch[1] : "";
+  };
+
+  const guessCompanyFromUrl = (url) => {
+    try {
+      const hostParts = new URL(url).hostname
+        .replace(/^www\\./i, "")
+        .split(".")
+        .filter(Boolean);
+      if (hostParts.length === 0) return "";
+      const root =
+        hostParts.length > 1 ? hostParts[hostParts.length - 2] : hostParts[0];
+      return normalize(root.replace(/[-_]+/g, " "));
+    } catch {
+      return "";
+    }
+  };
+
+  const jobs = [];
+  const seen = new Set();
+  const anchors = Array.from(document.querySelectorAll("a[href]"));
+
+  for (const anchor of anchors) {
+    const href = decodeGoogleRedirect(anchor.getAttribute("href") || "");
+    if (!href || isGoogleUrl(href) || !isLikelyJobUrl(href)) {
+      continue;
+    }
+
+    const titleNode = anchor.querySelector("h3");
+    const title = normalize(titleNode?.innerText || anchor.innerText || anchor.textContent || "");
+    if (!title || title.length < 4 || title.length > 180) {
+      continue;
+    }
+
+    const dedupeKey = title.toLowerCase() + "|" + href.toLowerCase();
+    if (seen.has(dedupeKey)) {
+      continue;
+    }
+    seen.add(dedupeKey);
+
+    const card = anchor.closest("div, li, article");
+    const text = normalize(card?.innerText || card?.textContent || "");
+    const locationMatch = text.match(
+      /\\b(san francisco|new york|remote|seattle|austin|los angeles|california)\\b/i
+    );
+    const postedAtMatch = text.match(
+      /(\\d+\\s+(?:hour|day|week|month|year)s?\\s+ago|today|yesterday)/i
+    );
+
+    jobs.push({
+      externalId: null,
+      title,
+      company: guessCompanyFromUrl(href) || "Unknown company",
+      location: locationMatch ? locationMatch[1] : null,
+      postedAt: postedAtMatch ? postedAtMatch[1] : null,
+      employmentType: null,
+      easyApply: false,
+      salaryText: null,
+      summary: text.slice(0, 320) || title,
+      description: text || title,
+      url: href
+    });
+
+    if (jobs.length >= 120) {
+      break;
+    }
+  }
+
+  if (jobs.length === 0) {
+    for (const anchor of anchors) {
+      const rawHref = toAbsoluteUrl(anchor.getAttribute("href") || "");
+      if (!rawHref || !/vssid=jobs-detail-viewer/i.test(rawHref)) {
+        continue;
+      }
+
+      const text = normalize(anchor.innerText || anchor.textContent || "");
+      if (!text || text.length < 20) {
+        continue;
+      }
+
+      const widgetId = extractGoogleWidgetId(rawHref);
+      if (!widgetId || seen.has(widgetId)) {
+        continue;
+      }
+      seen.add(widgetId);
+
+      const cleaned = text.replace(/^new\\s+/i, "").trim();
+      const splitByVia = cleaned.split(" • via ");
+      const left = normalize(splitByVia[0] || cleaned);
+      const right = normalize(splitByVia[1] || "");
+      const postedAtMatch = cleaned.match(
+        /(\\d+\\s+(?:hour|day|week|month|year)s?\\s+ago|today|yesterday)/i
+      );
+      const locationMatch = left.match(
+        /(san francisco, ca|new york, ny|remote|seattle, wa|austin, tx|los angeles, ca|california)/i
+      );
+
+      let company = right.replace(
+        /(\\d+\\s+(?:hour|day|week|month|year)s?\\s+ago|today|yesterday|just posted)[\\s\\S]*$/i,
+        ""
+      ).trim();
+      if (!company) {
+        company = "Unknown company";
+      }
+
+      let title = left;
+      if (company && company !== "Unknown company") {
+        const lowerLeft = left.toLowerCase();
+        const lowerCompany = company.toLowerCase();
+        if (lowerLeft.endsWith(" " + lowerCompany)) {
+          title = left.slice(0, left.length - company.length).trim();
+        }
+      }
+
+      jobs.push({
+        externalId: widgetId,
+        title: title || left,
+        company,
+        location: locationMatch ? locationMatch[1] : null,
+        postedAt: postedAtMatch ? postedAtMatch[1] : null,
+        employmentType: null,
+        easyApply: false,
+        salaryText: null,
+        summary: cleaned.slice(0, 320),
+        description: cleaned,
+        url: rawHref
+      });
+
+      if (jobs.length >= 120) {
+        break;
+      }
+    }
+  }
+
+  return JSON.stringify({
+    pageUrl: location.href,
+    capturedAt: new Date().toISOString(),
+    jobs
+  });
+})()
+  `.trim();
+}
+
+function readGoogleJobsFromChrome(searchUrl, options = {}) {
+  const extractionScript = buildGoogleBrowserExtractionScript();
+  return readGenericBoardJobsFromChrome(searchUrl, extractionScript, options);
 }
 
 function buildAshbyExtractionScript() {
@@ -838,7 +1747,7 @@ function runExtractionAttempts(extractionScript, maxAttempts, attemptDelayMs) {
   let lastPayload = null;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const raw = executeInFrontTab(extractionScript);
+    const raw = executeInAutomationTab(extractionScript);
     const payload = parseBridgeJsonPayload(raw);
 
     if (payload && Array.isArray(payload.jobs)) {
@@ -876,7 +1785,7 @@ function dedupeAshbyJobs(jobs) {
 }
 
 function readAshbyJobsFromChrome(searchUrl, options = {}) {
-  navigateFrontTab(searchUrl);
+  navigateAutomationTab(searchUrl, "Refreshing Ashby source...");
 
   const settleMs = Number(options.settleMs) > 0 ? Number(options.settleMs) : 3000;
   const maxAttempts = Number(options.maxAttempts) > 0 ? Number(options.maxAttempts) : 6;
@@ -901,7 +1810,7 @@ function readAshbyJobsFromChrome(searchUrl, options = {}) {
 
   if (isGoogleSearchUrl(searchUrl)) {
     const boardPayload = parseBridgeJsonPayload(
-      executeInFrontTab(boardDiscoveryScript)
+      executeInAutomationTab(boardDiscoveryScript)
     );
     const boardUrlSet = new Set();
 
@@ -923,7 +1832,7 @@ function readAshbyJobsFromChrome(searchUrl, options = {}) {
 
     const boardUrls = Array.from(boardUrlSet).slice(0, maxBoards);
     for (const boardUrl of boardUrls) {
-      navigateFrontTab(boardUrl);
+      navigateAutomationTab(boardUrl, "Refreshing Ashby board...");
       sleepSync(boardSettleMs);
 
       const boardJobsPayload = runExtractionAttempts(
@@ -1000,10 +1909,103 @@ export function captureAshbySourceWithChromeAppleScript(
     throw new Error("Chrome AppleScript capture requires an ashby_search source.");
   }
 
-  const payload = readAshbyJobsFromChrome(source.searchUrl, options);
+  const payload = readAshbyJobsFromChrome(source.searchUrl, {
+    ...options,
+    maxBoards: Number(source.maxBoards) > 0 ? Number(source.maxBoards) : options.maxBoards
+  });
 
   return {
     ...writeAshbyCaptureFile(source, payload.jobs, {
+      capturedAt: payload.capturedAt,
+      pageUrl: payload.pageUrl
+    }),
+    provider: "chrome_applescript",
+    status: "completed"
+  };
+}
+
+export function captureIndeedSourceWithChromeAppleScript(
+  source,
+  _snapshotPath,
+  options = {}
+) {
+  if (!source || source.type !== "indeed_search") {
+    throw new Error("Chrome AppleScript capture requires an indeed_search source.");
+  }
+
+  const payload = readIndeedJobsFromChrome(source.searchUrl, {
+    ...options,
+    maxPages: Number(source.maxPages) > 0 ? Number(source.maxPages) : options.maxPages
+  });
+
+  return {
+    ...writeIndeedCaptureFile(source, payload.jobs, {
+      capturedAt: payload.capturedAt,
+      pageUrl: payload.pageUrl
+    }),
+    provider: "chrome_applescript",
+    status: "completed"
+  };
+}
+
+export function captureGoogleSourceWithChromeAppleScript(
+  source,
+  _snapshotPath,
+  options = {}
+) {
+  if (!source || source.type !== "google_search") {
+    throw new Error("Chrome AppleScript capture requires a google_search source.");
+  }
+
+  const payload = readGoogleJobsFromChrome(source.searchUrl, options);
+
+  return {
+    ...writeGoogleCaptureFile(source, payload.jobs, {
+      capturedAt: payload.capturedAt,
+      pageUrl: payload.pageUrl
+    }),
+    provider: "chrome_applescript",
+    status: "completed"
+  };
+}
+
+export function captureZipRecruiterSourceWithChromeAppleScript(
+  source,
+  _snapshotPath,
+  options = {}
+) {
+  if (!source || source.type !== "ziprecruiter_search") {
+    throw new Error("Chrome AppleScript capture requires a ziprecruiter_search source.");
+  }
+
+  const payload = readZipRecruiterJobsFromChrome(source.searchUrl, {
+    ...options,
+    maxPages: Number(source.maxPages) > 0 ? Number(source.maxPages) : options.maxPages
+  });
+
+  return {
+    ...writeZipRecruiterCaptureFile(source, payload.jobs, {
+      capturedAt: payload.capturedAt,
+      pageUrl: payload.pageUrl
+    }),
+    provider: "chrome_applescript",
+    status: "completed"
+  };
+}
+
+export function captureRemoteOkSourceWithChromeAppleScript(
+  source,
+  _snapshotPath,
+  options = {}
+) {
+  if (!source || source.type !== "remoteok_search") {
+    throw new Error("Chrome AppleScript capture requires a remoteok_search source.");
+  }
+
+  const payload = readRemoteOkJobsFromChrome(source.searchUrl, options);
+
+  return {
+    ...writeRemoteOkCaptureFile(source, payload.jobs, {
       capturedAt: payload.capturedAt,
       pageUrl: payload.pageUrl
     }),
@@ -1025,7 +2027,23 @@ export function captureSourceWithChromeAppleScript(source, snapshotPath, options
     return captureAshbySourceWithChromeAppleScript(source, snapshotPath, options);
   }
 
+  if (source?.type === "google_search") {
+    return captureGoogleSourceWithChromeAppleScript(source, snapshotPath, options);
+  }
+
+  if (source?.type === "indeed_search") {
+    return captureIndeedSourceWithChromeAppleScript(source, snapshotPath, options);
+  }
+
+  if (source?.type === "ziprecruiter_search") {
+    return captureZipRecruiterSourceWithChromeAppleScript(source, snapshotPath, options);
+  }
+
+  if (source?.type === "remoteok_search") {
+    return captureRemoteOkSourceWithChromeAppleScript(source, snapshotPath, options);
+  }
+
   throw new Error(
-    `Chrome AppleScript provider currently supports linkedin_capture_file, wellfound_search, and ashby_search. "${source?.name || "unknown"}" is ${source?.type || "unknown"}.`
+    `Chrome AppleScript provider currently supports linkedin_capture_file, wellfound_search, ashby_search, google_search, indeed_search, ziprecruiter_search, and remoteok_search. "${source?.name || "unknown"}" is ${source?.type || "unknown"}.`
   );
 }

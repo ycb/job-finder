@@ -10,7 +10,11 @@ import { startBrowserBridgeServer } from "./browser-bridge/server.js";
 import {
   addAshbySearchSource,
   addBuiltinSearchSource,
+  addGoogleSearchSource,
+  addIndeedSearchSource,
   addLinkedInCaptureSource,
+  addRemoteOkSearchSource,
+  addZipRecruiterSearchSource,
   addWellfoundSearchSource,
   connectNarrataGoalsFile,
   connectNarrataSupabase,
@@ -18,6 +22,7 @@ import {
   loadActiveProfile,
   loadProfileSourceConfig,
   loadSources,
+  previewNormalizedSourceSearchUrls,
   normalizeAllSourceSearchUrls,
   useLegacyProfileSource,
   useMyGoalsProfileSource,
@@ -37,6 +42,10 @@ import {
 import { evaluateJobs } from "./jobs/score.js";
 import { writeShortlistFile } from "./output/render.js";
 import { startReviewServer } from "./review/server.js";
+import {
+  isSourceCaptureFresh,
+  readSourceCaptureSummary
+} from "./sources/cache-policy.js";
 import {
   collectJobsFromSource,
   importLinkedInSnapshot
@@ -75,6 +84,25 @@ function printJobRows(rows) {
       ].join(" | ")
     );
   }
+}
+
+function extractFlag(args, flag) {
+  const remaining = [];
+  let present = false;
+
+  for (const arg of Array.isArray(args) ? args : []) {
+    if (arg === flag) {
+      present = true;
+      continue;
+    }
+
+    remaining.push(arg);
+  }
+
+  return {
+    present,
+    args: remaining
+  };
 }
 
 function runInit() {
@@ -210,25 +238,12 @@ function runListSources() {
   for (const source of sources.sources) {
     let captureStatus = "no-capture";
 
-    if (
-      (source.type === "linkedin_capture_file" ||
-        source.type === "wellfound_search" ||
-        source.type === "ashby_search") &&
-      source.capturePath
-    ) {
-      try {
-        const raw = JSON.parse(fs.readFileSync(source.capturePath, "utf8"));
-        const jobCount = Array.isArray(raw.jobs) ? raw.jobs.length : 0;
-        const capturedAt =
-          typeof raw.capturedAt === "string" && raw.capturedAt.trim()
-            ? raw.capturedAt
-            : "never";
-        captureStatus = `capturedAt=${capturedAt}; jobs=${jobCount}`;
-      } catch {
+    if (source.capturePath) {
+      const summary = readSourceCaptureSummary(source);
+      captureStatus = `capturedAt=${summary.capturedAt || "never"}; jobs=${summary.jobCount}`;
+      if (summary.status === "capture_error") {
         captureStatus = "capture-unreadable";
       }
-    } else if (source.type === "builtin_search") {
-      captureStatus = "live-fetch";
     }
 
     console.log(
@@ -264,6 +279,24 @@ function runAddBuiltinSource(label, searchUrl) {
   console.log(`Added Built In source "${source.name}" with id=${source.id}`);
 }
 
+function runAddGoogleSource(label, searchUrl, recencyWindowArg) {
+  if (!label || !searchUrl) {
+    throw new Error(
+      "Usage: node src/cli.js add-google-source <label> <url> [any|1d|1w|1m]"
+    );
+  }
+
+  const source = addGoogleSearchSource(
+    label,
+    searchUrl,
+    "config/sources.json",
+    recencyWindowArg
+  );
+  console.log(
+    `Added Google source "${source.name}" with id=${source.id} (recencyWindow=${source.recencyWindow || "n/a"})`
+  );
+}
+
 function runAddWellfoundSource(label, searchUrl) {
   if (!label || !searchUrl) {
     throw new Error("Usage: node src/cli.js add-wellfound-source <label> <url>");
@@ -291,6 +324,33 @@ function runAddAshbySource(label, searchUrl, recencyWindowArg) {
   );
 }
 
+function runAddIndeedSource(label, searchUrl) {
+  if (!label || !searchUrl) {
+    throw new Error("Usage: node src/cli.js add-indeed-source <label> <url>");
+  }
+
+  const source = addIndeedSearchSource(label, searchUrl);
+  console.log(`Added Indeed source "${source.name}" with id=${source.id}`);
+}
+
+function runAddZipRecruiterSource(label, searchUrl) {
+  if (!label || !searchUrl) {
+    throw new Error("Usage: node src/cli.js add-ziprecruiter-source <label> <url>");
+  }
+
+  const source = addZipRecruiterSearchSource(label, searchUrl);
+  console.log(`Added ZipRecruiter source "${source.name}" with id=${source.id}`);
+}
+
+function runAddRemoteOkSource(label, searchUrl) {
+  if (!label || !searchUrl) {
+    throw new Error("Usage: node src/cli.js add-remoteok-source <label> <url>");
+  }
+
+  const source = addRemoteOkSearchSource(label, searchUrl);
+  console.log(`Added RemoteOK source "${source.name}" with id=${source.id}`);
+}
+
 function runSetSourceUrl(sourceIdOrName, searchUrl) {
   if (!sourceIdOrName || !searchUrl) {
     throw new Error("Usage: node src/cli.js set-source-url <source-id-or-label> <url>");
@@ -302,7 +362,45 @@ function runSetSourceUrl(sourceIdOrName, searchUrl) {
   );
 }
 
-function runNormalizeSourceUrls() {
+function runNormalizeSourceUrls(options = {}) {
+  if (options.dryRun) {
+    const preview = previewNormalizedSourceSearchUrls();
+    const changedRows = preview.sources.filter((row) => row.changed);
+
+    if (changedRows.length === 0) {
+      console.log("Dry run: no source URL changes.");
+      return;
+    }
+
+    console.log(`Dry run: ${preview.changed} source URL change(s) detected.`);
+    for (const row of changedRows) {
+      console.log(
+        [
+          row.id,
+          row.type,
+          `current=${row.currentSearchUrl}`,
+          `next=${row.nextSearchUrl}`
+        ].join(" | ")
+      );
+
+      if (row.currentRecencyWindow !== null || row.nextRecencyWindow !== null) {
+        console.log(
+          `  recencyWindow: ${row.currentRecencyWindow || "n/a"} -> ${row.nextRecencyWindow || "n/a"}`
+        );
+      }
+
+      if (Array.isArray(row.unsupported) && row.unsupported.length > 0) {
+        console.log(`  unsupported: ${row.unsupported.join(", ")}`);
+      }
+
+      if (Array.isArray(row.notes) && row.notes.length > 0) {
+        console.log(`  notes: ${row.notes.join(" | ")}`);
+      }
+    }
+
+    return;
+  }
+
   const result = normalizeAllSourceSearchUrls();
   console.log(`Normalized ${result.changed} source URL(s).`);
 }
@@ -349,8 +447,32 @@ function isAshbySource(source) {
   return source?.type === "ashby_search";
 }
 
+function isGoogleSource(source) {
+  return source?.type === "google_search";
+}
+
+function isIndeedSource(source) {
+  return source?.type === "indeed_search";
+}
+
+function isZipRecruiterSource(source) {
+  return source?.type === "ziprecruiter_search";
+}
+
+function isRemoteOkSource(source) {
+  return source?.type === "remoteok_search";
+}
+
 function isBrowserCaptureSource(source) {
-  return isLinkedInSource(source) || isWellfoundSource(source) || isAshbySource(source);
+  return (
+    isLinkedInSource(source) ||
+    isWellfoundSource(source) ||
+    isAshbySource(source) ||
+    isGoogleSource(source) ||
+    isIndeedSource(source) ||
+    isZipRecruiterSource(source) ||
+    isRemoteOkSource(source)
+  );
 }
 
 function isEnabledLinkedInSource(source) {
@@ -572,7 +694,7 @@ function runCaptureAll(snapshotDirArg) {
   );
 }
 
-async function runCaptureSourceLive(sourceIdOrName, snapshotPathArg) {
+async function runCaptureSourceLive(sourceIdOrName, snapshotPathArg, options = {}) {
   if (!sourceIdOrName) {
     throw new Error(
       "Usage: node src/cli.js capture-source-live <source-id-or-label> [snapshot-path]"
@@ -582,8 +704,16 @@ async function runCaptureSourceLive(sourceIdOrName, snapshotPathArg) {
   const source = getSourceByIdOrName(sourceIdOrName);
   if (!isBrowserCaptureSource(source)) {
     throw new Error(
-      `capture-source-live supports linkedin_capture_file, wellfound_search, and ashby_search sources. "${source.name}" is ${source.type}.`
+      `capture-source-live supports browser-capture sources (linkedin_capture_file, wellfound_search, ashby_search, google_search, indeed_search, ziprecruiter_search, remoteok_search). "${source.name}" is ${source.type}.`
     );
+  }
+
+  if (!options.forceRefresh && isSourceCaptureFresh(source)) {
+    const summary = readSourceCaptureSummary(source);
+    console.log(
+      `Using cached capture for "${source.name}" (${summary.jobCount} job(s); capturedAt=${summary.capturedAt || "unknown"}).`
+    );
+    return;
   }
 
   const bridgeSession = await ensureBridgeForLinkedInSources([source]);
@@ -610,12 +740,12 @@ async function runCaptureSourceLive(sourceIdOrName, snapshotPathArg) {
   );
 }
 
-async function runCaptureAllLive(snapshotDirArg) {
+async function runCaptureAllLive(snapshotDirArg, options = {}) {
   const sources = getEnabledBrowserCaptureSources();
 
   if (sources.length === 0) {
     console.log(
-      "No enabled LinkedIn/Wellfound/Ashby browser-capture sources. Skipping live capture."
+      "No enabled browser-capture sources (LinkedIn/Wellfound/Ashby/Google/Indeed/ZipRecruiter/RemoteOK). Skipping live capture."
     );
     return {
       completed: 0,
@@ -624,12 +754,38 @@ async function runCaptureAllLive(snapshotDirArg) {
     };
   }
 
-  const bridgeSession = await ensureBridgeForLinkedInSources(sources);
   const snapshotDir = path.resolve(snapshotDirArg || "output/playwright");
+  const staleSources = options.forceRefresh
+    ? [...sources]
+    : sources.filter((source) => !isSourceCaptureFresh(source));
   let completed = 0;
+  let bridgeSession = null;
+
+  if (!options.forceRefresh) {
+    for (const source of sources) {
+      if (isSourceCaptureFresh(source)) {
+        const summary = readSourceCaptureSummary(source);
+        completed += 1;
+        console.log(
+          `Using cached capture for "${source.name}" (${summary.jobCount} job(s); capturedAt=${summary.capturedAt || "unknown"}).`
+        );
+      }
+    }
+  }
+
+  if (staleSources.length === 0) {
+    console.log(`capture-all-live imported ${completed} source(s).`);
+    return {
+      completed,
+      pending: false,
+      skipped: false
+    };
+  }
+
+  bridgeSession = await ensureBridgeForLinkedInSources(staleSources);
 
   try {
-    for (const source of sources) {
+    for (const source of staleSources) {
       const snapshotPath = getDefaultSnapshotPath(source, snapshotDir);
       const result = await captureSourceViaBridge(source, snapshotPath);
 
@@ -703,12 +859,14 @@ async function runReview(portArg) {
   console.log("Open that URL in your browser. It will keep one reusable job tab in sync.");
 }
 
-async function runPipeline() {
+async function runPipeline(options = {}) {
   const sources = loadSources().sources.filter((source) => source.enabled);
   const hasBrowserCapture = sources.some((source) => isBrowserCaptureSource(source));
 
   if (hasBrowserCapture) {
-    const captureSummary = await runCaptureAllLive();
+    const captureSummary = await runCaptureAllLive(undefined, {
+      forceRefresh: Boolean(options.forceRefresh)
+    });
 
     if (captureSummary?.pending) {
       console.log(
@@ -716,7 +874,7 @@ async function runPipeline() {
       );
     }
   } else {
-    console.log("No enabled LinkedIn/Wellfound/Ashby sources. Skipping browser capture.");
+    console.log("No enabled browser-capture sources. Skipping browser capture.");
   }
 
   runSync();
@@ -726,42 +884,69 @@ async function runPipeline() {
   console.log("Pipeline complete. Start the dashboard with: npm run review");
 }
 
-async function runLivePipeline() {
-  await runPipeline();
+async function runLivePipeline(options = {}) {
+  await runPipeline(options);
 }
 
 function printHelp() {
   console.log(`
-Usage:
-  node src/cli.js init
-  node src/cli.js sync
-  node src/cli.js score
-  node src/cli.js shortlist
-  node src/cli.js list [limit]
-  node src/cli.js sources
-  node src/cli.js add-source <label> <url>
-  node src/cli.js add-builtin-source <label> <url>
-  node src/cli.js add-wellfound-source <label> <url>
-  node src/cli.js add-ashby-source <label> <url> [any|1d|1w|1m]
-  node src/cli.js set-source-url <source-id-or-label> <url>
-  node src/cli.js normalize-source-urls
-  node src/cli.js profile-source
-  node src/cli.js use-my-goals [goals-path]
-  node src/cli.js use-profile-file [profile-path]
-  node src/cli.js connect-narrata-file [goals-path]
-  node src/cli.js connect-narrata-supabase <supabase-url> <user-id> [service-role-env]
-  node src/cli.js open-source <source-id-or-label>
-  node src/cli.js open-sources
-  node src/cli.js capture-source <source-id-or-label> [snapshot-path]
-  node src/cli.js capture-all [snapshot-dir]
-  node src/cli.js capture-source-live <source-id-or-label> [snapshot-path]
-  node src/cli.js capture-all-live [snapshot-dir]
-  node src/cli.js bridge-server [port] [provider]
-  node src/cli.js import-linkedin-snapshot <source-id-or-label> <snapshot-path>
-  node src/cli.js mark <job-id> <status>
-  node src/cli.js review [port]
-  node src/cli.js run
-  node src/cli.js run-live   (alias for run)
+job-finder - Local-first job search with intelligent de-duplication
+
+QUICK START:
+  jf init                       Initialize profile and database
+  jf run                        Sync jobs from all sources (run daily)
+  jf review                     Open dashboard at http://localhost:4311
+
+COMMON COMMANDS:
+  jf sources                    List configured job sources
+  jf list [limit]              List jobs in terminal
+  jf mark <job-id> <status>    Mark job as applied/rejected/skip_for_now
+
+SOURCE MANAGEMENT:
+  jf add-source <label> <url>               Add LinkedIn search
+  jf add-builtin-source <label> <url>       Add Built In search
+  jf add-google-source <label> <url> [any|1d|1w|1m]  Add Google jobs search
+  jf add-wellfound-source <label> <url>     Add Wellfound search
+  jf add-ashby-source <label> <url> [any|1d|1w|1m]   Add Ashby search
+  jf add-indeed-source <label> <url>        Add Indeed search
+  jf add-ziprecruiter-source <label> <url>  Add ZipRecruiter search
+  jf add-remoteok-source <label> <url>      Add RemoteOK search
+  jf set-source-url <id-or-label> <url>     Update source URL
+  jf normalize-source-urls [--dry-run]      Normalize URLs from search criteria
+
+PROFILE CONFIGURATION:
+  jf profile-source                         Show current profile source
+  jf use-profile-file [path]               Use profile.json
+  jf use-my-goals [path]                   Use my-goals.json
+  jf connect-narrata-file [path]           Connect Narrata goals file
+
+ADVANCED:
+  jf sync                      Sync jobs only (no scoring)
+  jf score                     Score jobs only (no sync)
+  jf shortlist                Generate shortlist file
+  jf run --force-refresh      Force fresh collection (bypass cache)
+  jf bridge-server [port]     Start browser bridge manually
+
+DEV/FROM SOURCE:
+  node src/cli.js <command>   Run commands directly from source
+
+HELP:
+  jf help                     Show this help
+  jf --version               Show version
+
+EXAMPLES:
+  # First time setup
+  jf init
+  jf add-source "Senior PM AI" "https://linkedin.com/jobs/search?keywords=senior+pm+ai"
+  jf run
+
+  # Daily workflow
+  jf run && jf review
+
+  # Quick check without opening browser
+  jf list 10
+
+For detailed docs: https://github.com/ycb/job-finder
   `.trim());
 }
 
@@ -769,6 +954,11 @@ async function main() {
   const [, , command = "help", ...args] = process.argv;
 
   switch (command) {
+    case "--version":
+    case "-v":
+    case "version":
+      console.log("job-finder v0.1.0");
+      break;
     case "init":
       runInit();
       break;
@@ -793,17 +983,32 @@ async function main() {
     case "add-builtin-source":
       runAddBuiltinSource(args[0], args[1]);
       break;
+    case "add-google-source":
+      runAddGoogleSource(args[0], args[1], args[2]);
+      break;
     case "add-wellfound-source":
       runAddWellfoundSource(args[0], args[1]);
       break;
     case "add-ashby-source":
       runAddAshbySource(args[0], args[1], args[2]);
       break;
+    case "add-indeed-source":
+      runAddIndeedSource(args[0], args[1]);
+      break;
+    case "add-ziprecruiter-source":
+      runAddZipRecruiterSource(args[0], args[1]);
+      break;
+    case "add-remoteok-source":
+      runAddRemoteOkSource(args[0], args[1]);
+      break;
     case "set-source-url":
       runSetSourceUrl(args[0], args[1]);
       break;
     case "normalize-source-urls":
-      runNormalizeSourceUrls();
+      {
+        const parsed = extractFlag(args, "--dry-run");
+        runNormalizeSourceUrls({ dryRun: parsed.present });
+      }
       break;
     case "profile-source":
       runProfileSource();
@@ -833,10 +1038,20 @@ async function main() {
       runCaptureAll(args[0]);
       break;
     case "capture-source-live":
-      await runCaptureSourceLive(args[0], args[1]);
+      {
+        const parsed = extractFlag(args, "--force-refresh");
+        await runCaptureSourceLive(parsed.args[0], parsed.args[1], {
+          forceRefresh: parsed.present
+        });
+      }
       break;
     case "capture-all-live":
-      await runCaptureAllLive(args[0]);
+      {
+        const parsed = extractFlag(args, "--force-refresh");
+        await runCaptureAllLive(parsed.args[0], {
+          forceRefresh: parsed.present
+        });
+      }
       break;
     case "bridge-server":
       await runBridgeServer(args[0], args[1]);
@@ -851,10 +1066,16 @@ async function main() {
       await runReview(args[0]);
       break;
     case "run":
-      await runPipeline();
+      {
+        const parsed = extractFlag(args, "--force-refresh");
+        await runPipeline({ forceRefresh: parsed.present });
+      }
       break;
     case "run-live":
-      await runLivePipeline();
+      {
+        const parsed = extractFlag(args, "--force-refresh");
+        await runLivePipeline({ forceRefresh: parsed.present });
+      }
       break;
     case "help":
     default:

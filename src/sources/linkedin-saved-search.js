@@ -3,7 +3,12 @@ import path from "node:path";
 
 import { collectAshbyJobsFromSearch } from "./ashby-jobs.js";
 import { collectBuiltInJobsFromSearch } from "./builtin-jobs.js";
+import { collectGoogleJobsFromSearch } from "./google-jobs.js";
+import { applySourceHardFilters } from "./hard-filter.js";
+import { collectIndeedJobsFromSearch } from "./indeed-jobs.js";
+import { collectRemoteOkJobsFromSearch } from "./remoteok-jobs.js";
 import { collectWellfoundJobsFromSearch } from "./wellfound-jobs.js";
+import { collectZipRecruiterJobsFromSearch } from "./ziprecruiter-jobs.js";
 
 function readSourceJson(filePath, errorLabel) {
   const resolvedPath = path.resolve(filePath);
@@ -273,25 +278,33 @@ export function collectLinkedInCaptureFile(source) {
 }
 
 export function collectJobsFromSource(source) {
+  let jobs = null;
+
   if (source.type === "mock_linkedin_saved_search") {
-    return collectMockLinkedInSavedSearch(source);
+    jobs = collectMockLinkedInSavedSearch(source);
+  }
+  else if (source.type === "linkedin_capture_file") {
+    jobs = collectLinkedInCaptureFile(source);
+  }
+  else if (source.type === "builtin_search") {
+    jobs = collectBuiltInJobsFromSearch(source);
+  }
+  else if (source.type === "wellfound_search") {
+    jobs = collectWellfoundJobsFromSearch(source);
+  }
+  else if (source.type === "ashby_search") {
+    jobs = collectAshbyJobsFromSearch(source);
+  } else if (source.type === "google_search") {
+    jobs = collectGoogleJobsFromSearch(source);
+  } else if (source.type === "indeed_search") {
+    jobs = collectIndeedJobsFromSearch(source);
+  } else if (source.type === "ziprecruiter_search") {
+    jobs = collectZipRecruiterJobsFromSearch(source);
+  } else if (source.type === "remoteok_search") {
+    jobs = collectRemoteOkJobsFromSearch(source);
+  } else {
+    throw new Error(`Unsupported source type: ${source.type}`);
   }
 
-  if (source.type === "linkedin_capture_file") {
-    return collectLinkedInCaptureFile(source);
-  }
-
-  if (source.type === "builtin_search") {
-    return collectBuiltInJobsFromSearch(source);
-  }
-
-  if (source.type === "wellfound_search") {
-    return collectWellfoundJobsFromSearch(source);
-  }
-
-  if (source.type === "ashby_search") {
-    return collectAshbyJobsFromSearch(source);
-  }
-
-  throw new Error(`Unsupported source type: ${source.type}`);
+  return applySourceHardFilters(source, jobs).jobs;
 }

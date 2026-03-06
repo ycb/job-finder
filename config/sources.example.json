@@ -14,7 +14,19 @@
       "type": "builtin_search",
       "enabled": false,
       "searchUrl": "https://www.builtinsf.com/jobs/product-management/product-manager/senior/expert-leader?search=AI&daysSinceUpdated=7&city=San+Francisco&state=California&country=USA&allLocations=true",
-      "maxJobs": 50
+      "maxJobs": 50,
+      "requiredTerms": ["product manager", "ai"],
+      "cacheTtlHours": 12
+    },
+    {
+      "id": "google-ai-pm",
+      "name": "Google AI PM Discovery",
+      "type": "google_search",
+      "enabled": false,
+      "searchUrl": "https://www.google.com/search?q=ai+product+manager+san+francisco+salary+200000",
+      "recencyWindow": "1w",
+      "requiredTerms": ["product manager", "ai"],
+      "cacheTtlHours": 12
     },
     {
       "id": "wellfound-ai-pm",
@@ -31,6 +43,38 @@
       "enabled": false,
       "searchUrl": "https://jobs.ashbyhq.com/",
       "maxJobs": 50
+    },
+    {
+      "id": "indeed-ai-pm",
+      "name": "Indeed AI Product Jobs",
+      "type": "indeed_search",
+      "enabled": false,
+      "searchUrl": "https://www.indeed.com/jobs",
+      "searchCriteria": {
+        "title": "product manager",
+        "keywords": "ai",
+        "location": "San Francisco, CA",
+        "distanceMiles": 25,
+        "minSalary": 195000,
+        "datePosted": "1w"
+      },
+      "requiredTerms": ["product manager", "ai"]
+    },
+    {
+      "id": "zip-ai-pm",
+      "name": "ZipRecruiter AI Product Jobs",
+      "type": "ziprecruiter_search",
+      "enabled": false,
+      "searchUrl": "https://www.ziprecruiter.com/jobs-search?search=product+manager+ai&location=San+Francisco%2C+CA",
+      "requiredTerms": ["product manager", "ai"]
+    },
+    {
+      "id": "remoteok-ai-pm",
+      "name": "RemoteOK AI Product Jobs",
+      "type": "remoteok_search",
+      "enabled": false,
+      "searchUrl": "https://remoteok.com/remote-manager+saas-jobs",
+      "requiredTerms": ["product manager", "ai"]
     }
   ]
 }

@@ -1,5 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
+import {
+  buildSearchUrlForSourceType,
+  toGoogleRecencyWindowFromDatePosted
+} from "../sources/search-url-builder.js";
 
 import {
   validateGoals,
@@ -21,8 +25,8 @@ const DEFAULT_PROFILE_SOURCE_CONFIG = {
   }
 };
 
-const ASHBY_RECENCY_WINDOWS = new Set(["any", "1d", "1w", "1m"]);
-const ASHBY_RECENCY_TO_QDR = new Map([
+const GOOGLE_RECENCY_WINDOWS = new Set(["any", "1d", "1w", "1m"]);
+const GOOGLE_RECENCY_TO_QDR = new Map([
   ["1d", "d"],
   ["1w", "w"],
   ["1m", "m"]
@@ -66,16 +70,16 @@ function readJsonFileWithPath(filePath) {
   }
 }
 
-function normalizeAshbyRecencyWindow(rawValue, fallback = "1m") {
+function normalizeGoogleRecencyWindow(rawValue, fallback = "1m") {
   const normalized = String(rawValue ?? "").trim().toLowerCase();
 
   if (!normalized) {
     return fallback;
   }
 
-  if (!ASHBY_RECENCY_WINDOWS.has(normalized)) {
+  if (!GOOGLE_RECENCY_WINDOWS.has(normalized)) {
     throw new Error(
-      "Ashby recencyWindow must be one of: any, 1d, 1w, 1m."
+      "Google recencyWindow must be one of: any, 1d, 1w, 1m."
     );
   }
 
@@ -142,7 +146,7 @@ function applyGoogleRecencyWindow(rawUrl, recencyWindow) {
   }
 
   parsed.searchParams.delete("tbs");
-  const qdr = ASHBY_RECENCY_TO_QDR.get(recencyWindow);
+  const qdr = GOOGLE_RECENCY_TO_QDR.get(recencyWindow);
   if (qdr) {
     parsed.searchParams.set("tbs", `qdr:${qdr}`);
   }
@@ -472,7 +476,16 @@ function ensureDerivedSourceMetadata(raw, resolvedPath) {
       continue;
     }
 
-    if (source.type !== "wellfound_search" && source.type !== "ashby_search") {
+    if (
+      source.type !== "linkedin_capture_file" &&
+      source.type !== "builtin_search" &&
+      source.type !== "google_search" &&
+      source.type !== "wellfound_search" &&
+      source.type !== "ashby_search" &&
+      source.type !== "indeed_search" &&
+      source.type !== "ziprecruiter_search" &&
+      source.type !== "remoteok_search"
+    ) {
       continue;
     }
 
@@ -507,10 +520,44 @@ function ensureDerivedSourceMetadata(raw, resolvedPath) {
       );
     }
 
-    if (source.type === "ashby_search") {
-      const recencyWindow = normalizeAshbyRecencyWindow(
-        source.recencyWindow || recencyWindowFromGoogleSearchUrl(source.searchUrl) || "1m",
-        "1m"
+    const hasSearchCriteria =
+      source.searchCriteria &&
+      typeof source.searchCriteria === "object" &&
+      !Array.isArray(source.searchCriteria);
+
+    if (hasSearchCriteria) {
+      const criteriaRecencyWindow =
+        source.type === "ashby_search" || source.type === "google_search"
+          ? toGoogleRecencyWindowFromDatePosted(source.searchCriteria.datePosted)
+          : null;
+
+      if (
+        criteriaRecencyWindow &&
+        (source.type === "ashby_search" || source.type === "google_search") &&
+        source.recencyWindow !== criteriaRecencyWindow
+      ) {
+        source.recencyWindow = criteriaRecencyWindow;
+        changed = true;
+      }
+
+      const built = buildSearchUrlForSourceType(source.type, source.searchCriteria, {
+        baseUrl: source.searchUrl,
+        recencyWindow: source.recencyWindow
+      });
+      if (
+        built.url &&
+        built.url !== String(source.searchUrl || "").trim()
+      ) {
+        source.searchUrl = built.url;
+        changed = true;
+      }
+    }
+
+    if (source.type === "ashby_search" || source.type === "google_search") {
+      const defaultRecency = source.type === "google_search" ? "1w" : "1m";
+      const recencyWindow = normalizeGoogleRecencyWindow(
+        source.recencyWindow || recencyWindowFromGoogleSearchUrl(source.searchUrl) || defaultRecency,
+        defaultRecency
       );
 
       if (source.recencyWindow !== recencyWindow) {
@@ -575,8 +622,13 @@ function syncCaptureFileMetadata(source) {
   if (
     !source ||
     (source.type !== "linkedin_capture_file" &&
+      source.type !== "builtin_search" &&
+      source.type !== "google_search" &&
       source.type !== "wellfound_search" &&
-      source.type !== "ashby_search")
+      source.type !== "ashby_search" &&
+      source.type !== "indeed_search" &&
+      source.type !== "ziprecruiter_search" &&
+      source.type !== "remoteok_search")
   ) {
     return;
   }
@@ -663,10 +715,11 @@ function normalizeSearchUrlForSourceType(rawUrl, sourceType, options = {}) {
     return normalizeLinkedInSearchUrl(urlText);
   }
 
-  if (sourceType === "ashby_search") {
-    const recencyWindow = normalizeAshbyRecencyWindow(
-      options.recencyWindow || recencyWindowFromGoogleSearchUrl(urlText) || "1m",
-      "1m"
+  if (sourceType === "ashby_search" || sourceType === "google_search") {
+    const defaultRecency = sourceType === "google_search" ? "1w" : "1m";
+    const recencyWindow = normalizeGoogleRecencyWindow(
+      options.recencyWindow || recencyWindowFromGoogleSearchUrl(urlText) || defaultRecency,
+      defaultRecency
     );
 
     return applyGoogleRecencyWindow(urlText, recencyWindow);
@@ -731,26 +784,28 @@ export function updateSourceDefinition(
   }
 
   const source = sources[sourceIndex];
-  const currentAshbyRecencyWindow =
-    source.type === "ashby_search"
-      ? normalizeAshbyRecencyWindow(
-          source.recencyWindow || recencyWindowFromGoogleSearchUrl(source.searchUrl) || "1m",
-          "1m"
+  const currentGoogleRecencyWindow =
+    source.type === "ashby_search" || source.type === "google_search"
+      ? normalizeGoogleRecencyWindow(
+          source.recencyWindow ||
+            recencyWindowFromGoogleSearchUrl(source.searchUrl) ||
+            (source.type === "google_search" ? "1w" : "1m"),
+          source.type === "google_search" ? "1w" : "1m"
         )
       : null;
-  const nextAshbyRecencyWindow =
-    source.type === "ashby_search"
+  const nextGoogleRecencyWindow =
+    source.type === "ashby_search" || source.type === "google_search"
       ? hasRecencyWindowUpdate
-        ? normalizeAshbyRecencyWindow(
+        ? normalizeGoogleRecencyWindow(
             rawNextRecencyWindow,
-            currentAshbyRecencyWindow || "1m"
+            currentGoogleRecencyWindow || (source.type === "google_search" ? "1w" : "1m")
           )
-        : currentAshbyRecencyWindow
+        : currentGoogleRecencyWindow
       : null;
   const nextSearchUrl =
     rawNextSearchUrl !== null
       ? normalizeSearchUrlForSourceType(rawNextSearchUrl, source.type, {
-          recencyWindow: nextAshbyRecencyWindow
+          recencyWindow: nextGoogleRecencyWindow
         })
       : null;
 
@@ -774,13 +829,13 @@ export function updateSourceDefinition(
     source.searchUrl = nextSearchUrl;
   }
 
-  if (source.type === "ashby_search" && nextAshbyRecencyWindow) {
-    source.recencyWindow = nextAshbyRecencyWindow;
+  if ((source.type === "ashby_search" || source.type === "google_search") && nextGoogleRecencyWindow) {
+    source.recencyWindow = nextGoogleRecencyWindow;
     if (nextSearchUrl === null) {
       source.searchUrl = normalizeSearchUrlForSourceType(
         source.searchUrl,
         source.type,
-        { recencyWindow: nextAshbyRecencyWindow }
+        { recencyWindow: nextGoogleRecencyWindow }
       );
     }
   }
@@ -865,6 +920,17 @@ export function addBuiltinSearchSource(
   return addLiveFetchSource(name, searchUrl, "builtin_search", sourcesPath);
 }
 
+export function addGoogleSearchSource(
+  name,
+  searchUrl,
+  sourcesPath = "config/sources.json",
+  recencyWindow
+) {
+  return addLiveFetchSource(name, searchUrl, "google_search", sourcesPath, {
+    recencyWindow
+  });
+}
+
 function addLiveFetchSource(
   name,
   searchUrl,
@@ -872,17 +938,27 @@ function addLiveFetchSource(
   sourcesPath = "config/sources.json",
   options = {}
 ) {
-  const allowedTypes = new Set(["builtin_search", "wellfound_search", "ashby_search"]);
+  const allowedTypes = new Set([
+    "builtin_search",
+    "google_search",
+    "wellfound_search",
+    "ashby_search",
+    "indeed_search",
+    "ziprecruiter_search",
+    "remoteok_search"
+  ]);
   if (!allowedTypes.has(type)) {
     throw new Error(`Unsupported live-fetch source type: ${type}`);
   }
 
   const normalizedName = String(name || "").trim();
   const recencyWindow =
-    type === "ashby_search"
-      ? normalizeAshbyRecencyWindow(
-          options.recencyWindow || recencyWindowFromGoogleSearchUrl(searchUrl) || "1m",
-          "1m"
+    type === "ashby_search" || type === "google_search"
+      ? normalizeGoogleRecencyWindow(
+          options.recencyWindow ||
+            recencyWindowFromGoogleSearchUrl(searchUrl) ||
+            (type === "google_search" ? "1w" : "1m"),
+          type === "google_search" ? "1w" : "1m"
         )
       : null;
   const normalizedSearchUrl = normalizeSearchUrlForSourceType(searchUrl, type, {
@@ -922,11 +998,19 @@ function addLiveFetchSource(
     searchUrl: normalizedSearchUrl
   };
 
-  if (type === "ashby_search" && recencyWindow) {
+  if ((type === "ashby_search" || type === "google_search") && recencyWindow) {
     nextSource.recencyWindow = recencyWindow;
   }
 
-  if (type === "wellfound_search" || type === "ashby_search") {
+  if (
+    type === "builtin_search" ||
+    type === "google_search" ||
+    type === "wellfound_search" ||
+    type === "ashby_search" ||
+    type === "indeed_search" ||
+    type === "ziprecruiter_search" ||
+    type === "remoteok_search"
+  ) {
     const capturesDir = path.resolve(path.dirname(resolvedPath), "..", "data", "captures");
     fs.mkdirSync(capturesDir, { recursive: true });
     const capturePath = path.join(capturesDir, `${sourceId}.json`);
@@ -972,6 +1056,141 @@ export function addAshbySearchSource(
   });
 }
 
+export function addIndeedSearchSource(
+  name,
+  searchUrl,
+  sourcesPath = "config/sources.json"
+) {
+  return addLiveFetchSource(name, searchUrl, "indeed_search", sourcesPath);
+}
+
+export function addZipRecruiterSearchSource(
+  name,
+  searchUrl,
+  sourcesPath = "config/sources.json"
+) {
+  return addLiveFetchSource(name, searchUrl, "ziprecruiter_search", sourcesPath);
+}
+
+export function addRemoteOkSearchSource(
+  name,
+  searchUrl,
+  sourcesPath = "config/sources.json"
+) {
+  return addLiveFetchSource(name, searchUrl, "remoteok_search", sourcesPath);
+}
+
+function deriveNextSearchMetadata(source) {
+  const currentUrl = String(source?.searchUrl || "").trim();
+  const isGoogleLike =
+    source?.type === "ashby_search" || source?.type === "google_search";
+
+  let nextRecencyWindow = null;
+  if (isGoogleLike) {
+    const defaultRecency = source.type === "google_search" ? "1w" : "1m";
+    const existingRecency = String(source.recencyWindow || "").trim();
+    nextRecencyWindow = normalizeGoogleRecencyWindow(
+      existingRecency || recencyWindowFromGoogleSearchUrl(currentUrl) || defaultRecency,
+      defaultRecency
+    );
+  }
+
+  let nextSearchUrl = currentUrl;
+  let unsupported = [];
+  let notes = [];
+
+  const hasSearchCriteria =
+    source?.searchCriteria &&
+    typeof source.searchCriteria === "object" &&
+    !Array.isArray(source.searchCriteria);
+
+  if (hasSearchCriteria) {
+    const criteriaRecencyWindow = isGoogleLike
+      ? toGoogleRecencyWindowFromDatePosted(source.searchCriteria.datePosted)
+      : null;
+    if (criteriaRecencyWindow && isGoogleLike) {
+      nextRecencyWindow = criteriaRecencyWindow;
+    }
+
+    const built = buildSearchUrlForSourceType(source.type, source.searchCriteria, {
+      baseUrl: currentUrl,
+      recencyWindow: nextRecencyWindow
+    });
+    if (built.url) {
+      nextSearchUrl = built.url;
+    }
+    unsupported = Array.isArray(built.unsupported) ? built.unsupported : [];
+    notes = Array.isArray(built.notes) ? built.notes : [];
+  }
+
+  if (isGoogleLike) {
+    const normalized = normalizeSearchUrlForSourceType(nextSearchUrl, source.type, {
+      recencyWindow: nextRecencyWindow
+    });
+    if (normalized) {
+      nextSearchUrl = normalized;
+    }
+  }
+
+  return {
+    nextSearchUrl,
+    nextRecencyWindow,
+    unsupported,
+    notes
+  };
+}
+
+export function previewNormalizedSourceSearchUrls(sourcesPath = "config/sources.json") {
+  const { resolvedPath, data } = readJsonFileWithPath(sourcesPath);
+  const sources = requireSourcesArray(data, resolvedPath);
+  const previewRows = [];
+  let changed = 0;
+
+  for (const source of sources) {
+    if (!source || typeof source !== "object") {
+      continue;
+    }
+
+    const currentSearchUrl = String(source.searchUrl || "").trim();
+    const currentRecencyWindow =
+      source.type === "ashby_search" || source.type === "google_search"
+        ? String(source.recencyWindow || "").trim()
+        : null;
+    const derived = deriveNextSearchMetadata(source);
+
+    const recencyChanged =
+      source.type === "ashby_search" || source.type === "google_search"
+        ? currentRecencyWindow !== String(derived.nextRecencyWindow || "")
+        : false;
+    const searchUrlChanged = currentSearchUrl !== String(derived.nextSearchUrl || "");
+    const rowChanged = recencyChanged || searchUrlChanged;
+    if (rowChanged) {
+      changed += 1;
+    }
+
+    previewRows.push({
+      id: String(source.id || "").trim(),
+      name: String(source.name || "").trim(),
+      type: String(source.type || "").trim(),
+      changed: rowChanged,
+      currentSearchUrl,
+      nextSearchUrl: String(derived.nextSearchUrl || ""),
+      currentRecencyWindow,
+      nextRecencyWindow:
+        source.type === "ashby_search" || source.type === "google_search"
+          ? String(derived.nextRecencyWindow || "")
+          : null,
+      unsupported: derived.unsupported,
+      notes: derived.notes
+    });
+  }
+
+  return {
+    changed,
+    sources: previewRows
+  };
+}
+
 export function normalizeAllSourceSearchUrls(sourcesPath = "config/sources.json") {
   const { resolvedPath, data } = readJsonFileWithPath(sourcesPath);
   const sources = requireSourcesArray(data, resolvedPath);
@@ -983,24 +1202,18 @@ export function normalizeAllSourceSearchUrls(sourcesPath = "config/sources.json"
       continue;
     }
 
-    let recencyWindow = null;
-    if (source.type === "ashby_search") {
-      recencyWindow = normalizeAshbyRecencyWindow(
-        source.recencyWindow || recencyWindowFromGoogleSearchUrl(source.searchUrl) || "1m",
-        "1m"
-      );
+    const derived = deriveNextSearchMetadata(source);
 
-      if (source.recencyWindow !== recencyWindow) {
-        source.recencyWindow = recencyWindow;
-        changed += 1;
-      }
+    if (
+      (source.type === "ashby_search" || source.type === "google_search") &&
+      source.recencyWindow !== derived.nextRecencyWindow
+    ) {
+      source.recencyWindow = derived.nextRecencyWindow;
+      changed += 1;
     }
 
-    const nextUrl = normalizeSearchUrlForSourceType(source.searchUrl, source.type, {
-      recencyWindow
-    });
-    if (nextUrl && nextUrl !== source.searchUrl) {
-      source.searchUrl = nextUrl;
+    if (derived.nextSearchUrl && derived.nextSearchUrl !== source.searchUrl) {
+      source.searchUrl = derived.nextSearchUrl;
       changed += 1;
     }
 

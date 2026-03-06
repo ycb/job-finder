@@ -10,7 +10,11 @@ import { startBrowserBridgeServer } from "../browser-bridge/server.js";
 import {
   addAshbySearchSource,
   addBuiltinSearchSource,
+  addGoogleSearchSource,
+  addIndeedSearchSource,
   addLinkedInCaptureSource,
+  addRemoteOkSearchSource,
+  addZipRecruiterSearchSource,
   addWellfoundSearchSource,
   connectNarrataGoalsFile,
   loadActiveProfile,
@@ -30,6 +34,10 @@ import {
   upsertJobs
 } from "../jobs/repository.js";
 import { evaluateJobs } from "../jobs/score.js";
+import {
+  isSourceCaptureFresh,
+  readSourceCaptureSummary
+} from "../sources/cache-policy.js";
 import { collectJobsFromSource } from "../sources/linkedin-saved-search.js";
 
 function escapeHtml(value) {
@@ -113,7 +121,10 @@ async function ensureBridgeForSources(sources) {
           source &&
           (source.type === "linkedin_capture_file" ||
             source.type === "wellfound_search" ||
-            source.type === "ashby_search")
+            source.type === "ashby_search" ||
+            source.type === "indeed_search" ||
+            source.type === "ziprecruiter_search" ||
+            source.type === "remoteok_search")
       )
     : false;
 
@@ -362,6 +373,70 @@ function isGoogleAshbyDiscoveryUrl(rawUrl) {
   }
 }
 
+function isGoogleJobsUrl(rawUrl) {
+  const urlText = String(rawUrl || "").trim();
+  if (!urlText) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(urlText);
+    const host = parsed.hostname.toLowerCase();
+    if (!/(^|\.)google\./i.test(host)) {
+      return false;
+    }
+
+    return Boolean(String(parsed.searchParams.get("q") || "").trim());
+  } catch {
+    return false;
+  }
+}
+
+function isIndeedJobsUrl(rawUrl) {
+  const urlText = String(rawUrl || "").trim();
+  if (!urlText) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(urlText);
+    const host = parsed.hostname.toLowerCase();
+    return host === "indeed.com" || host.endsWith(".indeed.com");
+  } catch {
+    return false;
+  }
+}
+
+function isZipRecruiterJobsUrl(rawUrl) {
+  const urlText = String(rawUrl || "").trim();
+  if (!urlText) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(urlText);
+    const host = parsed.hostname.toLowerCase();
+    return host === "ziprecruiter.com" || host.endsWith(".ziprecruiter.com");
+  } catch {
+    return false;
+  }
+}
+
+function isRemoteOkJobsUrl(rawUrl) {
+  const urlText = String(rawUrl || "").trim();
+  if (!urlText) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(urlText);
+    const host = parsed.hostname.toLowerCase();
+    return host === "remoteok.com" || host.endsWith(".remoteok.com");
+  } catch {
+    return false;
+  }
+}
+
 function pickStatus(statuses) {
   const normalized = statuses.map((status) => normalizeStatus(status));
 
@@ -452,36 +527,7 @@ function hydrateQueue(queue) {
 }
 
 function readCaptureSummary(source) {
-  if (!source?.capturePath || !fs.existsSync(source.capturePath)) {
-    return {
-      capturedAt: null,
-      jobCount: 0,
-      pageUrl: null,
-      status: "never_run"
-    };
-  }
-
-  try {
-    const payload = JSON.parse(fs.readFileSync(source.capturePath, "utf8"));
-    const jobs = Array.isArray(payload.jobs) ? payload.jobs : [];
-
-    return {
-      capturedAt:
-        typeof payload.capturedAt === "string" && payload.capturedAt.trim()
-          ? payload.capturedAt
-          : null,
-      jobCount: jobs.length,
-      pageUrl: typeof payload.pageUrl === "string" ? payload.pageUrl : null,
-      status: "ready"
-    };
-  } catch {
-    return {
-      capturedAt: null,
-      jobCount: 0,
-      pageUrl: null,
-      status: "capture_error"
-    };
-  }
+  return readSourceCaptureSummary(source);
 }
 
 function buildSourceSnapshotPath(source) {
@@ -492,7 +538,10 @@ function isBrowserCaptureSource(source) {
   return (
     source?.type === "linkedin_capture_file" ||
     source?.type === "wellfound_search" ||
-    source?.type === "ashby_search"
+    source?.type === "ashby_search" ||
+    source?.type === "indeed_search" ||
+    source?.type === "ziprecruiter_search" ||
+    source?.type === "remoteok_search"
   );
 }
 
@@ -543,6 +592,20 @@ async function runSourceCapture(sourceId) {
     };
   }
 
+  if (isSourceCaptureFresh(source)) {
+    const summary = readCaptureSummary(source);
+    return {
+      capture: {
+        provider: "cache",
+        status: "completed",
+        cached: true,
+        jobsImported: summary.jobCount,
+        message: `Skipped fresh capture for "${source.name}" (capturedAt=${summary.capturedAt || "unknown"}).`
+      },
+      sync: runSyncAndScore()
+    };
+  }
+
   await ensureBridgeForSources([source]);
   const capture = await captureSourceViaBridge(source, buildSourceSnapshotPath(source));
   const sync = capture.status === "completed" ? runSyncAndScore() : null;
@@ -558,16 +621,32 @@ async function runAllCaptures() {
   const captures = [];
   let completedCount = 0;
 
-  await ensureBridgeForSources(sources);
+  const staleBrowserSources = sources.filter(
+    (source) => isBrowserCaptureSource(source) && !isSourceCaptureFresh(source)
+  );
+  if (staleBrowserSources.length > 0) {
+    await ensureBridgeForSources(staleBrowserSources);
+  }
 
   for (const source of sources) {
     let capture;
 
     if (isBrowserCaptureSource(source)) {
-      capture = await captureSourceViaBridge(
-        source,
-        buildSourceSnapshotPath(source)
-      );
+      if (isSourceCaptureFresh(source)) {
+        const summary = readCaptureSummary(source);
+        capture = {
+          provider: "cache",
+          status: "completed",
+          cached: true,
+          jobsImported: summary.jobCount,
+          message: `Skipped fresh capture for "${source.name}" (capturedAt=${summary.capturedAt || "unknown"}).`
+        };
+      } else {
+        capture = await captureSourceViaBridge(
+          source,
+          buildSourceSnapshotPath(source)
+        );
+      }
     } else {
       capture = {
         provider: "source_fetch",
@@ -634,7 +713,7 @@ function buildDashboardData(limit = 200) {
         current.activeCount += 1;
       }
 
-      if (job.bucket === "high_signal" && job.status !== "applied" && job.status !== "skip_for_now") {
+      if (job.bucket === "high_signal") {
         current.highSignalCount += 1;
       }
 
@@ -1128,6 +1207,30 @@ function renderDashboardPage(dashboard) {
         color: #8a4f12;
         border-color: rgba(138, 79, 18, 0.28);
         background: rgba(252, 243, 232, 0.9);
+      }
+
+      .source-badge[data-source-kind="gg"] {
+        color: #305999;
+        border-color: rgba(48, 89, 153, 0.28);
+        background: rgba(235, 243, 255, 0.9);
+      }
+
+      .source-badge[data-source-kind="id"] {
+        color: #2f4f97;
+        border-color: rgba(47, 79, 151, 0.28);
+        background: rgba(235, 240, 255, 0.9);
+      }
+
+      .source-badge[data-source-kind="zr"] {
+        color: #7b4514;
+        border-color: rgba(123, 69, 20, 0.28);
+        background: rgba(253, 241, 231, 0.9);
+      }
+
+      .source-badge[data-source-kind="ro"] {
+        color: #2f5f57;
+        border-color: rgba(47, 95, 87, 0.28);
+        background: rgba(233, 246, 243, 0.9);
       }
 
       .source-badge[data-source-kind="mixed"] {
@@ -1678,6 +1781,22 @@ function renderDashboardPage(dashboard) {
           return "Ashby";
         }
 
+        if (normalized === "google_search") {
+          return "Google";
+        }
+
+        if (normalized === "indeed_search") {
+          return "Indeed";
+        }
+
+        if (normalized === "ziprecruiter_search") {
+          return "ZipRecruiter";
+        }
+
+        if (normalized === "remoteok_search") {
+          return "RemoteOK";
+        }
+
         return normalized.replaceAll("_", " ");
       }
 
@@ -1698,6 +1817,22 @@ function renderDashboardPage(dashboard) {
           return "ah";
         }
 
+        if (value === "google_search") {
+          return "gg";
+        }
+
+        if (value === "indeed_search") {
+          return "id";
+        }
+
+        if (value === "ziprecruiter_search") {
+          return "zr";
+        }
+
+        if (value === "remoteok_search") {
+          return "ro";
+        }
+
         return "unknown";
       }
 
@@ -1716,6 +1851,22 @@ function renderDashboardPage(dashboard) {
 
         if (kind === "ah") {
           return "Ashby";
+        }
+
+        if (kind === "gg") {
+          return "Google";
+        }
+
+        if (kind === "id") {
+          return "Indeed";
+        }
+
+        if (kind === "zr") {
+          return "ZipRecruiter";
+        }
+
+        if (kind === "ro") {
+          return "RemoteOK";
         }
 
         if (kind === "mixed") {
@@ -2152,7 +2303,7 @@ function renderDashboardPage(dashboard) {
 
       function setSearchSourceFilter(filterValue) {
         const normalized = String(filterValue || "all").toLowerCase();
-        if (!["all", "li", "bi", "wf", "ah"].includes(normalized)) {
+        if (!["all", "li", "bi", "gg", "wf", "ah", "id", "zr", "ro"].includes(normalized)) {
           return;
         }
 
@@ -2217,7 +2368,7 @@ function renderDashboardPage(dashboard) {
             actionLabel: "Save Search",
             name: "",
             searchUrl: "",
-            recencyWindow: "1m"
+            recencyWindow: "1w"
           };
         }
 
@@ -2228,7 +2379,7 @@ function renderDashboardPage(dashboard) {
             actionLabel: "Save Search",
             name: "",
             searchUrl: "",
-            recencyWindow: "1m"
+            recencyWindow: "1w"
           };
         }
 
@@ -2238,7 +2389,9 @@ function renderDashboardPage(dashboard) {
           name: source.name,
           searchUrl: source.searchUrl,
           recencyWindow:
-            source.type === "ashby_search" ? source.recencyWindow || "1m" : "any"
+            source.type === "ashby_search" || source.type === "google_search"
+              ? source.recencyWindow || (source.type === "google_search" ? "1w" : "1m")
+              : "any"
         };
       }
 
@@ -2295,7 +2448,7 @@ function renderDashboardPage(dashboard) {
             const safeName = escapeHtml(source.name);
             const safeUrl = escapeHtml(source.searchUrl);
             const recencyLabel =
-              source.type === "ashby_search"
+              source.type === "ashby_search" || source.type === "google_search"
                 ? source.recencyWindow === "1d"
                   ? "1 day"
                   : source.recencyWindow === "1w"
@@ -2587,8 +2740,12 @@ function renderDashboardPage(dashboard) {
             '<button class="sub-tab' + (selectedSearchSourceFilter === "all" ? " active" : "") + '" data-search-type="all">All</button>' +
             '<button class="sub-tab' + (selectedSearchSourceFilter === "li" ? " active" : "") + '" data-search-type="li">LinkedIn</button>' +
             '<button class="sub-tab' + (selectedSearchSourceFilter === "bi" ? " active" : "") + '" data-search-type="bi">Built In</button>' +
+            '<button class="sub-tab' + (selectedSearchSourceFilter === "gg" ? " active" : "") + '" data-search-type="gg">Google</button>' +
             '<button class="sub-tab' + (selectedSearchSourceFilter === "wf" ? " active" : "") + '" data-search-type="wf">Wellfound</button>' +
             '<button class="sub-tab' + (selectedSearchSourceFilter === "ah" ? " active" : "") + '" data-search-type="ah">Ashby</button>' +
+            '<button class="sub-tab' + (selectedSearchSourceFilter === "id" ? " active" : "") + '" data-search-type="id">Indeed</button>' +
+            '<button class="sub-tab' + (selectedSearchSourceFilter === "zr" ? " active" : "") + '" data-search-type="zr">ZipRecruiter</button>' +
+            '<button class="sub-tab' + (selectedSearchSourceFilter === "ro" ? " active" : "") + '" data-search-type="ro">RemoteOK</button>' +
           "</div>",
           '  <div class="subhead" style="margin-top: 10px;">Source type and freshness are tracked so you can refine where high-signal jobs come from.</div>',
           (sourceFormOpen || editingSourceId
@@ -2597,14 +2754,14 @@ function renderDashboardPage(dashboard) {
                 '    <p class="section-label">' + escapeHtml(formState.heading) + "</p>",
                 '    <div class="search-form">',
                 '      <label>Name<input id="source-name" type="text" value="' + escapeHtml(formState.name) + '" placeholder="AI PM"></label>',
-                '      <label>Search URL<input id="source-url" type="text" value="' + escapeHtml(formState.searchUrl) + '" placeholder="LinkedIn, Built In, Wellfound, or Ashby jobs URL"></label>',
+                '      <label>Search URL<input id="source-url" type="text" value="' + escapeHtml(formState.searchUrl) + '" placeholder="LinkedIn, Built In, Google, Wellfound, Ashby, Indeed, ZipRecruiter, or RemoteOK jobs URL"></label>',
                 '      <label>Google Time Window<select id="source-recency-window">' +
                   '<option value="any"' + (formState.recencyWindow === "any" ? " selected" : "") + ">Any time</option>" +
                   '<option value="1d"' + (formState.recencyWindow === "1d" ? " selected" : "") + ">1 day</option>" +
                   '<option value="1w"' + (formState.recencyWindow === "1w" ? " selected" : "") + ">1 week</option>" +
                   '<option value="1m"' + (formState.recencyWindow === "1m" ? " selected" : "") + ">1 month</option>" +
                 "</select></label>",
-                '      <div class="subhead">Applied to Google/Ashby discovery URLs. Default: 1 month.</div>',
+                '      <div class="subhead">Applied to Google-based searches. Default: 1 week for Google and 1 month for Ashby discovery.</div>',
                 '      <div class="inline-actions">',
                 '        <button class="primary" id="save-source"' + (busy ? " disabled" : "") + ">" + escapeHtml(formState.actionLabel) + "</button>",
                 '        <button class="ghost" id="cancel-edit"' + (busy ? " disabled" : "") + ">Cancel</button>",
@@ -2897,11 +3054,21 @@ export function startReviewServer({ port = 4311, limit = 200 } = {}) {
 
         const source = sourceId
           ? updateSourceDefinition(sourceId, { name, searchUrl, recencyWindow })
+          : isIndeedJobsUrl(searchUrl)
+            ? addIndeedSearchSource(name, searchUrl)
+            : isZipRecruiterJobsUrl(searchUrl)
+              ? addZipRecruiterSearchSource(name, searchUrl)
+              : isRemoteOkJobsUrl(searchUrl)
+                ? addRemoteOkSearchSource(name, searchUrl)
           : isBuiltInJobsUrl(searchUrl)
             ? addBuiltinSearchSource(name, searchUrl)
+            : isGoogleAshbyDiscoveryUrl(searchUrl)
+              ? addAshbySearchSource(name, searchUrl, "config/sources.json", recencyWindow)
+              : isGoogleJobsUrl(searchUrl)
+                ? addGoogleSearchSource(name, searchUrl, "config/sources.json", recencyWindow)
             : isWellfoundJobsUrl(searchUrl)
               ? addWellfoundSearchSource(name, searchUrl)
-              : isAshbyJobsUrl(searchUrl) || isGoogleAshbyDiscoveryUrl(searchUrl)
+              : isAshbyJobsUrl(searchUrl)
                 ? addAshbySearchSource(name, searchUrl, "config/sources.json", recencyWindow)
                 : addLinkedInCaptureSource(name, searchUrl);
 
