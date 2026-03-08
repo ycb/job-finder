@@ -57,3 +57,21 @@ As of 2026-03-06.
 ## Worktree Handoff Discipline
 
 - When the user switches execution to a new worktree/lane mid-thread, immediately re-read that worktree’s `AGENTS.md`, confirm branch/worktree context with `git status`, and re-anchor plan/docs in the active workspace before continuing implementation.
+
+## CLI Smoke Coverage
+
+- Add at least one smoke test that runs `node src/cli.js help` (or similar) from a real subprocess.
+- Reason: unit tests can stay green while CLI entrypoint imports break (for example, missing module paths not exercised by pure unit tests).
+- This catches startup-time regressions before users hit command failures in first-run onboarding.
+
+## Config Example Integrity
+
+- Treat `config/*.example.json` files as executable onboarding artifacts, not static docs.
+- Add a test that parses every `*.example.json` file to catch syntax regressions early.
+- Reason: malformed example JSON can block first-run dashboard loading even when core logic is correct.
+
+## UX Quality Bar for Onboarding
+
+- Functional onboarding is not sufficient; onboarding is a core product surface and requires a dedicated UX/design pass.
+- Before shipping onboarding UI changes, apply the UX/design/microinteraction skill pack and verify hierarchy, CTA clarity, and auth-state affordances.
+- Include explicit first-run guidance copy and stateful success/failure feedback in-product, not only in docs.

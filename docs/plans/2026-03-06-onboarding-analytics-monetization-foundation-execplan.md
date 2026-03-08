@@ -34,6 +34,10 @@ The observable behavior is:
 - [x] (2026-03-07 21:53Z) Updated `runReview` to open dashboard empty-state onboarding even when review queue is empty.
 - [x] (2026-03-07 21:58Z) Added/updated tests for map mode selection, source bootstrap, canonical search-criteria resolution, and map-mode preview/normalize behavior.
 - [x] (2026-03-07 22:00Z) Verified full repository test suite passes (`138/138`).
+- [x] (2026-03-07 22:28Z) Redesigned onboarding UI into an inline stepper flow with explicit welcome copy, source auth-required badges, and step-specific CTAs.
+- [x] (2026-03-07 22:33Z) Added auth-aware source verification behavior: selected auth-required sources are enabled only after verification pass; failed auth sources remain disabled with retry action.
+- [x] (2026-03-07 22:36Z) Added API support for separate onboarding `sourceIds` vs `enabledSourceIds` to preserve selection intent while enforcing verification-gated enablement.
+- [x] (2026-03-07 22:39Z) Verified full repository test suite passes after onboarding UX + verification updates (`143/143`).
 
 ## Surprises & Discoveries
 
@@ -45,6 +49,8 @@ The observable behavior is:
   Evidence: `browser_navigate` returned `Extension connection timeout`.
 - Observation: Config migration had drifted to partial support only: canonical path constants existed, but several read/write paths still assumed legacy array mode or wrong object shapes.
   Evidence: `getSourceByIdOrName` called metadata derivation with full config object rather than `sources[]`, and URL normalize helpers threw in map mode.
+- Observation: Prior onboarding UI was functionally wired but had low UX clarity (unclear hierarchy, oversized checkbox controls, and non-guided action sequencing).
+  Evidence: user QA screenshots showed visually noisy card with weak affordances and unclear completion path.
 
 ## Decision Log
 
@@ -66,10 +72,21 @@ The observable behavior is:
 - Decision: Treat `config/sources.json` map mode (`sourceId -> bool|override`) as canonical onboarding shape; retain legacy array mode for compatibility commands.
   Rationale: Matches product direction away from manually managed static source URL lists while avoiding hard migration breakage.
   Date/Author: 2026-03-07 / Codex
+- Decision: For onboarding, persist selected sources separately from enabled sources (`sourceIds` vs `enabledSourceIds`).
+  Rationale: Auth-required sources can remain selected for retry while staying disabled until verification passes.
+  Date/Author: 2026-03-07 / Codex
+- Decision: Use live source run verification for auth-required sources (skip sync/score) and probe checks for non-auth sources.
+  Rationale: Confirms access realistically without forcing a full pipeline run during onboarding verification.
+  Date/Author: 2026-03-07 / Codex
 
 ## Outcomes & Retrospective
 
 The foundation is now in place for dashboard-first onboarding and optional analytics/monetization telemetry. First-run flow no longer requires manual creation of `config/sources.json`; it bootstraps safely. Config boundaries are now explicit across profile/onboarding, search intent, and source enablement. The largest remaining gap is deeper source-specific auth/challenge classification beyond baseline readiness checks. This is intentionally left in backlog as a follow-up so core onboarding can ship without blocking on per-source complexity.
+
+Onboarding UX now follows a guided three-step flow in the `Searches` tab:
+1) choose sources and preferences,
+2) verify source access (auth-aware),
+3) proceed to first search from `Jobs`.
 
 ## Context and Orientation
 

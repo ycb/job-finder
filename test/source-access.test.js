@@ -71,6 +71,42 @@ test("checkSourceAccess returns warn for browser source without capture", () => 
   assert.equal(result.reasonCode, "capture_required");
 });
 
+test("checkSourceAccess allows onboarding checks against disabled source definitions", () => {
+  const result = checkSourceAccess(
+    {
+      id: "linkedin",
+      name: "LinkedIn",
+      enabled: false,
+      type: "linkedin_capture_file",
+      searchUrl: "https://www.linkedin.com/jobs/search/?keywords=pm",
+      capturePath: "/tmp/does-not-exist.json"
+    },
+    { ignoreEnabled: true }
+  );
+
+  assert.equal(result.reasonCode, "capture_required");
+});
+
+test("checkSourceAccess treats empty captured browser result as verified access", () => {
+  const { tempDir, capturePath } = createTempCaptureFile([]);
+
+  try {
+    const result = checkSourceAccess({
+      id: "linkedin",
+      name: "LinkedIn",
+      enabled: true,
+      type: "linkedin_capture_file",
+      searchUrl: "https://www.linkedin.com/jobs/search/?keywords=pm",
+      capturePath
+    });
+
+    assert.equal(result.status, "pass");
+    assert.equal(result.reasonCode, "capture_ok_empty");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("checkSourceAccess returns fail for invalid url and missing source", () => {
   const missing = checkSourceAccess(null);
   assert.equal(missing.status, "fail");

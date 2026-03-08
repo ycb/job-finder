@@ -9,7 +9,7 @@ function normalizeStatus(status) {
   return "warn";
 }
 
-function sourceTypeNeedsBrowserAuth(sourceType) {
+export function isSourceAuthRequired(sourceType) {
   return (
     sourceType === "linkedin_capture_file" ||
     sourceType === "wellfound_search" ||
@@ -84,7 +84,7 @@ export function checkSourceAccess(source, options = {}) {
     };
   }
 
-  if (!candidate.enabled) {
+  if (!candidate.enabled && options.ignoreEnabled !== true) {
     return {
       status: "warn",
       reasonCode: "source_disabled",
@@ -111,7 +111,7 @@ export function checkSourceAccess(source, options = {}) {
   const captureCount = Number(captureSummary.jobCount || 0);
   const capturedAt = captureSummary.capturedAt || null;
   const hasCapture = Boolean(candidate.capturePath);
-  const isBrowserSource = sourceTypeNeedsBrowserAuth(candidate.type);
+  const isBrowserSource = isSourceAuthRequired(candidate.type);
 
   if (captureStatus === "capture_error") {
     return {
@@ -130,6 +130,19 @@ export function checkSourceAccess(source, options = {}) {
       status: "pass",
       reasonCode: "capture_ok",
       userMessage: `Captured ${captureCount} jobs.`,
+      technicalDetails: {
+        sourceId: candidate.id,
+        capturedAt,
+        captureCount
+      }
+    };
+  }
+
+  if (isBrowserSource && hasCapture && capturedAt) {
+    return {
+      status: "pass",
+      reasonCode: "capture_ok_empty",
+      userMessage: "Capture completed (0 jobs). Access looks good; broaden filters if needed.",
       technicalDetails: {
         sourceId: candidate.id,
         capturedAt,
@@ -205,4 +218,3 @@ export function normalizeSourceCheckResult(result) {
         : {}
   };
 }
-

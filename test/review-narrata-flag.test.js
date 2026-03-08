@@ -157,6 +157,46 @@ test("renderDashboardPage hides manual Add Search affordances in automated mode"
   assert.equal(html.includes("Filter by source, review freshness, and focus on where high-signal jobs come from."), false);
 });
 
+test("renderDashboardPage renders onboarding stepper flow with auth badges and clear CTAs", () => {
+  const html = renderDashboardPage({
+    featureFlags: { onboardingWizard: true },
+    onboarding: { completed: false, selectedSourceIds: [], checks: { sources: {} } },
+    sources: [
+      {
+        id: "linkedin-live-capture",
+        name: "LinkedIn",
+        type: "linkedin_capture_file",
+        authRequired: true,
+        enabled: false
+      },
+      {
+        id: "builtin-sf-ai-pm",
+        name: "Built In",
+        type: "builtin_search",
+        authRequired: false,
+        enabled: true
+      }
+    ]
+  });
+
+  assert.equal(html.includes("Set up your first job import"), true);
+  assert.equal(html.includes("Step 1"), true);
+  assert.equal(html.includes("Step 2"), true);
+  assert.equal(html.includes("Step 3"), true);
+  assert.equal(html.includes('id="onboarding-save-setup"'), true);
+  assert.equal(html.includes('id="run-onboarding-checks"'), true);
+  assert.equal(html.includes('id="retry-onboarding-failed-auth"'), true);
+  assert.equal(html.includes('id="onboarding-go-jobs"'), true);
+  assert.equal(html.includes("Auth required"), true);
+  assert.equal(html.includes("No auth"), true);
+  assert.equal(html.includes("verifyOnboardingSources"), true);
+});
+
+test("renderDashboardPage includes default non-auth onboarding selection fallback", () => {
+  const html = renderDashboardPage({});
+  assert.equal(html.includes("defaultOnboardingSelection(onboardingCandidateSources())"), true);
+});
+
 test("renderDashboardPage searches table shows funnel columns", () => {
   const html = renderDashboardPage({});
   assert.equal(html.includes("<th>Found</th>"), true);

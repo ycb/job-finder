@@ -75,6 +75,7 @@ import { getEntitlementState } from "../monetization/entitlements.js";
 import {
   checkEnvironmentReadiness,
   checkSourceAccess,
+  isSourceAuthRequired,
   normalizeSourceCheckResult
 } from "../onboarding/source-access.js";
 import {
@@ -1023,7 +1024,7 @@ async function runSourceCaptureWithOptions(sourceId, options = {}) {
         jobsImported: null,
         message: `Synced source "${source.name}" via direct fetch.`
       },
-      sync: runSyncAndScore()
+      sync: options.skipSync ? null : runSyncAndScore()
     };
   }
 
@@ -1037,8 +1038,8 @@ async function runSourceCaptureWithOptions(sourceId, options = {}) {
   });
 
   if (!decision.allowLive) {
-    return {
-      capture: {
+      return {
+        capture: {
         provider: "cache",
         status: "completed",
         cached: true,
@@ -1046,11 +1047,11 @@ async function runSourceCaptureWithOptions(sourceId, options = {}) {
         servedFrom: "cache",
         policyReason: decision.reason,
         nextEligibleAt: decision.nextEligibleAt || null,
-        message: describeRefreshDecision(source, decision)
-      },
-      sync: runSyncAndScore()
-    };
-  }
+          message: describeRefreshDecision(source, decision)
+        },
+        sync: options.skipSync ? null : runSyncAndScore()
+      };
+    }
 
   await ensureBridgeForSources([source]);
   let capture;
@@ -1078,7 +1079,8 @@ async function runSourceCaptureWithOptions(sourceId, options = {}) {
     });
   }
 
-  const sync = capture.status === "completed" ? runSyncAndScore() : null;
+  const sync =
+    capture.status === "completed" && !options.skipSync ? runSyncAndScore() : null;
 
   return {
     capture,
@@ -1416,6 +1418,7 @@ function buildDashboardData(limit = 200) {
         formatterDiagnostics: source.formatterDiagnostics || null,
         recencyWindow: source.recencyWindow || null,
         enabled: source.enabled,
+        authRequired: isSourceAuthRequired(source.type),
         type: source.type,
         capturePath: source.capturePath,
         capturedAt,
@@ -1798,6 +1801,12 @@ export function renderDashboardPage(dashboard, options = {}) {
         font-size: 14px;
       }
 
+      input[type="checkbox"] {
+        width: auto;
+        padding: 0;
+        border-radius: 6px;
+      }
+
       table {
         width: 100%;
         border-collapse: collapse;
@@ -2164,6 +2173,155 @@ export function renderDashboardPage(dashboard, options = {}) {
         margin-top: 12px;
       }
 
+      .onboarding-card {
+        border-color: rgba(27, 58, 51, 0.22);
+      }
+
+      .onboarding-title {
+        margin: 4px 0 0;
+        font-size: 24px;
+        line-height: 1.2;
+      }
+
+      .onboarding-lede {
+        margin-top: 8px;
+        max-width: 940px;
+      }
+
+      .onboarding-stepper {
+        margin-top: 14px;
+        display: grid;
+        gap: 12px;
+      }
+
+      .onboarding-step {
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 12px;
+        background: rgba(255, 255, 255, 0.75);
+      }
+
+      .onboarding-step-label {
+        margin: 0;
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .onboarding-step h4 {
+        margin: 6px 0 0;
+        font-size: 18px;
+        line-height: 1.25;
+      }
+
+      .onboarding-source-list {
+        margin-top: 10px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .onboarding-source-row {
+        border: 1px solid rgba(216, 207, 189, 0.9);
+        border-radius: 12px;
+        padding: 9px 10px;
+        background: rgba(255, 255, 255, 0.82);
+      }
+
+      .onboarding-source-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .onboarding-source-main {
+        display: inline-flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 8px;
+        margin: 0;
+        font-size: 14px;
+        color: var(--ink);
+      }
+
+      .onboarding-source-name {
+        font-weight: 700;
+      }
+
+      .onboarding-source-meta {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .auth-chip {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        padding: 3px 8px;
+        font-size: 11px;
+        font-weight: 700;
+        border: 1px solid var(--line-strong);
+        color: var(--muted);
+        background: rgba(255, 255, 255, 0.9);
+      }
+
+      .auth-chip[data-auth="required"] {
+        color: #7a4a16;
+        border-color: rgba(122, 74, 22, 0.34);
+        background: rgba(253, 242, 228, 0.95);
+      }
+
+      .auth-chip[data-auth="none"] {
+        color: #1f6a44;
+        border-color: rgba(31, 106, 68, 0.32);
+        background: rgba(234, 247, 240, 0.95);
+      }
+
+      .status-chip.compact {
+        font-size: 12px;
+        gap: 6px;
+      }
+
+      .onboarding-source-note {
+        margin-top: 6px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      .onboarding-actions {
+        margin-top: 10px;
+      }
+
+      .onboarding-progress {
+        margin-top: 8px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      .onboarding-status {
+        margin-top: 12px;
+        border: 1px solid rgba(27, 58, 51, 0.2);
+        background: rgba(232, 244, 238, 0.66);
+        color: var(--accent);
+        border-radius: 12px;
+        padding: 10px 12px;
+        font-size: 14px;
+      }
+
+      .onboarding-status.error {
+        border-color: rgba(147, 52, 52, 0.28);
+        background: rgba(252, 239, 239, 0.9);
+        color: var(--error);
+      }
+
+      .onboarding-source-empty {
+        color: var(--muted);
+        font-size: 14px;
+      }
+
       .jobs-layout {
         margin-top: 14px;
         display: grid;
@@ -2461,6 +2619,11 @@ export function renderDashboardPage(dashboard, options = {}) {
           align-items: stretch;
         }
 
+        .onboarding-source-top {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+
         .cta-find-jobs {
           width: 100%;
         }
@@ -2515,6 +2678,10 @@ export function renderDashboardPage(dashboard, options = {}) {
       let criteriaFeedbackError = false;
       let busy = false;
       let criteriaBusy = false;
+      let onboardingBusy = false;
+      let onboardingStepStatus = "";
+      let onboardingStepStatusError = false;
+      let onboardingVerifyProgress = "";
       const narrataConnectEnabled = ${narrataConnectEnabled ? "true" : "false"};
       const wellfoundEnabled = ${wellfoundEnabled ? "true" : "false"};
       const remoteokEnabled = ${remoteokEnabled ? "true" : "false"};
@@ -2569,6 +2736,61 @@ export function renderDashboardPage(dashboard, options = {}) {
           ? onboarding.checks
           : {};
         return checks.sources && typeof checks.sources === "object" ? checks.sources : {};
+      }
+
+      function sourceRequiresAuth(source) {
+        return Boolean(source && source.authRequired);
+      }
+
+      function onboardingCandidateSources() {
+        return (Array.isArray(dashboard.sources) ? dashboard.sources : []).filter(
+          (source) => source && isSourceTypeEnabled(source.type)
+        );
+      }
+
+      function defaultOnboardingSelection(sourceList) {
+        return sourceList.filter((source) => !sourceRequiresAuth(source)).map((source) => source.id);
+      }
+
+      function onboardingSelectedSourceIdsForRender() {
+        const onboarding = onboardingData();
+        const saved = Array.isArray(onboarding.selectedSourceIds)
+          ? onboarding.selectedSourceIds.map((value) => String(value || "").trim()).filter(Boolean)
+          : [];
+        if (saved.length > 0) {
+          return saved;
+        }
+        return defaultOnboardingSelection(onboardingCandidateSources());
+      }
+
+      function onboardingStatusMeta(status) {
+        if (status === "pass") {
+          return { label: "Verified", tone: "ok" };
+        }
+        if (status === "fail") {
+          return { label: "Blocked", tone: "error" };
+        }
+        if (status === "warn") {
+          return { label: "Needs check", tone: "warn" };
+        }
+        return { label: "Pending", tone: "warn" };
+      }
+
+      function failedAuthSourceIds(selectedSourceIds, checksBySourceId) {
+        const selectedSet = new Set(
+          (Array.isArray(selectedSourceIds) ? selectedSourceIds : [])
+            .map((value) => String(value || "").trim())
+            .filter(Boolean)
+        );
+        return onboardingCandidateSources()
+          .filter((source) => selectedSet.has(source.id) && sourceRequiresAuth(source))
+          .filter((source) => {
+            const status = checksBySourceId[source.id] && checksBySourceId[source.id].status
+              ? String(checksBySourceId[source.id].status).toLowerCase()
+              : "warn";
+            return status !== "pass";
+          })
+          .map((source) => source.id);
       }
 
       function isOnboardingIncomplete() {
@@ -3189,7 +3411,14 @@ export function renderDashboardPage(dashboard, options = {}) {
         }
       }
 
-      async function saveOnboardingChannel() {
+      function selectedOnboardingSourceIdsFromDom() {
+        return [...document.querySelectorAll("[data-onboarding-source]")]
+          .filter((input) => input.checked)
+          .map((input) => String(input.value || "").trim())
+          .filter(Boolean);
+      }
+
+      async function saveOnboardingSetup() {
         const channelInput = document.getElementById("onboarding-channel");
         const analyticsToggle = document.getElementById("onboarding-analytics-enabled");
         const channel =
@@ -3197,85 +3426,171 @@ export function renderDashboardPage(dashboard, options = {}) {
             ? channelInput.value.trim()
             : "";
         const analyticsEnabled = analyticsToggle ? Boolean(analyticsToggle.checked) : true;
+        const sourceIds = selectedOnboardingSourceIdsFromDom();
 
-        busy = true;
-        setFeedback("Saving onboarding preferences...");
+        if (sourceIds.length === 0) {
+          onboardingStepStatus = "Choose at least one source to continue.";
+          onboardingStepStatusError = true;
+          render();
+          return;
+        }
+
+        onboardingBusy = true;
+        onboardingStepStatus = "Saving onboarding setup...";
+        onboardingStepStatusError = false;
+        render();
 
         try {
+          const enabledSourceIds = sourceIds.filter((sourceId) => {
+            const source = onboardingCandidateSources().find((candidate) => candidate.id === sourceId);
+            return !sourceRequiresAuth(source);
+          });
           await getJson("/api/onboarding/channel", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ channel, analyticsEnabled })
           });
-          await refreshDashboard();
-          setFeedback("Onboarding preferences saved.");
-        } catch (error) {
-          setFeedback(error.message, true);
-        } finally {
-          busy = false;
-          render();
-        }
-      }
-
-      async function saveOnboardingSources() {
-        const sourceIds = [...document.querySelectorAll("[data-onboarding-source]")]
-          .filter((input) => input.checked)
-          .map((input) => input.value);
-
-        busy = true;
-        setFeedback("Saving source selection...");
-
-        try {
           await getJson("/api/onboarding/sources", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ sourceIds })
+            body: JSON.stringify({ sourceIds, enabledSourceIds })
           });
           await refreshDashboard();
-          setFeedback("Source selection saved.");
+          onboardingStepStatus = "Saved. Next: verify access for selected sources.";
+          onboardingStepStatusError = false;
         } catch (error) {
-          setFeedback(error.message, true);
+          onboardingStepStatus = error.message;
+          onboardingStepStatusError = true;
         } finally {
-          busy = false;
+          onboardingBusy = false;
           render();
         }
       }
 
-      async function runOnboardingSourceChecks() {
-        const sourceIds = [...document.querySelectorAll("[data-onboarding-source]")]
-          .filter((input) => input.checked)
-          .map((input) => input.value);
+      async function verifyOnboardingSources(sourceIdsOverride = null) {
+        const sourceIds = Array.isArray(sourceIdsOverride) && sourceIdsOverride.length > 0
+          ? sourceIdsOverride
+          : selectedOnboardingSourceIdsFromDom();
 
         if (sourceIds.length === 0) {
-          setFeedback("Select at least one source first.", true);
+          onboardingStepStatus = "Choose at least one source before verification.";
+          onboardingStepStatusError = true;
+          render();
           return;
         }
 
-        busy = true;
-        setFeedback("Running source checks...");
+        onboardingBusy = true;
+        onboardingStepStatus = "Verifying source access...";
+        onboardingStepStatusError = false;
+        onboardingVerifyProgress = "";
+        render();
+
+        const checksBySourceId = {};
 
         try {
-          for (const sourceId of sourceIds) {
-            await getJson("/api/onboarding/check-source", {
+          for (let index = 0; index < sourceIds.length; index += 1) {
+            const sourceId = sourceIds[index];
+            const source = onboardingCandidateSources().find((candidate) => candidate.id === sourceId);
+            const authRequired = sourceRequiresAuth(source);
+            onboardingVerifyProgress =
+              "Checking " + String(index + 1) + "/" + String(sourceIds.length) + ": " + (source ? source.name : sourceId);
+            render();
+
+            if (authRequired) {
+              try {
+                await getJson("/api/sources/" + encodeURIComponent(sourceId) + "/run", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    forceRefresh: true,
+                    skipSync: true
+                  })
+                });
+              } catch {
+                // final status comes from onboarding check below
+              }
+            }
+
+            const checkPayload = await getJson("/api/onboarding/check-source", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ sourceId, probeLive: false })
+              body: JSON.stringify({
+                sourceId,
+                probeLive: !authRequired
+              })
             });
+            checksBySourceId[sourceId] =
+              checkPayload && checkPayload.result && typeof checkPayload.result === "object"
+                ? checkPayload.result
+                : null;
           }
 
+          const enabledSourceIds = sourceIds.filter((sourceId) => {
+            const source = onboardingCandidateSources().find((candidate) => candidate.id === sourceId);
+            const authRequired = sourceRequiresAuth(source);
+            const status = checksBySourceId[sourceId] && checksBySourceId[sourceId].status
+              ? String(checksBySourceId[sourceId].status).toLowerCase()
+              : "warn";
+            if (authRequired) {
+              return status === "pass";
+            }
+            return true;
+          });
+
+          const failedAuth = failedAuthSourceIds(sourceIds, checksBySourceId);
+
+          await getJson("/api/onboarding/sources", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sourceIds,
+              enabledSourceIds
+            })
+          });
+
           await refreshDashboard();
-          setFeedback("Source checks complete.");
+          if (failedAuth.length > 0) {
+            onboardingStepStatus =
+              "Verified " +
+              String(enabledSourceIds.length) +
+              "/" +
+              String(sourceIds.length) +
+              " sources. " +
+              String(failedAuth.length) +
+              " auth-required source(s) are still disabled. Retry after signing in.";
+          } else {
+            onboardingStepStatus =
+              "Success. All selected sources are verified and enabled. Go to Jobs and click Find Jobs.";
+          }
+          onboardingStepStatusError = false;
         } catch (error) {
-          setFeedback(error.message, true);
+          onboardingStepStatus = error.message;
+          onboardingStepStatusError = true;
         } finally {
-          busy = false;
+          onboardingBusy = false;
+          onboardingVerifyProgress = "";
           render();
         }
       }
 
+      async function retryFailedOnboardingAuthSources() {
+        const selectedSourceIds = onboardingSelectedSourceIdsForRender();
+        const failedAuth = failedAuthSourceIds(selectedSourceIds, onboardingChecksBySourceId());
+        if (failedAuth.length === 0) {
+          onboardingStepStatus = "No failed auth sources to retry.";
+          onboardingStepStatusError = true;
+          render();
+          return;
+        }
+
+        await verifyOnboardingSources(failedAuth);
+      }
+
       async function completeOnboarding() {
-        busy = true;
-        setFeedback("Completing onboarding...");
+        onboardingBusy = true;
+        onboardingStepStatus = "Completing onboarding...";
+        onboardingStepStatusError = false;
+        render();
 
         try {
           await getJson("/api/onboarding/complete", {
@@ -3283,11 +3598,13 @@ export function renderDashboardPage(dashboard, options = {}) {
             headers: { "Content-Type": "application/json" }
           });
           await refreshDashboard();
-          setFeedback("Onboarding completed.");
+          onboardingStepStatus = "Onboarding completed.";
+          onboardingStepStatusError = false;
         } catch (error) {
-          setFeedback(error.message, true);
+          onboardingStepStatus = error.message;
+          onboardingStepStatusError = true;
         } finally {
-          busy = false;
+          onboardingBusy = false;
           render();
         }
       }
@@ -4525,12 +4842,15 @@ export function renderDashboardPage(dashboard, options = {}) {
         const onboarding = onboardingData();
         const onboardingIncomplete = isOnboardingIncomplete();
         const onboardingSourceChecks = onboardingChecksBySourceId();
-        const onboardingSelectedSources = new Set(
-          Array.isArray(onboarding.selectedSourceIds) ? onboarding.selectedSourceIds : []
-        );
+        const onboardingSources = onboardingCandidateSources();
+        const onboardingSelectedSources = new Set(onboardingSelectedSourceIdsForRender());
         const onboardingChannelValue =
           onboarding.channel && onboarding.channel.value ? onboarding.channel.value : "unknown";
-        const onboardingSourcesMarkup = dashboard.sources
+        const failedAuthSourcesForRetry = failedAuthSourceIds(
+          [...onboardingSelectedSources],
+          onboardingSourceChecks
+        );
+        const onboardingSourcesMarkup = onboardingSources
           .map((source) => {
             const checked = onboardingSelectedSources.has(source.id);
             const checkResult = onboardingSourceChecks[source.id];
@@ -4542,42 +4862,63 @@ export function renderDashboardPage(dashboard, options = {}) {
               checkResult && checkResult.userMessage
                 ? checkResult.userMessage
                 : "Not checked yet";
-            const statusPrefix =
-              checkStatus === "pass"
-                ? "[PASS]"
-                : checkStatus === "fail"
-                  ? "[FAIL]"
-                  : checkStatus === "warn"
-                    ? "[WARN]"
-                    : "[TODO]";
+            const statusMeta = onboardingStatusMeta(checkStatus);
 
             return (
-              '<label style="display:block; margin-bottom: 8px;">' +
-              '<input type="checkbox" data-onboarding-source="1" value="' +
+              '<div class="onboarding-source-row">' +
+              '  <div class="onboarding-source-top">' +
+              '    <label class="onboarding-source-main">' +
+              '      <input type="checkbox" data-onboarding-source="1" value="' +
               escapeHtml(source.id) +
               '"' +
               (checked ? " checked" : "") +
-              "> " +
+              ">" +
+              '      <span class="onboarding-source-name">' +
               escapeHtml(source.name) +
-              ' <span class="muted">' +
-              escapeHtml(statusPrefix + " " + checkLabel) +
-              "</span></label>"
+              "</span>" +
+              "    </label>" +
+              '    <div class="onboarding-source-meta">' +
+              '      <span class="auth-chip" data-auth="' +
+              escapeHtml(sourceRequiresAuth(source) ? "required" : "none") +
+              '">' +
+              escapeHtml(sourceRequiresAuth(source) ? "Auth required" : "No auth") +
+              "</span>" +
+              '      <span class="status-chip compact"><span class="status-dot" data-tone="' +
+              escapeHtml(statusMeta.tone) +
+              '"></span>' +
+              escapeHtml(statusMeta.label) +
+              "</span>" +
+              "    </div>" +
+              "  </div>" +
+              '  <div class="onboarding-source-note">' + escapeHtml(checkLabel) + "</div>" +
+              "</div>"
             );
           })
           .join("");
+        const onboardingStatusMessage = onboardingStepStatus ||
+          (onboardingIncomplete
+            ? "Choose sources, verify access, then run your first search."
+            : "Onboarding complete.");
+        const onboardingStatusClass =
+          "onboarding-status" + (onboardingStepStatusError ? " error" : "");
         const onboardingCard = onboardingEnabled
           ? [
-              '<div class="card inset" style="margin-top: 12px;">',
-              '  <p class="section-label">Onboarding</p>',
-              '  <div class="subhead">' +
+              '<div class="card inset onboarding-card" style="margin-top: 12px;">',
+              '  <p class="section-label">Welcome</p>',
+              '  <h3 class="onboarding-title">Set up your first job import</h3>',
+              '  <div class="subhead onboarding-lede">' +
                 escapeHtml(
                   onboardingIncomplete
-                    ? "Complete setup to run your first successful import."
+                    ? "Choose sources you want to use. Sources that require account login are labeled and must pass verification before they are enabled."
                     : "Onboarding complete."
                 ) +
                 "</div>",
-              '  <div class="search-form" style="margin-top: 10px;">',
-              '    <label>Install Channel<select id="onboarding-channel">' +
+              '  <div class="onboarding-stepper">',
+              '    <section class="onboarding-step">',
+              '      <p class="onboarding-step-label">Step 1</p>',
+              '      <h4>Choose sources and preferences</h4>',
+              '      <div class="search-form" style="margin-top: 10px;">',
+              '        <label>Install Channel<select id="onboarding-channel">' +
                 '<option value="unknown"' +
                 (onboardingChannelValue === "unknown" ? " selected" : "") +
                 ">Unknown</option>" +
@@ -4591,20 +4932,44 @@ export function renderDashboardPage(dashboard, options = {}) {
                 (onboardingChannelValue === "claude" ? " selected" : "") +
                 ">Claude</option>" +
                 "</select></label>",
-              '    <label>Analytics' +
-                '<input id="onboarding-analytics-enabled" type="checkbox"' +
+              '        <label>Analytics' +
+                '<input id="onboarding-analytics-enabled" type="checkbox" class="onboarding-toggle"' +
                 (onboarding.analyticsEnabled ? " checked" : "") +
                 ">" +
                 "</label>",
+              "      </div>",
+              '      <div class="onboarding-source-list">' +
+              (onboardingSourcesMarkup || '<div class="onboarding-source-empty">No sources are currently available.</div>') +
+              "</div>",
+              '      <div class="inline-actions onboarding-actions">',
+              '        <button class="secondary" id="onboarding-save-setup"' + (busy || onboardingBusy ? " disabled" : "") + ">Save Step 1</button>",
+              "      </div>",
+              "    </section>",
+              '    <section class="onboarding-step">',
+              '      <p class="onboarding-step-label">Step 2</p>',
+              "      <h4>Verify access one source at a time</h4>",
+              '      <div class="subhead">Sources that require auth will run a live verification capture. If auth cannot be confirmed, they remain disabled.</div>',
+              '      <div class="inline-actions onboarding-actions">',
+              '        <button class="primary" id="run-onboarding-checks"' + (busy || onboardingBusy ? " disabled" : "") + ">Verify Selected Sources</button>",
+              '        <button class="secondary" id="retry-onboarding-failed-auth"' +
+                (busy || onboardingBusy || failedAuthSourcesForRetry.length === 0 ? " disabled" : "") +
+                ">Retry Failed Auth Sources</button>",
+              "      </div>",
+              (onboardingVerifyProgress
+                ? '      <div class="onboarding-progress">' + escapeHtml(onboardingVerifyProgress) + "</div>"
+                : ""),
+              "    </section>",
+              '    <section class="onboarding-step">',
+              '      <p class="onboarding-step-label">Step 3</p>',
+              "      <h4>Run your first search</h4>",
+              '      <div class="subhead">When verification looks good, complete onboarding and start from the Jobs tab.</div>',
+              '      <div class="inline-actions onboarding-actions">',
+              '        <button class="secondary" id="complete-onboarding"' + (busy || onboardingBusy ? " disabled" : "") + ">Complete Onboarding</button>",
+              '        <button class="primary" id="onboarding-go-jobs"' + (busy || onboardingBusy ? " disabled" : "") + ">Go to Jobs</button>",
+              "      </div>",
+              "    </section>",
               "  </div>",
-              '  <div style="margin-top: 10px;">' + onboardingSourcesMarkup + "</div>",
-              '  <div class="inline-actions" style="margin-top: 10px;">',
-              '    <button class="secondary" id="save-onboarding-channel"' + (busy ? " disabled" : "") + ">Save Preferences</button>",
-              '    <button class="secondary" id="save-onboarding-sources"' + (busy ? " disabled" : "") + ">Save Sources</button>",
-              '    <button class="secondary" id="run-onboarding-checks"' + (busy ? " disabled" : "") + ">Run Source Checks</button>",
-              '    <button class="primary" id="complete-onboarding"' + (busy ? " disabled" : "") + ">Complete Onboarding</button>",
-              "  </div>",
-              '  <div class="subhead" style="margin-top: 10px;">Step order: save preferences, save sources, run checks, then Find Jobs.</div>',
+              '  <div class="' + onboardingStatusClass + '">' + escapeHtml(onboardingStatusMessage) + "</div>",
               "</div>"
             ].join("")
           : "";
@@ -4753,24 +5118,34 @@ export function renderDashboardPage(dashboard, options = {}) {
         }
 
         if (selectedTab === "searches") {
-          const saveOnboardingChannelButton = document.getElementById("save-onboarding-channel");
-          if (saveOnboardingChannelButton) {
-            saveOnboardingChannelButton.addEventListener("click", saveOnboardingChannel);
-          }
-
-          const saveOnboardingSourcesButton = document.getElementById("save-onboarding-sources");
-          if (saveOnboardingSourcesButton) {
-            saveOnboardingSourcesButton.addEventListener("click", saveOnboardingSources);
+          const saveOnboardingSetupButton = document.getElementById("onboarding-save-setup");
+          if (saveOnboardingSetupButton) {
+            saveOnboardingSetupButton.addEventListener("click", saveOnboardingSetup);
           }
 
           const runOnboardingChecksButton = document.getElementById("run-onboarding-checks");
           if (runOnboardingChecksButton) {
-            runOnboardingChecksButton.addEventListener("click", runOnboardingSourceChecks);
+            runOnboardingChecksButton.addEventListener("click", verifyOnboardingSources);
+          }
+
+          const retryOnboardingFailedButton = document.getElementById(
+            "retry-onboarding-failed-auth"
+          );
+          if (retryOnboardingFailedButton) {
+            retryOnboardingFailedButton.addEventListener(
+              "click",
+              retryFailedOnboardingAuthSources
+            );
           }
 
           const completeOnboardingButton = document.getElementById("complete-onboarding");
           if (completeOnboardingButton) {
             completeOnboardingButton.addEventListener("click", completeOnboarding);
+          }
+
+          const onboardingGoJobsButton = document.getElementById("onboarding-go-jobs");
+          if (onboardingGoJobsButton) {
+            onboardingGoJobsButton.addEventListener("click", () => setTab("jobs"));
           }
 
           for (const button of document.querySelectorAll("[data-search-source]")) {
@@ -4932,8 +5307,13 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
         const sourceIds = Array.isArray(parsedBody.sourceIds)
           ? parsedBody.sourceIds.map((value) => String(value || "").trim()).filter(Boolean)
           : [];
+        const enabledSourceIds = Array.isArray(parsedBody.enabledSourceIds)
+          ? parsedBody.enabledSourceIds
+              .map((value) => String(value || "").trim())
+              .filter(Boolean)
+          : sourceIds;
 
-        setEnabledSources(sourceIds);
+        setEnabledSources(enabledSourceIds);
         updateOnboardingSources(sourceIds);
 
         const settings = loadUserSettings().settings;
@@ -4986,7 +5366,10 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
         }
 
         const result = normalizeSourceCheckResult(
-          checkSourceAccess(source, { probeLive: parsedBody.probeLive === true })
+          checkSourceAccess(source, {
+            probeLive: parsedBody.probeLive === true,
+            ignoreEnabled: true
+          })
         );
         updateOnboardingSourceCheck(sourceId, result);
 
@@ -5338,7 +5721,8 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
             typeof parsedBody.refreshProfile === "string"
               ? parsedBody.refreshProfile
               : undefined,
-          forceRefresh: parsedBody.forceRefresh === true
+          forceRefresh: parsedBody.forceRefresh === true,
+          skipSync: parsedBody.skipSync === true
         });
         trackDashboardEvent("source_run_completed", {
           source_id: decodeURIComponent(match[1]),
