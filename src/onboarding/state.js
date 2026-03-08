@@ -65,7 +65,8 @@ function defaultSettings() {
       completedAt: null,
       firstRunAt: null,
       consent: {
-        tosRiskAccepted: false,
+        termsAccepted: false,
+        privacyAccepted: false,
         rateLimitPolicyAccepted: false,
         acceptedAt: null,
         updatedAt: nowIso()
@@ -150,7 +151,11 @@ function normalizeSettings(rawSettings) {
           ? String(onboardingInput.firstRunAt)
           : null,
       consent: {
-        tosRiskAccepted: Boolean(consentInput.tosRiskAccepted),
+        termsAccepted:
+          typeof consentInput.termsAccepted === "boolean"
+            ? consentInput.termsAccepted
+            : Boolean(consentInput.tosRiskAccepted),
+        privacyAccepted: Boolean(consentInput.privacyAccepted),
         rateLimitPolicyAccepted: Boolean(consentInput.rateLimitPolicyAccepted),
         acceptedAt:
           consentInput.acceptedAt && String(consentInput.acceptedAt).trim()
@@ -329,9 +334,13 @@ export function updateInstallConsent(
   input,
   settingsPath = DEFAULT_SETTINGS_PATH
 ) {
-  const tosRiskAccepted = Boolean(input?.tosRiskAccepted);
+  const termsAccepted =
+    typeof input?.termsAccepted === "boolean"
+      ? input.termsAccepted
+      : Boolean(input?.tosRiskAccepted);
+  const privacyAccepted = Boolean(input?.privacyAccepted);
   const rateLimitPolicyAccepted = Boolean(input?.rateLimitPolicyAccepted);
-  const bothAccepted = tosRiskAccepted && rateLimitPolicyAccepted;
+  const allAccepted = termsAccepted && privacyAccepted && rateLimitPolicyAccepted;
 
   return updateUserSettings((settings) => ({
     ...settings,
@@ -339,9 +348,10 @@ export function updateInstallConsent(
       ...settings.onboarding,
       consent: {
         ...settings.onboarding.consent,
-        tosRiskAccepted,
+        termsAccepted,
+        privacyAccepted,
         rateLimitPolicyAccepted,
-        acceptedAt: bothAccepted ? nowIso() : null,
+        acceptedAt: allAccepted ? nowIso() : null,
         updatedAt: nowIso()
       }
     }

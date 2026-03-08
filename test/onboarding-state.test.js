@@ -41,13 +41,15 @@ test("loadUserSettings initializes defaults and supports onboarding updates", ()
     assert.equal(typeof initial.settings.installId, "string");
     assert.equal(initial.settings.onboarding.completed, false);
     assert.equal(initial.settings.analytics.enabled, true);
-    assert.equal(initial.settings.onboarding.consent.tosRiskAccepted, false);
+    assert.equal(initial.settings.onboarding.consent.termsAccepted, false);
+    assert.equal(initial.settings.onboarding.consent.privacyAccepted, false);
     assert.equal(initial.settings.onboarding.consent.rateLimitPolicyAccepted, false);
     assert.ok(fs.existsSync(settingsPath));
 
     updateInstallConsent(
       {
-        tosRiskAccepted: true,
+        termsAccepted: true,
+        privacyAccepted: true,
         rateLimitPolicyAccepted: true
       },
       settingsPath
@@ -72,7 +74,8 @@ test("loadUserSettings initializes defaults and supports onboarding updates", ()
 
     const after = loadUserSettings(settingsPath).settings;
     assert.equal(after.analytics.enabled, false);
-    assert.equal(after.onboarding.consent.tosRiskAccepted, true);
+    assert.equal(after.onboarding.consent.termsAccepted, true);
+    assert.equal(after.onboarding.consent.privacyAccepted, true);
     assert.equal(after.onboarding.consent.rateLimitPolicyAccepted, true);
     assert.equal(typeof after.onboarding.consent.acceptedAt, "string");
     assert.equal(after.onboarding.channel.value, "codex");
@@ -99,4 +102,32 @@ test("getEffectiveOnboardingChannel prefers persisted channel over inference", (
   const effective = getEffectiveOnboardingChannel(settings);
   assert.equal(effective.value, "npm");
   assert.equal(effective.confidence, "self_reported");
+});
+
+test("loadUserSettings maps legacy tosRiskAccepted to termsAccepted", () => {
+  const { tempDir, settingsPath } = createTempSettingsPath();
+  try {
+    fs.writeFileSync(
+      settingsPath,
+      JSON.stringify(
+        {
+          onboarding: {
+            consent: {
+              tosRiskAccepted: true,
+              rateLimitPolicyAccepted: true
+            }
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+    const loaded = loadUserSettings(settingsPath).settings;
+    assert.equal(loaded.onboarding.consent.termsAccepted, true);
+    assert.equal(loaded.onboarding.consent.privacyAccepted, false);
+    assert.equal(loaded.onboarding.consent.acceptedAt, null);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });

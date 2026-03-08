@@ -42,7 +42,8 @@ test("cli init accepts install channel and analytics consent flags", () => {
         "codex",
         "--analytics",
         "no",
-        "--accept-tos-risk",
+        "--accept-terms",
+        "--accept-privacy",
         "--accept-rate-limit-policy",
         "--non-interactive"
       ],
@@ -58,7 +59,8 @@ test("cli init accepts install channel and analytics consent flags", () => {
     const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
     assert.equal(settings.onboarding.channel.value, "codex");
     assert.equal(settings.analytics.enabled, false);
-    assert.equal(settings.onboarding.consent.tosRiskAccepted, true);
+    assert.equal(settings.onboarding.consent.termsAccepted, true);
+    assert.equal(settings.onboarding.consent.privacyAccepted, true);
     assert.equal(settings.onboarding.consent.rateLimitPolicyAccepted, true);
     assert.match(result.stdout, /Install channel:\s+codex/i);
     assert.match(result.stdout, /Anonymous metrics:\s+disabled/i);
@@ -77,7 +79,8 @@ test("cli init rejects invalid install channel", () => {
         "init",
         "--channel",
         "discord",
-        "--accept-tos-risk",
+        "--accept-terms",
+        "--accept-privacy",
         "--accept-rate-limit-policy",
         "--non-interactive"
       ],
@@ -111,6 +114,37 @@ test("cli init requires install consent in non-interactive mode", () => {
     );
     assert.notEqual(result.status, 0, "Expected init to fail without required consent flags.");
     assert.match(result.stderr, /Install consent required/i);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("cli init accepts legacy --accept-tos-risk as terms alias", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-finder-cli-init-legacy-consent-"));
+  try {
+    const result = spawnSync(
+      "node",
+      [
+        CLI_PATH,
+        "init",
+        "--channel",
+        "codex",
+        "--accept-tos-risk",
+        "--accept-privacy",
+        "--accept-rate-limit-policy",
+        "--non-interactive"
+      ],
+      {
+        cwd: tempDir,
+        env: process.env,
+        encoding: "utf8"
+      }
+    );
+    assert.equal(result.status, 0, result.stderr || "Expected legacy consent alias to work");
+    const settingsPath = path.join(tempDir, "data/user-settings.json");
+    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    assert.equal(settings.onboarding.consent.termsAccepted, true);
+    assert.equal(settings.onboarding.consent.privacyAccepted, true);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

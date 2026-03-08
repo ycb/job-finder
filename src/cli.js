@@ -257,7 +257,9 @@ function parseInitOptions(args) {
   const parsedChannel = parseOptionValue(args, "--channel");
   const parsedAnalytics = parseOptionValue(parsedChannel.args, "--analytics");
   const noAnalytics = extractFlag(parsedAnalytics.args, "--no-analytics");
-  const acceptTosRisk = extractFlag(noAnalytics.args, "--accept-tos-risk");
+  const acceptTerms = extractFlag(noAnalytics.args, "--accept-terms");
+  const acceptPrivacy = extractFlag(acceptTerms.args, "--accept-privacy");
+  const acceptTosRisk = extractFlag(acceptPrivacy.args, "--accept-tos-risk");
   const acceptRateLimitPolicy = extractFlag(
     acceptTosRisk.args,
     "--accept-rate-limit-policy"
@@ -280,6 +282,8 @@ function parseInitOptions(args) {
   return {
     channel,
     analyticsEnabled,
+    acceptTerms: acceptTerms.present,
+    acceptPrivacy: acceptPrivacy.present,
     acceptTosRisk: acceptTosRisk.present,
     acceptRateLimitPolicy: acceptRateLimitPolicy.present,
     nonInteractive: nonInteractive.present
@@ -327,6 +331,12 @@ async function promptInitOptions(defaults, options = {}) {
 
 function printInstallConsentNotice() {
   console.log("\nBefore you continue");
+  console.log("Review these documents before accepting:");
+  console.log("- TERMS.md");
+  console.log("- PRIVACY.md");
+  console.log(
+    "By continuing, you confirm you have read and accept both documents."
+  );
   console.log(
     "Job Finder captures data from job platforms using your browser session."
   );
@@ -355,23 +365,49 @@ async function promptInstallConsent() {
 
   try {
     const first = await rl.question(
-      "I understand the ToS risk and accept responsibility for my accounts [y/N]: "
+      "I have read and accept TERMS.md [y/N]: "
     );
-    const tosRiskAccepted = parseAnalyticsInput(first) === true;
-    if (!tosRiskAccepted) {
+    const termsAccepted = parseAnalyticsInput(first) === true;
+    if (!termsAccepted) {
       return {
-        tosRiskAccepted: false,
+        termsAccepted: false,
+        privacyAccepted: false,
         rateLimitPolicyAccepted: false
       };
     }
 
     const second = await rl.question(
+      "I have read and accept PRIVACY.md [y/N]: "
+    );
+    const privacyAccepted = parseAnalyticsInput(second) === true;
+    if (!privacyAccepted) {
+      return {
+        termsAccepted,
+        privacyAccepted: false,
+        rateLimitPolicyAccepted: false
+      };
+    }
+
+    const third = await rl.question(
+      "I understand the ToS risk and accept responsibility for my accounts [y/N]: "
+    );
+    const tosRiskAccepted = parseAnalyticsInput(third) === true;
+    if (!tosRiskAccepted) {
+      return {
+        termsAccepted,
+        privacyAccepted,
+        rateLimitPolicyAccepted: false
+      };
+    }
+
+    const fourth = await rl.question(
       "I will not modify default rate limits without understanding the implications [y/N]: "
     );
-    const rateLimitPolicyAccepted = parseAnalyticsInput(second) === true;
+    const rateLimitPolicyAccepted = parseAnalyticsInput(fourth) === true;
 
     return {
-      tosRiskAccepted,
+      termsAccepted,
+      privacyAccepted,
       rateLimitPolicyAccepted
     };
   } finally {
@@ -383,17 +419,21 @@ async function runInit(options = {}) {
   const settings = loadUserSettings();
   const existingConsent = settings.settings?.onboarding?.consent || {};
   const hasAcceptedInstallConsent =
-    Boolean(existingConsent.tosRiskAccepted) &&
+    Boolean(existingConsent.termsAccepted || existingConsent.tosRiskAccepted) &&
+    Boolean(existingConsent.privacyAccepted) &&
     Boolean(existingConsent.rateLimitPolicyAccepted);
 
   if (!hasAcceptedInstallConsent) {
     const providedConsent = {
-      tosRiskAccepted: Boolean(options.acceptTosRisk),
+      termsAccepted: Boolean(options.acceptTerms || options.acceptTosRisk),
+      privacyAccepted: Boolean(options.acceptPrivacy),
       rateLimitPolicyAccepted: Boolean(options.acceptRateLimitPolicy)
     };
 
     const hasProvidedConsent =
-      providedConsent.tosRiskAccepted && providedConsent.rateLimitPolicyAccepted;
+      providedConsent.termsAccepted &&
+      providedConsent.privacyAccepted &&
+      providedConsent.rateLimitPolicyAccepted;
 
     if (hasProvidedConsent) {
       updateInstallConsent(providedConsent, settings.path);
@@ -401,13 +441,19 @@ async function runInit(options = {}) {
       const canPrompt = !options.nonInteractive && process.stdin.isTTY && process.stdout.isTTY;
       if (!canPrompt) {
         throw new Error(
-          "Install consent required. Re-run `jf init --accept-tos-risk --accept-rate-limit-policy` or run interactively."
+          "Install consent required. Re-run `jf init --accept-terms --accept-privacy --accept-rate-limit-policy` or run interactively."
         );
       }
 
       printInstallConsentNotice();
       const promptedConsent = await promptInstallConsent();
-      if (!(promptedConsent.tosRiskAccepted && promptedConsent.rateLimitPolicyAccepted)) {
+      if (
+        !(
+          promptedConsent.termsAccepted &&
+          promptedConsent.privacyAccepted &&
+          promptedConsent.rateLimitPolicyAccepted
+        )
+      ) {
         throw new Error("Install consent not accepted. Exiting.");
       }
       updateInstallConsent(promptedConsent, settings.path);
@@ -452,6 +498,7 @@ async function runInit(options = {}) {
   const updatedSettings = loadUserSettings(settings.path);
   console.log(`Database initialized at ${dbPath}`);
   console.log(`User settings initialized at ${settings.path}`);
+  console.log("Legal consent: TERMS.md and PRIVACY.md accepted");
   console.log(
     `Install channel: ${updatedSettings.settings?.onboarding?.channel?.value || "unknown"}`
   );
@@ -2063,7 +2110,7 @@ QUICK START:
   jf init                       Initialize profile and database
      --channel <npm|codex|claude|unknown>
      --analytics <yes|no> | --no-analytics
-     --accept-tos-risk --accept-rate-limit-policy
+     --accept-terms --accept-privacy --accept-rate-limit-policy
      --non-interactive
   jf run                        Sync jobs from all sources (run daily)
   jf review                     Open dashboard at http://localhost:4311
