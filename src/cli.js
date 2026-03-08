@@ -2,6 +2,8 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import readline from "node:readline/promises";
+import process from "node:process";
 
 import { createAnalyticsClient } from "./analytics/client.js";
 
@@ -80,7 +82,12 @@ import {
   importLinkedInSnapshot
 } from "./sources/linkedin-saved-search.js";
 import { checkEnvironmentReadiness, checkSourceAccess } from "./onboarding/source-access.js";
-import { getEffectiveOnboardingChannel, loadUserSettings } from "./onboarding/state.js";
+import {
+  getEffectiveOnboardingChannel,
+  loadUserSettings,
+  updateAnalyticsPreference,
+  updateOnboardingChannel
+} from "./onboarding/state.js";
 
 const terminalAnalytics = createAnalyticsClient({ channel: "terminal" });
 
@@ -186,14 +193,174 @@ function extractOption(args, optionName) {
   };
 }
 
-function runInit() {
+const INSTALL_CHANNEL_CHOICES = new Set(["npm", "codex", "claude", "unknown"]);
+
+function normalizeInstallChannelInput(rawValue) {
+  const normalized = String(rawValue || "").trim().toLowerCase();
+  if (!normalized) {
+    return "";
+  }
+  if (!INSTALL_CHANNEL_CHOICES.has(normalized)) {
+    throw new Error(
+      `Invalid install channel "${rawValue}". Use one of: npm, codex, claude, unknown.`
+    );
+  }
+  return normalized;
+}
+
+function parseAnalyticsInput(rawValue) {
+  const normalized = String(rawValue || "").trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  if (["1", "true", "yes", "y", "on", "enabled", "enable"].includes(normalized)) {
+    return true;
+  }
+  if (["0", "false", "no", "n", "off", "disabled", "disable"].includes(normalized)) {
+    return false;
+  }
+  throw new Error(
+    `Invalid analytics value "${rawValue}". Use yes/no (or true/false).`
+  );
+}
+
+function parseOptionValue(args, flag) {
+  const remaining = [];
+  let value = null;
+
+  for (let index = 0; index < (Array.isArray(args) ? args.length : 0); index += 1) {
+    const arg = args[index];
+    const prefix = `${flag}=`;
+    if (typeof arg === "string" && arg.startsWith(prefix)) {
+      value = arg.slice(prefix.length);
+      continue;
+    }
+    if (arg === flag) {
+      if (index + 1 >= args.length) {
+        throw new Error(`Missing value for ${flag}.`);
+      }
+      value = args[index + 1];
+      index += 1;
+      continue;
+    }
+    remaining.push(arg);
+  }
+
+  return {
+    value,
+    args: remaining
+  };
+}
+
+function parseInitOptions(args) {
+  const parsedChannel = parseOptionValue(args, "--channel");
+  const parsedAnalytics = parseOptionValue(parsedChannel.args, "--analytics");
+  const noAnalytics = extractFlag(parsedAnalytics.args, "--no-analytics");
+  const nonInteractive = extractFlag(noAnalytics.args, "--non-interactive");
+
+  if (nonInteractive.args.length > 0) {
+    throw new Error(`Unknown option(s) for init: ${nonInteractive.args.join(" ")}`);
+  }
+
+  const channel = parsedChannel.value ? normalizeInstallChannelInput(parsedChannel.value) : null;
+  const analyticsFromArg = parsedAnalytics.value
+    ? parseAnalyticsInput(parsedAnalytics.value)
+    : null;
+  const analyticsEnabled = noAnalytics.present ? false : analyticsFromArg;
+
+  return {
+    channel,
+    analyticsEnabled,
+    nonInteractive: nonInteractive.present
+  };
+}
+
+async function promptInitOptions(defaults, options = {}) {
+  const askChannel = options.askChannel !== false;
+  const askAnalytics = options.askAnalytics !== false;
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+
+  try {
+    let channel = defaults.channel;
+    if (askChannel) {
+      const channelAnswer = await rl.question(
+        `Install channel [npm/codex/claude/unknown] (default: ${defaults.channel}): `
+      );
+      channel = channelAnswer.trim()
+        ? normalizeInstallChannelInput(channelAnswer)
+        : defaults.channel;
+    }
+
+    let analyticsEnabled = defaults.analyticsEnabled;
+    if (askAnalytics) {
+      const analyticsPrompt = defaults.analyticsEnabled
+        ? "Share anonymous product-quality metrics? [Y/n]: "
+        : "Share anonymous product-quality metrics? [y/N]: ";
+      const analyticsAnswer = await rl.question(analyticsPrompt);
+      const parsedAnalytics = parseAnalyticsInput(analyticsAnswer);
+      analyticsEnabled =
+        parsedAnalytics === null ? defaults.analyticsEnabled : parsedAnalytics;
+    }
+
+    return {
+      channel,
+      analyticsEnabled
+    };
+  } finally {
+    rl.close();
+  }
+}
+
+async function runInit(options = {}) {
   const { db, dbPath } = withDatabase();
   db.close();
   const settings = loadUserSettings();
+  const defaultChannel =
+    settings.settings?.onboarding?.channel?.value &&
+    settings.settings.onboarding.channel.value !== "unknown"
+      ? settings.settings.onboarding.channel.value
+      : "unknown";
+  const defaultAnalytics = Boolean(settings.settings?.analytics?.enabled);
+
+  let channel = options.channel || defaultChannel;
+  let analyticsEnabled =
+    typeof options.analyticsEnabled === "boolean"
+      ? options.analyticsEnabled
+      : defaultAnalytics;
+
+  const shouldPrompt =
+    !options.nonInteractive &&
+    process.stdin.isTTY === true &&
+    process.stdout.isTTY === true &&
+    (!options.channel || typeof options.analyticsEnabled !== "boolean");
+
+  if (shouldPrompt) {
+    const prompted = await promptInitOptions({
+      channel,
+      analyticsEnabled
+    }, {
+      askChannel: !options.channel,
+      askAnalytics: typeof options.analyticsEnabled !== "boolean"
+    });
+    channel = prompted.channel;
+    analyticsEnabled = prompted.analyticsEnabled;
+  }
+
+  updateOnboardingChannel(channel, "self_reported", settings.path);
+  updateAnalyticsPreference(analyticsEnabled, settings.path);
+  const updatedSettings = loadUserSettings(settings.path);
   console.log(`Database initialized at ${dbPath}`);
   console.log(`User settings initialized at ${settings.path}`);
+  console.log(
+    `Install channel: ${updatedSettings.settings?.onboarding?.channel?.value || "unknown"}`
+  );
+  console.log(
+    `Anonymous metrics: ${updatedSettings.settings?.analytics?.enabled ? "enabled" : "disabled"}`
+  );
 }
-
 function printDoctorCheck(check) {
   const status = String(check?.status || "warn").toLowerCase();
   const marker = status === "pass" ? "PASS" : status === "fail" ? "FAIL" : "WARN";
@@ -1796,6 +1963,8 @@ job-finder - Local-first job search with intelligent de-duplication
 
 QUICK START:
   jf init                       Initialize profile and database
+     --channel <npm|codex|claude|unknown>
+     --analytics <yes|no> | --no-analytics
   jf run                        Sync jobs from all sources (run daily)
   jf review                     Open dashboard at http://localhost:4311
 
@@ -1867,7 +2036,10 @@ async function main() {
       console.log("job-finder v0.1.0");
       break;
     case "init":
-      runInit();
+      {
+        const initOptions = parseInitOptions(args);
+        await runInit(initOptions);
+      }
       break;
     case "sync":
       {
