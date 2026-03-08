@@ -56,6 +56,7 @@ The current implementation focuses on:
 - Built In ingestion from configured search URLs
 - job intake into SQLite
 - deterministic scoring with hard filters, freshness, confidence, and history-aware signals
+- capture-quality guardrails with quarantine/reject protection and source health telemetry
 - shortlist generation
 - de-duped review and application tracking
 
@@ -99,7 +100,7 @@ That makes it a stronger demonstration of AI-native product thinking than a thin
 1. Run `jf init` to initialize the SQLite database.
 2. Start the dashboard with `npm run review`.
 3. Use dashboard search input + `Find Jobs` to run the pipeline.
-4. No manual setup files are required for the normal workflow.
+4. No `profile.json` / `my-goals.json` setup is required for scoring.
 5. No manual search/source creation is required in normal workflow.
 
 Fallback snapshot workflow:
@@ -116,36 +117,63 @@ npm run run
 
 ## Commands
 
-- `npm run run` (recommended daily command; full pipeline)
-- `npm run run -- --force-refresh` (force fresh capture/fetch; ignore cache TTL)
-- `npm run run:live` (compatibility alias for `run`)
+Daily workflow:
+
+- `npm run review`
+- `npm run run` (full pipeline: capture -> sync -> score -> shortlist -> list)
+- `npm run run -- --force-refresh` (ignore capture cache TTLs)
+- `npm run run -- --allow-quarantined` (operator override; ingest quarantine outcomes)
 - `npm run run:safe`
 - `npm run run:probe`
 - `npm run run:mock`
-- `JOB_FINDER_REFRESH_PROFILE=probe npm run run` (dev probing mode with guardrails)
-- `JOB_FINDER_REFRESH_PROFILE=mock npm run run` (cache-only mode for UI/scoring iteration)
-- `npm run init`
+
+Quality and diagnostics:
+
+- `node src/cli.js check-source-contracts [--window 3] [--min-coverage 0.7] [--stale-days 30]`
+- `node src/cli.js check-source-canaries [--include-disabled]`
+- `npm run sync -- --allow-quarantined` (override ingest gate for quarantine outcomes)
+- Quality artifacts:
+  - quarantine runs: `data/quality/quarantine/<source-id>/*.json`
+  - source health history: `data/quality/source-health-history.json`
+  - contract coverage history: `data/quality/source-coverage-history.json`
+  - canary diagnostics: `data/quality/canary-checks/latest.json`
+
+Capture/source operations:
+
 - `npm run sources`
 - `node src/cli.js normalize-source-urls --dry-run`
-- `node src/cli.js check-source-contracts`
-- `node src/cli.js open-source <source-id-or-label>`
-- `node src/cli.js open-sources`
 - `npm run capture -- <source-id-or-label> [snapshot-path]`
 - `npm run capture:all`
-- `node src/cli.js import-linkedin-snapshot <source-id-or-label> <snapshot-path>`
 - `npm run capture:live -- <source-id-or-label> [snapshot-path]`
-- `npm run capture:live -- <source-id-or-label> [snapshot-path] --force-refresh`
 - `npm run capture:all:live`
-- `npm run capture:all:live -- --force-refresh`
 - `npm run bridge`
-- `npm run sync`
+- `node src/cli.js import-linkedin-snapshot <source-id-or-label> <snapshot-path>`
+- `node src/cli.js open-source <source-id-or-label>`
+- `node src/cli.js open-sources`
+
+Legacy/manual source management (optional, not required for normal dashboard flow):
+
+- `node src/cli.js add-source <label> <url>`
+- `node src/cli.js add-builtin-source <label> <url>`
+- `node src/cli.js add-google-source <label> <url> [any|1d|1w|1m]`
+- `node src/cli.js add-wellfound-source <label> <url>`
+- `node src/cli.js add-ashby-source <label> <url> [any|1d|1w|1m]`
+- `node src/cli.js add-indeed-source <label> <url>`
+- `node src/cli.js add-ziprecruiter-source <label> <url>`
+- `node src/cli.js add-remoteok-source <label> <url>`
+- `node src/cli.js set-source-url <source-id-or-label> <url>`
+
+Other:
+
+- `npm run init`
 - `npm run score`
-- `npm run shortlist`
+- `npm run shortlist` (writes `output/shortlist.json`)
 - `npm run list`
 - `npm run mark -- <job-id> <status>`
 - `npm run review:safe`
 - `npm run review:probe`
 - `npm run review:mock`
+- `npm run run:live` (compatibility alias for `run`)
 
 ## Review Dashboard
 
@@ -163,6 +191,7 @@ The dashboard includes:
 - `Found` shown as `imported/expected` when expected totals are detectable, otherwise `imported/?`
 - source refresh/capture status signals including cache/live state
 - per-source criteria-accountability metadata (URL-applied, UI-bootstrap, post-capture, unsupported)
+- per-source adapter health (`ok` / `degraded` / `failing`) with reason hints
 - row click-through from `Searches` into filtered `Jobs` view
 - per-job attribution showing which source/search URLs surfaced the role
 
@@ -213,6 +242,15 @@ Source contract governance:
 - Canonical source mapping registry: `config/source-contracts.json`
 - Drift-check command: `node src/cli.js check-source-contracts`
 - Governance and update workflow: `docs/analysis/source-contract-governance.md`
+
+Capture quality guardrails:
+
+- Ingest evaluates each source capture as `accept`, `quarantine`, or `reject`.
+- Default behavior ingests only `accept`; `quarantine`/`reject` runs are blocked from normal ingest.
+- Operator override is explicit: `sync --allow-quarantined` or `run --allow-quarantined`.
+- Quarantined/rejected runs persist diagnostic artifacts under `data/quality/quarantine/`.
+- Source health is tracked over rolling runs in `data/quality/source-health-history.json`.
+- Canary checks are configurable in `config/source-canaries.json` and run with `check-source-canaries`.
 
 Refresh policy behavior:
 

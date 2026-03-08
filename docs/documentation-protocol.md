@@ -1,6 +1,6 @@
 # Documentation Protocol
 
-As of 2026-03-06.
+As of 2026-03-08.
 
 ## Objective
 
@@ -18,13 +18,18 @@ This protocol governs:
 ## Repeatable Workflow
 
 1. Establish change scope from git.
-2. Identify behavior/config/UX/ops changes.
-3. Map each change to required documentation targets.
-4. Update core docs first (`README.md`, `INSTALL.md`) for user-visible changes.
-5. Update technical context docs (`CLAUDE.md`, plans, backlog/spec docs) for contributor-facing changes.
-6. Append release history (`CHANGELOG.md` and a dated file under `docs/releases/`).
-7. Draft outbound narrative under `docs/announcements/` from the same factual change set.
-8. Verify examples and commands by running them.
+   - baseline command: `git diff --name-status <previous-doc-update-commit>..HEAD`
+2. Review all new or modified exec plans and backlog docs:
+   - `docs/plans/*`
+   - `docs/backlog.md`
+   - `docs/backlog-specs/*`
+3. Identify behavior/config/UX/ops changes.
+4. Map each change to required documentation targets.
+5. Update core docs first (`README.md`, `INSTALL.md`) for user-visible changes.
+6. Update technical context docs (`CLAUDE.md`, plans, backlog/spec docs) for contributor-facing changes.
+7. Append release history (`CHANGELOG.md` and a dated file under `docs/releases/`).
+8. Draft outbound narrative under `docs/announcements/` from the same factual change set.
+9. Verify examples and commands by running them.
 
 ## Documentation Impact Matrix
 
@@ -56,6 +61,7 @@ Additions now required:
 
 ## Definition of Done for a Documentation Pass
 
+- Every new/changed exec plan and backlog document has been reviewed in the pass.
 - Every user-visible behavior change is documented in `README.md` or `INSTALL.md`.
 - Every release-significant change appears in `CHANGELOG.md` and one dated release note.
 - Outbound summary draft exists in `docs/announcements/` when work is share-worthy.

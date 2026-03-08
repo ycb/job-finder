@@ -6,6 +6,18 @@ All notable changes to this project should be documented in this file.
 
 ### Added
 
+- Source quality governance baseline:
+  - source contract registry in `config/source-contracts.json`
+  - contract drift and rolling coverage checks via `check-source-contracts`
+  - contract coverage history persisted in `data/quality/source-coverage-history.json`
+- Capture-quality guardrails in ingest:
+  - per-source capture evaluation outcomes (`accept`, `quarantine`, `reject`)
+  - quarantine artifact persistence in `data/quality/quarantine/<source-id>/*.json`
+  - canary checks via `check-source-canaries` with diagnostics in `data/quality/canary-checks/latest.json`
+- Source health scoring and persistence:
+  - rolling source health history in `data/quality/source-health-history.json`
+  - adapter health status/reasons surfaced in dashboard search/source rows
+- JSON shortlist renderer (`src/shortlist/render.js`) writing `output/shortlist.json`
 - Refresh policy/state foundation for cache-vs-live decisioning:
   - source risk classes and profile-aware throttling (`safe`, `probe`, `mock`)
   - persisted refresh event state in `data/refresh-state.json`
@@ -29,6 +41,10 @@ All notable changes to this project should be documented in this file.
 
 ### Changed
 
+- `sync`/`run` now gate ingest on capture-quality outcomes; quarantined/rejected runs no longer silently flow into scoring.
+- `sync` and `run` support explicit quarantine override via `--allow-quarantined`.
+- `check-source-contracts` now includes source health status/score context and uses non-zero exit codes on warning/error states.
+- Normalization now preserves structured metadata fields (`sourceFoundRatio`, `sourceExpectedCount`, `metadataQualityScore`) for scoring/review rollups.
 - Scoring pipeline now evaluates jobs from search criteria (`config/search-criteria.json`) via weighted criteria matching.
 - Sync pipeline now prunes stale `new/viewed` source jobs that disappear from current captures.
 - New captures now inherit existing application status by `normalized_hash` (for example, rejected/applied duplicates keep prior status).

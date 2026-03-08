@@ -64,6 +64,9 @@ The system will:
 - score jobs from your search input
 - store results locally
 
+No `profile.json` / `my-goals.json` setup is required for normal scoring.
+No manual search creation is required in the default dashboard flow.
+
 **First sync takes 2-5 minutes** depending on number of sources.
 
 ### 4. Review Jobs
@@ -85,6 +88,13 @@ Optional CLI pipeline:
 
 ```bash
 jf run
+jf run --force-refresh
+```
+
+If you intentionally want to ingest quarantined runs for debugging:
+
+```bash
+jf run --allow-quarantined
 ```
 
 ### Automated Sync (Recommended)
@@ -131,6 +141,27 @@ launchctl load ~/Library/LaunchAgents/com.job-finder.daily.plist
 
 ---
 
+## Source Quality Checks (Operator Workflow)
+
+Run these when source behavior changes or before release notes:
+
+```bash
+# Contract drift + rolling coverage checks
+jf check-source-contracts --window 3 --min-coverage 0.7 --stale-days 30
+
+# Canary checks against configured source expectations
+jf check-source-canaries
+```
+
+Quality diagnostics and evidence paths:
+
+- `data/quality/quarantine/<source-id>/*.json` (blocked/quarantined ingest runs)
+- `data/quality/source-health-history.json` (rolling source health metrics)
+- `data/quality/source-coverage-history.json` (contract coverage history)
+- `data/quality/canary-checks/latest.json` (latest canary report)
+
+---
+
 ## Troubleshooting
 
 ### "command not found: jf"
@@ -171,6 +202,23 @@ JOB_FINDER_ENABLE_WELLFOUND=1 jf review
 JOB_FINDER_ENABLE_REMOTEOK=1 jf review
 ```
 
+### Source skipped due capture quality guardrails
+
+Run diagnostics first:
+
+```bash
+jf check-source-canaries
+jf check-source-contracts --window 3 --min-coverage 0.7
+```
+
+If you intentionally want to ingest quarantined runs for debugging:
+
+```bash
+jf sync --allow-quarantined
+# or
+jf run --allow-quarantined
+```
+
 ### Database locked errors
 
 **Fix:** Stop any running `jf review` servers:
@@ -200,7 +248,7 @@ jf review 4312
 npm unlink -g job-finder
 
 # Remove local data/output (optional)
-rm -rf data/jobs.db output/shortlist.md output/playwright
+rm -rf data/jobs.db output/shortlist.json output/playwright data/quality
 
 # Remove source code
 rm -rf /path/to/job-finder
