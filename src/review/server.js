@@ -44,7 +44,16 @@ import {
   normalizeRefreshProfile,
   readSourceCaptureSummary
 } from "../sources/cache-policy.js";
+import {
+  evaluateCaptureRun,
+  shouldIngestCaptureEvaluation,
+  writeCaptureQuarantineArtifact
+} from "../sources/capture-validation.js";
 import { classifyRefreshErrorOutcome, recordRefreshEvent } from "../sources/refresh-state.js";
+import {
+  computeAllSourceHealthStatuses,
+  recordSourceHealthFromCaptureEvaluation
+} from "../sources/source-health.js";
 import { collectJobsFromSource } from "../sources/linkedin-saved-search.js";
 
 function escapeHtml(value) {
@@ -722,18 +731,138 @@ export function buildSourceRefreshMeta(source, options = {}) {
   };
 }
 
+function resolveAllowQuarantinedIngest(options = {}) {
+  if (options.allowQuarantined === true) {
+    return true;
+  }
+
+  const envValue = String(
+    process.env.JOB_FINDER_ALLOW_QUARANTINED_CAPTURE || ""
+  ).trim().toLowerCase();
+
+  return envValue === "1" || envValue === "true" || envValue === "yes";
+}
+
+function buildRejectedEvaluation(reason) {
+  return {
+    outcome: "reject",
+    reasons: [String(reason || "capture validation rejected source ingest")],
+    metrics: {
+      sampleSize: 0,
+      baselineCount: null,
+      baselineRatio: null,
+      uniqueJobRatio: null,
+      urlValidityRatio: null,
+      requiredCoverage: {
+        title: null,
+        company: null,
+        url: null
+      },
+      optionalUnknownRates: {
+        location: null,
+        postedAt: null,
+        salaryText: null,
+        employmentType: null
+      }
+    },
+    evaluatedAt: new Date().toISOString()
+  };
+}
+
 function runSyncAndScore() {
   const { criteria } = loadSearchCriteria();
   const sources = loadSources().sources.filter((source) => source.enabled);
+  const allowQuarantined = resolveAllowQuarantinedIngest();
 
   return withDatabase((db) => {
     let totalCollected = 0;
     let totalUpserted = 0;
     let totalPruned = 0;
+    let skippedByQuality = 0;
+    const qualityMessages = [];
 
     for (const source of sources) {
-      const rawJobs = collectJobsFromSource(source);
-      const normalizedJobs = rawJobs.map((job) => normalizeJobRecord(job, source));
+      const captureSummary = readSourceCaptureSummary(source);
+      let rawJobs;
+      try {
+        rawJobs = collectJobsFromSource(source);
+      } catch (error) {
+        const evaluation = buildRejectedEvaluation(`collection failed: ${error.message}`);
+        const failurePayload = {
+          capturedAt: captureSummary.capturedAt || new Date().toISOString(),
+          expectedCount: captureSummary.expectedCount,
+          pageUrl: captureSummary.pageUrl,
+          jobs: []
+        };
+        recordSourceHealthFromCaptureEvaluation(source, failurePayload, evaluation);
+        const artifactPath = writeCaptureQuarantineArtifact(
+          source,
+          failurePayload,
+          evaluation
+        );
+        skippedByQuality += 1;
+        qualityMessages.push(
+          `${source.id}: rejected (collection failure). artifact=${artifactPath}`
+        );
+        continue;
+      }
+
+      const capturePayload = {
+        capturedAt: captureSummary.capturedAt || new Date().toISOString(),
+        expectedCount: captureSummary.expectedCount,
+        pageUrl: captureSummary.pageUrl,
+        jobs: rawJobs
+      };
+      const evaluation = evaluateCaptureRun(source, capturePayload, {
+        baselineCount: captureSummary.expectedCount
+      });
+      recordSourceHealthFromCaptureEvaluation(source, capturePayload, evaluation);
+      const shouldIngest = shouldIngestCaptureEvaluation(evaluation, {
+        allowQuarantined
+      });
+      if (!shouldIngest) {
+        const artifactPath = writeCaptureQuarantineArtifact(
+          source,
+          capturePayload,
+          evaluation
+        );
+        skippedByQuality += 1;
+        qualityMessages.push(
+          `${source.id}: ${evaluation.outcome}. ${evaluation.reasons.join(" | ") || "no reason"} artifact=${artifactPath}`
+        );
+        continue;
+      }
+
+      if (evaluation.outcome !== "accept" && allowQuarantined) {
+        qualityMessages.push(
+          `${source.id}: ${evaluation.outcome} accepted via override (--allow-quarantined).`
+        );
+      }
+
+      let normalizedJobs;
+      try {
+        normalizedJobs = rawJobs.map((job) => normalizeJobRecord(job, source));
+      } catch (error) {
+        const evaluationOnNormalizeError = buildRejectedEvaluation(
+          `normalization failed: ${error.message}`
+        );
+        recordSourceHealthFromCaptureEvaluation(
+          source,
+          capturePayload,
+          evaluationOnNormalizeError
+        );
+        const artifactPath = writeCaptureQuarantineArtifact(
+          source,
+          capturePayload,
+          evaluationOnNormalizeError
+        );
+        skippedByQuality += 1;
+        qualityMessages.push(
+          `${source.id}: rejected (normalization failure). artifact=${artifactPath}`
+        );
+        continue;
+      }
+
       totalCollected += normalizedJobs.length;
       totalUpserted += upsertJobs(db, normalizedJobs);
       totalPruned += pruneSourceJobs(
@@ -751,6 +880,8 @@ function runSyncAndScore() {
       collected: totalCollected,
       upserted: totalUpserted,
       pruned: totalPruned,
+      skippedByQuality,
+      qualityMessages,
       evaluated: evaluations.length,
       buckets: summarizeBuckets(evaluations)
     };
@@ -996,6 +1127,10 @@ function buildDashboardData(limit = 200) {
     }
   }
   const sourceLastSeenAt = getSourceLastSeenAtMap();
+  const sourceHealthRows = computeAllSourceHealthStatuses({ window: 3 });
+  const sourceHealthBySourceId = new Map(
+    sourceHealthRows.map((row) => [row.sourceId, row])
+  );
   const queue = statsQueue
     .filter((job) => job.status === "new" || job.status === "viewed")
     .slice(0, limit);
@@ -1071,6 +1206,7 @@ function buildDashboardData(limit = 200) {
       const capture = readCaptureSummary(source);
       const captureFunnel = buildSourceCaptureFunnel(source, capture);
       const refreshMeta = buildSourceRefreshMeta(source);
+      const health = sourceHealthBySourceId.get(source.id) || null;
       const counts = countsBySourceId.get(source.id) || {
         totalCount: 0,
         activeCount: 0,
@@ -1154,9 +1290,36 @@ function buildDashboardData(limit = 200) {
         rejectedCount: counts.rejectedCount,
         highSignalCount: counts.highSignalCount,
         avgScore,
+        adapterHealthStatus: health?.status || "unknown",
+        adapterHealthScore:
+          Number.isFinite(Number(health?.score)) ? Number(health.score) : null,
+        adapterHealthReasons: Array.isArray(health?.reasons) ? health.reasons : [],
         ...refreshMeta
       };
     }),
+    sourceHealthSummary: sourceHealthRows.reduce(
+      (accumulator, row) => {
+        const status = row?.status || "unknown";
+        accumulator.total += 1;
+        if (status === "ok") {
+          accumulator.ok += 1;
+        } else if (status === "degraded") {
+          accumulator.degraded += 1;
+        } else if (status === "failing") {
+          accumulator.failing += 1;
+        } else {
+          accumulator.unknown += 1;
+        }
+        return accumulator;
+      },
+      {
+        total: 0,
+        ok: 0,
+        degraded: 0,
+        failing: 0,
+        unknown: 0
+      }
+    ),
     queue,
     appliedQueue,
     skippedQueue,
@@ -3212,6 +3375,12 @@ export function renderDashboardPage(dashboard, options = {}) {
         }
 
         const searchSourcesByKind = new Map();
+        const adapterHealthRank = (status) => {
+          if (status === "failing") return 3;
+          if (status === "degraded") return 2;
+          if (status === "ok") return 1;
+          return 0;
+        };
         for (const source of sourcesForDisplay) {
           const sourceKind = sourceKindFromType(source.type);
           const current = searchSourcesByKind.get(sourceKind) || {
@@ -3231,6 +3400,9 @@ export function renderDashboardPage(dashboard, options = {}) {
             importedCount: 0,
             expectedFoundCount: 0,
             hasUnknownExpectedCount: false,
+            adapterHealthStatus: "unknown",
+            adapterHealthScore: null,
+            adapterHealthReason: null,
             appliedCount: 0,
             skippedCount: 0,
             highSignalCount: 0,
@@ -3274,6 +3446,32 @@ export function renderDashboardPage(dashboard, options = {}) {
 
           if (source.captureFunnelError && !current.captureFunnelError) {
             current.captureFunnelError = source.captureFunnelError;
+          }
+
+          const sourceHealthStatus =
+            typeof source.adapterHealthStatus === "string"
+              ? source.adapterHealthStatus
+              : "unknown";
+          const sourceHealthReasons = Array.isArray(source.adapterHealthReasons)
+            ? source.adapterHealthReasons
+            : [];
+          const sourceHealthScore = Number(source.adapterHealthScore);
+          if (
+            adapterHealthRank(sourceHealthStatus) >
+            adapterHealthRank(current.adapterHealthStatus)
+          ) {
+            current.adapterHealthStatus = sourceHealthStatus;
+            current.adapterHealthScore = Number.isFinite(sourceHealthScore)
+              ? sourceHealthScore
+              : null;
+            current.adapterHealthReason =
+              sourceHealthReasons.length > 0 ? sourceHealthReasons[0] : null;
+          } else if (
+            current.adapterHealthStatus === sourceHealthStatus &&
+            current.adapterHealthReason === null &&
+            sourceHealthReasons.length > 0
+          ) {
+            current.adapterHealthReason = sourceHealthReasons[0];
           }
 
           if (
@@ -3371,19 +3569,44 @@ export function renderDashboardPage(dashboard, options = {}) {
                   : source.captureStatus === "live_source"
                     ? "live source"
                   : "never run";
-            const statusTone =
+            const healthStatus =
+              typeof source.adapterHealthStatus === "string"
+                ? source.adapterHealthStatus
+                : "unknown";
+            const healthTone =
+              healthStatus === "failing"
+                ? "error"
+                : healthStatus === "degraded"
+                  ? "warn"
+                  : null;
+            const statusTone = healthTone || (
               source.captureStatus === "capture_error"
                 ? "error"
                 : source.hasCacheState
                   ? "warn"
-                  : "ok";
+                  : "ok"
+            );
             const statusLabel =
+              healthStatus === "failing"
+                ? "adapter failing"
+                : healthStatus === "degraded"
+                  ? "adapter degraded"
+                  :
               statusTone === "warn"
                 ? "cache"
                 : statusTone === "error"
                   ? "error"
                   : statusLabelRaw;
-            const statusDetail = source.captureFunnelError || null;
+            const healthScore =
+              Number.isFinite(Number(source.adapterHealthScore))
+                ? Math.round(Number(source.adapterHealthScore) * 100)
+                : null;
+            const statusDetail =
+              source.adapterHealthReason ||
+              source.captureFunnelError ||
+              (healthStatus === "ok" && healthScore !== null
+                ? "health score " + healthScore + "%"
+                : null);
             const sourceLabel = source.searchUrl
               ? '<a class="search-name search-link-label search-name-link" href="' +
                 safeSearchUrl +

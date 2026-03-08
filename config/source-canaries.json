@@ -1,0 +1,69 @@
+{
+  "version": "1.0.0",
+  "canaries": [
+    {
+      "id": "linkedin-default",
+      "sourceType": "linkedin_capture_file",
+      "enabled": true,
+      "checks": [
+        { "kind": "min_samples", "min": 10 },
+        { "kind": "required_coverage", "min": 0.7, "fields": ["title", "company", "url"] },
+        { "kind": "min_url_validity", "min": 0.9 },
+        { "kind": "min_unique_ratio", "min": 0.5 }
+      ]
+    },
+    {
+      "id": "builtin-default",
+      "sourceType": "builtin_search",
+      "enabled": true,
+      "checks": [
+        { "kind": "min_samples", "min": 3 },
+        { "kind": "required_coverage", "min": 0.7, "fields": ["title", "company", "url"] },
+        { "kind": "min_url_validity", "min": 0.9 }
+      ]
+    },
+    {
+      "id": "ashby-default",
+      "sourceType": "ashby_search",
+      "enabled": true,
+      "checks": [
+        { "kind": "min_samples", "min": 5 },
+        { "kind": "required_coverage", "min": 0.7, "fields": ["title", "company", "url"] },
+        { "kind": "min_url_validity", "min": 0.9 },
+        { "kind": "min_unique_ratio", "min": 0.6 }
+      ]
+    },
+    {
+      "id": "google-default",
+      "sourceType": "google_search",
+      "enabled": true,
+      "checks": [
+        { "kind": "min_samples", "min": 5 },
+        { "kind": "required_coverage", "min": 0.7, "fields": ["title", "company", "url"] },
+        { "kind": "min_url_validity", "min": 0.9 }
+      ]
+    },
+    {
+      "id": "indeed-default",
+      "sourceType": "indeed_search",
+      "enabled": true,
+      "checks": [
+        { "kind": "min_samples", "min": 8 },
+        { "kind": "required_coverage", "min": 0.7, "fields": ["title", "company", "url"] },
+        { "kind": "min_url_validity", "min": 0.9 },
+        { "kind": "min_unique_ratio", "min": 0.6 }
+      ]
+    },
+    {
+      "id": "ziprecruiter-default",
+      "sourceType": "ziprecruiter_search",
+      "enabled": true,
+      "checks": [
+        { "kind": "min_samples", "min": 8 },
+        { "kind": "required_coverage", "min": 0.7, "fields": ["title", "company", "url"] },
+        { "kind": "min_url_validity", "min": 0.9 },
+        { "kind": "min_unique_ratio", "min": 0.6 }
+      ]
+    }
+  ]
+}
