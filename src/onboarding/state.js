@@ -64,6 +64,12 @@ function defaultSettings() {
       completed: false,
       completedAt: null,
       firstRunAt: null,
+      consent: {
+        tosRiskAccepted: false,
+        rateLimitPolicyAccepted: false,
+        acceptedAt: null,
+        updatedAt: nowIso()
+      },
       channel: {
         value: inferred.channel,
         confidence: inferred.confidence,
@@ -115,6 +121,12 @@ function normalizeSettings(rawSettings) {
     !Array.isArray(checksInput.sources)
       ? checksInput.sources
       : {};
+  const consentInput =
+    onboardingInput.consent &&
+    typeof onboardingInput.consent === "object" &&
+    !Array.isArray(onboardingInput.consent)
+      ? onboardingInput.consent
+      : {};
 
   return {
     version: 1,
@@ -137,6 +149,15 @@ function normalizeSettings(rawSettings) {
         onboardingInput.firstRunAt && String(onboardingInput.firstRunAt).trim()
           ? String(onboardingInput.firstRunAt)
           : null,
+      consent: {
+        tosRiskAccepted: Boolean(consentInput.tosRiskAccepted),
+        rateLimitPolicyAccepted: Boolean(consentInput.rateLimitPolicyAccepted),
+        acceptedAt:
+          consentInput.acceptedAt && String(consentInput.acceptedAt).trim()
+            ? String(consentInput.acceptedAt)
+            : null,
+        updatedAt: String(consentInput.updatedAt || defaults.onboarding.consent.updatedAt)
+      },
       channel: {
         value: normalizeChannel(onboardingInput?.channel?.value || defaults.onboarding.channel.value),
         confidence: String(
@@ -304,6 +325,29 @@ export function markOnboardingCompleted(settingsPath) {
   }), settingsPath);
 }
 
+export function updateInstallConsent(
+  input,
+  settingsPath = DEFAULT_SETTINGS_PATH
+) {
+  const tosRiskAccepted = Boolean(input?.tosRiskAccepted);
+  const rateLimitPolicyAccepted = Boolean(input?.rateLimitPolicyAccepted);
+  const bothAccepted = tosRiskAccepted && rateLimitPolicyAccepted;
+
+  return updateUserSettings((settings) => ({
+    ...settings,
+    onboarding: {
+      ...settings.onboarding,
+      consent: {
+        ...settings.onboarding.consent,
+        tosRiskAccepted,
+        rateLimitPolicyAccepted,
+        acceptedAt: bothAccepted ? nowIso() : null,
+        updatedAt: nowIso()
+      }
+    }
+  }), settingsPath);
+}
+
 export function getEffectiveOnboardingChannel(settings, env = process.env) {
   const current = normalizeSettings(settings);
   if (current.onboarding.channel.value && current.onboarding.channel.value !== "unknown") {
@@ -312,4 +356,3 @@ export function getEffectiveOnboardingChannel(settings, env = process.env) {
 
   return inferChannel(env);
 }
-

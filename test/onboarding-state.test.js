@@ -11,6 +11,7 @@ import {
   markFirstRunCompleted,
   markOnboardingCompleted,
   updateAnalyticsPreference,
+  updateInstallConsent,
   updateOnboardingChannel,
   updateOnboardingSourceCheck,
   updateOnboardingSources
@@ -40,8 +41,17 @@ test("loadUserSettings initializes defaults and supports onboarding updates", ()
     assert.equal(typeof initial.settings.installId, "string");
     assert.equal(initial.settings.onboarding.completed, false);
     assert.equal(initial.settings.analytics.enabled, true);
+    assert.equal(initial.settings.onboarding.consent.tosRiskAccepted, false);
+    assert.equal(initial.settings.onboarding.consent.rateLimitPolicyAccepted, false);
     assert.ok(fs.existsSync(settingsPath));
 
+    updateInstallConsent(
+      {
+        tosRiskAccepted: true,
+        rateLimitPolicyAccepted: true
+      },
+      settingsPath
+    );
     updateOnboardingChannel("codex", "self_reported", settingsPath);
     updateAnalyticsPreference(false, settingsPath);
     updateOnboardingSources(["linkedin", "google", "linkedin"], settingsPath);
@@ -62,6 +72,9 @@ test("loadUserSettings initializes defaults and supports onboarding updates", ()
 
     const after = loadUserSettings(settingsPath).settings;
     assert.equal(after.analytics.enabled, false);
+    assert.equal(after.onboarding.consent.tosRiskAccepted, true);
+    assert.equal(after.onboarding.consent.rateLimitPolicyAccepted, true);
+    assert.equal(typeof after.onboarding.consent.acceptedAt, "string");
     assert.equal(after.onboarding.channel.value, "codex");
     assert.deepEqual(after.onboarding.selectedSourceIds, ["linkedin", "google"]);
     assert.equal(after.onboarding.checks.sources.linkedin.status, "pass");

@@ -86,6 +86,7 @@ import {
   getEffectiveOnboardingChannel,
   loadUserSettings,
   updateAnalyticsPreference,
+  updateInstallConsent,
   updateOnboardingChannel
 } from "./onboarding/state.js";
 
@@ -256,7 +257,15 @@ function parseInitOptions(args) {
   const parsedChannel = parseOptionValue(args, "--channel");
   const parsedAnalytics = parseOptionValue(parsedChannel.args, "--analytics");
   const noAnalytics = extractFlag(parsedAnalytics.args, "--no-analytics");
-  const nonInteractive = extractFlag(noAnalytics.args, "--non-interactive");
+  const acceptTosRisk = extractFlag(noAnalytics.args, "--accept-tos-risk");
+  const acceptRateLimitPolicy = extractFlag(
+    acceptTosRisk.args,
+    "--accept-rate-limit-policy"
+  );
+  const nonInteractive = extractFlag(
+    acceptRateLimitPolicy.args,
+    "--non-interactive"
+  );
 
   if (nonInteractive.args.length > 0) {
     throw new Error(`Unknown option(s) for init: ${nonInteractive.args.join(" ")}`);
@@ -271,6 +280,8 @@ function parseInitOptions(args) {
   return {
     channel,
     analyticsEnabled,
+    acceptTosRisk: acceptTosRisk.present,
+    acceptRateLimitPolicy: acceptRateLimitPolicy.present,
     nonInteractive: nonInteractive.present
   };
 }
@@ -314,10 +325,97 @@ async function promptInitOptions(defaults, options = {}) {
   }
 }
 
+function printInstallConsentNotice() {
+  console.log("\nBefore you continue");
+  console.log(
+    "Job Finder captures data from job platforms using your browser session."
+  );
+  console.log(
+    "Many platforms prohibit automated access in their Terms of Service."
+  );
+  console.log(
+    "While Job Finder is designed to behave like normal browsing, use may still violate platform ToS and could result in account restrictions or termination."
+  );
+  console.log(
+    "You are responsible for your own accounts. Job Finder assumes no liability for ToS violations or account actions taken by third-party platforms."
+  );
+  console.log(
+    "Job Finder's default rate limits are designed to minimize detection risk and protect the broader community."
+  );
+  console.log(
+    "Aggressive configuration increases risk for you and, if patterns become associated with this tool, for other users."
+  );
+}
+
+async function promptInstallConsent() {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+
+  try {
+    const first = await rl.question(
+      "I understand the ToS risk and accept responsibility for my accounts [y/N]: "
+    );
+    const tosRiskAccepted = parseAnalyticsInput(first) === true;
+    if (!tosRiskAccepted) {
+      return {
+        tosRiskAccepted: false,
+        rateLimitPolicyAccepted: false
+      };
+    }
+
+    const second = await rl.question(
+      "I will not modify default rate limits without understanding the implications [y/N]: "
+    );
+    const rateLimitPolicyAccepted = parseAnalyticsInput(second) === true;
+
+    return {
+      tosRiskAccepted,
+      rateLimitPolicyAccepted
+    };
+  } finally {
+    rl.close();
+  }
+}
+
 async function runInit(options = {}) {
+  const settings = loadUserSettings();
+  const existingConsent = settings.settings?.onboarding?.consent || {};
+  const hasAcceptedInstallConsent =
+    Boolean(existingConsent.tosRiskAccepted) &&
+    Boolean(existingConsent.rateLimitPolicyAccepted);
+
+  if (!hasAcceptedInstallConsent) {
+    const providedConsent = {
+      tosRiskAccepted: Boolean(options.acceptTosRisk),
+      rateLimitPolicyAccepted: Boolean(options.acceptRateLimitPolicy)
+    };
+
+    const hasProvidedConsent =
+      providedConsent.tosRiskAccepted && providedConsent.rateLimitPolicyAccepted;
+
+    if (hasProvidedConsent) {
+      updateInstallConsent(providedConsent, settings.path);
+    } else {
+      const canPrompt = !options.nonInteractive && process.stdin.isTTY && process.stdout.isTTY;
+      if (!canPrompt) {
+        throw new Error(
+          "Install consent required. Re-run `jf init --accept-tos-risk --accept-rate-limit-policy` or run interactively."
+        );
+      }
+
+      printInstallConsentNotice();
+      const promptedConsent = await promptInstallConsent();
+      if (!(promptedConsent.tosRiskAccepted && promptedConsent.rateLimitPolicyAccepted)) {
+        throw new Error("Install consent not accepted. Exiting.");
+      }
+      updateInstallConsent(promptedConsent, settings.path);
+    }
+  }
+
   const { db, dbPath } = withDatabase();
   db.close();
-  const settings = loadUserSettings();
   const defaultChannel =
     settings.settings?.onboarding?.channel?.value &&
     settings.settings.onboarding.channel.value !== "unknown"
@@ -1965,6 +2063,8 @@ QUICK START:
   jf init                       Initialize profile and database
      --channel <npm|codex|claude|unknown>
      --analytics <yes|no> | --no-analytics
+     --accept-tos-risk --accept-rate-limit-policy
+     --non-interactive
   jf run                        Sync jobs from all sources (run daily)
   jf review                     Open dashboard at http://localhost:4311
 

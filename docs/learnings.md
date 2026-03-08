@@ -87,3 +87,9 @@ As of 2026-03-06.
 - In `config/sources.json` map mode, treat entries as enablement-only (`sourceId -> boolean` or `{ enabled }`).
 - Do not allow legacy per-source map overrides (e.g., `name`, `searchUrl`) to mutate canonical source-library labels.
 - Reason: old manual-search metadata can leak into onboarding and make source enablement look like saved custom searches.
+
+## Consent Capture Timing
+
+- Legal/operational consent should be captured during CLI `init` (first-run), not deferred to dashboard-only onboarding.
+- Require explicit opt-in for ToS risk and rate-limit responsibility before continuing initialization.
+- Provide non-interactive consent flags for scripted installs to keep automation deterministic.
