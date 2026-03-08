@@ -5,6 +5,8 @@ config/profile-source.json
 config/sources.json
 data/
 output/
+!src/output/
+!src/output/render.js
 node_modules/
 .DS_Store
 Resume-Peter-Spannagle.pdf
