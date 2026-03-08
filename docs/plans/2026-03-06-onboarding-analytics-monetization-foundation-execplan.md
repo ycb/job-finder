@@ -39,6 +39,7 @@ The observable behavior is:
 - [x] (2026-03-07 22:36Z) Added API support for separate onboarding `sourceIds` vs `enabledSourceIds` to preserve selection intent while enforcing verification-gated enablement.
 - [x] (2026-03-07 22:39Z) Verified full repository test suite passes after onboarding UX + verification updates (`143/143`).
 - [x] (2026-03-07 22:48Z) Corrected onboarding persistence semantics: persist enabled sources only to avoid "my searches" state drift from runtime source enablement.
+- [x] (2026-03-08 05:10Z) Hardened source-library map mode to ignore legacy per-source metadata overrides (name/search URL), preserving canonical source labels in onboarding and searches.
 
 ## Surprises & Discoveries
 
@@ -79,6 +80,9 @@ The observable behavior is:
 - Decision: Persist onboarding source state as enabled-only; treat broad selection as temporary UI state.
   Rationale: Aligns onboarding output with actual runtime ingestion behavior and removes conceptual mismatch for users.
   Date/Author: 2026-03-07 / Codex
+- Decision: In `sources.json` map mode, ignore legacy metadata overrides and accept enablement only.
+  Rationale: Prevents old manual-search names/URLs from leaking into onboarding UI and reintroducing "my searches" semantics.
+  Date/Author: 2026-03-08 / Codex
 - Decision: Use live source run verification for auth-required sources (skip sync/score) and probe checks for non-auth sources.
   Rationale: Confirms access realistically without forcing a full pipeline run during onboarding verification.
   Date/Author: 2026-03-07 / Codex

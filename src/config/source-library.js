@@ -1,25 +1,25 @@
 const SOURCE_LIBRARY = Object.freeze([
   {
     id: "linkedin-live-capture",
-    name: "LinkedIn Lead Product Manager Search",
+    name: "LinkedIn",
     type: "linkedin_capture_file",
-    enabled: true,
+    enabled: false,
     searchUrl: "https://www.linkedin.com/jobs/search/",
     capturePath: "data/captures/linkedin-live-capture.json",
     cacheTtlHours: 24
   },
   {
     id: "builtin-sf-ai-pm",
-    name: "Built In SF AI Product Jobs",
+    name: "Built In",
     type: "builtin_search",
-    enabled: false,
+    enabled: true,
     searchUrl: "https://www.builtinsf.com/jobs/product-management/product-manager",
     maxJobs: 50,
     cacheTtlHours: 12
   },
   {
     id: "ashby-pm-roles",
-    name: "Ashby PM Roles",
+    name: "Ashby",
     type: "ashby_search",
     enabled: false,
     searchUrl: "https://jobs.ashbyhq.com/",
@@ -29,7 +29,7 @@ const SOURCE_LIBRARY = Object.freeze([
   },
   {
     id: "indeed-ai-pm",
-    name: "Indeed AI Product Jobs",
+    name: "Indeed",
     type: "indeed_search",
     enabled: false,
     searchUrl: "https://www.indeed.com/jobs",
@@ -37,7 +37,7 @@ const SOURCE_LIBRARY = Object.freeze([
   },
   {
     id: "zip-ai-pm",
-    name: "ZipRecruiter AI Product Jobs",
+    name: "ZipRecruiter",
     type: "ziprecruiter_search",
     enabled: false,
     searchUrl: "https://www.ziprecruiter.com/jobs-search",
@@ -45,16 +45,16 @@ const SOURCE_LIBRARY = Object.freeze([
   },
   {
     id: "google-ai-pm",
-    name: "Google AI PM Discovery",
+    name: "Google",
     type: "google_search",
-    enabled: false,
+    enabled: true,
     searchUrl: "https://www.google.com/search",
     recencyWindow: "1w",
     cacheTtlHours: 12
   },
   {
     id: "wellfound-ai-pm",
-    name: "Wellfound AI Product Jobs",
+    name: "Wellfound",
     type: "wellfound_search",
     enabled: false,
     searchUrl: "https://wellfound.com/jobs",
@@ -63,7 +63,7 @@ const SOURCE_LIBRARY = Object.freeze([
   },
   {
     id: "remoteok-ai-pm",
-    name: "RemoteOK AI Product Jobs",
+    name: "RemoteOK",
     type: "remoteok_search",
     enabled: false,
     searchUrl: "https://remoteok.com/remote-product-manager-jobs",
@@ -83,25 +83,24 @@ function normalizeEnabledEntry(rawEntry, defaultEnabled) {
   if (typeof rawEntry === "boolean") {
     return {
       enabled: rawEntry,
-      overrides: {}
+      overrides: Object.create(null)
     };
   }
 
   if (!isPlainObject(rawEntry)) {
     return {
       enabled: defaultEnabled,
-      overrides: {}
+      overrides: Object.create(null)
     };
   }
-
-  const overrides = { ...rawEntry };
   const enabled =
     typeof rawEntry.enabled === "boolean" ? rawEntry.enabled : defaultEnabled;
-  delete overrides.enabled;
 
   return {
     enabled,
-    overrides
+    // sources.json map mode is enablement-only; ignore legacy per-source metadata
+    // to prevent old manual-search labels/URLs from leaking into source library rows.
+    overrides: Object.create(null)
   };
 }
 

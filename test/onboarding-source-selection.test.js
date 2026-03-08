@@ -55,6 +55,25 @@ function createTempSourcesMapConfig() {
   return { tempDir, sourcesPath };
 }
 
+function createTempSourcesMapWithLegacyOverridesConfig() {
+  const tempDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "job-finder-onboarding-sources-map-overrides-")
+  );
+  const sourcesPath = path.join(tempDir, "sources.json");
+  const payload = {
+    sources: {
+      "linkedin-live-capture": {
+        enabled: true,
+        name: "LinkedIn Lead Product Manager Search",
+        searchUrl: "https://www.linkedin.com/jobs/search/?keywords=legacy+saved+search"
+      }
+    }
+  };
+
+  fs.writeFileSync(sourcesPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  return { tempDir, sourcesPath };
+}
+
 test("setEnabledSources persists selected source ids", () => {
   const { tempDir, sourcesPath } = createTempSourcesConfig();
   try {
@@ -116,6 +135,20 @@ test("loadSourcesWithPath bootstraps sources.json when missing", () => {
     assert.equal(typeof persisted.sources, "object");
     assert.equal(Array.isArray(persisted.sources), false);
     assert.equal(typeof persisted.sources["linkedin-live-capture"], "boolean");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("loadSourcesWithPath ignores legacy map overrides beyond enabled flag", () => {
+  const { tempDir, sourcesPath } = createTempSourcesMapWithLegacyOverridesConfig();
+  try {
+    const loaded = loadSourcesWithPath(sourcesPath).sources;
+    const linkedIn = loaded.find((source) => source.id === "linkedin-live-capture");
+    assert.ok(linkedIn);
+    assert.equal(linkedIn.name, "LinkedIn");
+    assert.equal(linkedIn.searchUrl, "https://www.linkedin.com/jobs/search/");
+    assert.equal(linkedIn.enabled, true);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

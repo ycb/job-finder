@@ -81,3 +81,9 @@ As of 2026-03-06.
 - Distinguish temporary UI selection from persisted runtime enablement.
 - Persist only what drives ingestion (`enabled sources`), not a second "selected searches" model that can drift.
 - When auth verification fails, keep source disabled and communicate retry, but avoid storing it as an enabled/personalized search.
+
+## Source Library Label Integrity
+
+- In `config/sources.json` map mode, treat entries as enablement-only (`sourceId -> boolean` or `{ enabled }`).
+- Do not allow legacy per-source map overrides (e.g., `name`, `searchUrl`) to mutate canonical source-library labels.
+- Reason: old manual-search metadata can leak into onboarding and make source enablement look like saved custom searches.

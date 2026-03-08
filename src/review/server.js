@@ -2753,6 +2753,19 @@ export function renderDashboardPage(dashboard, options = {}) {
       }
 
       function onboardingSelectedSourceIdsForRender() {
+        const onboarding = onboardingData();
+        const sourceChecks = onboardingChecksBySourceId();
+        const hasChecks = Object.keys(sourceChecks).length > 0;
+        const isFirstRunSelection =
+          onboardingEnabled &&
+          onboarding &&
+          onboarding.completed !== true &&
+          !hasChecks &&
+          !onboarding.firstRunAt;
+        if (isFirstRunSelection) {
+          return defaultOnboardingSelection(onboardingCandidateSources());
+        }
+
         const saved = onboardingCandidateSources()
           .filter((source) => source.enabled)
           .map((source) => source.id);

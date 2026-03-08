@@ -197,6 +197,13 @@ test("renderDashboardPage includes default non-auth onboarding selection fallbac
   assert.equal(html.includes("defaultOnboardingSelection(onboardingCandidateSources())"), true);
 });
 
+test("renderDashboardPage first-run onboarding selection prefers no-auth defaults", () => {
+  const html = renderDashboardPage({});
+  assert.equal(html.includes("const isFirstRunSelection ="), true);
+  assert.equal(html.includes("!onboarding.firstRunAt"), true);
+  assert.equal(html.includes("return defaultOnboardingSelection(onboardingCandidateSources());"), true);
+});
+
 test("renderDashboardPage searches table shows funnel columns", () => {
   const html = renderDashboardPage({});
   assert.equal(html.includes("<th>Found</th>"), true);

@@ -1,11 +1,11 @@
 {
   "sources": {
-    "linkedin-live-capture": true,
-    "builtin-sf-ai-pm": false,
+    "linkedin-live-capture": false,
+    "builtin-sf-ai-pm": true,
     "ashby-pm-roles": false,
     "indeed-ai-pm": false,
     "zip-ai-pm": false,
-    "google-ai-pm": false,
+    "google-ai-pm": true,
     "wellfound-ai-pm": false,
     "remoteok-ai-pm": false
   }
