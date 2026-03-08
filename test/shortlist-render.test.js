@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { writeShortlistFile } from "../src/output/render.js";
+import { writeShortlistFile } from "../src/shortlist/render.js";
 
 test("writeShortlistFile writes shortlist payload and returns output path", () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-finder-shortlist-"));

@@ -42,7 +42,7 @@ import {
   pruneSourceJobs
 } from "./jobs/repository.js";
 import { evaluateJobsFromSearchCriteria } from "./jobs/score.js";
-import { writeShortlistFile } from "./output/render.js";
+import { writeShortlistFile } from "./shortlist/render.js";
 import { startReviewServer } from "./review/server.js";
 import {
   getSourceRefreshDecision,
@@ -230,14 +230,19 @@ function runSync(options = {}) {
       continue;
     }
 
+    const captureSummaryAfterCollection = readSourceCaptureSummary(source);
     const capturePayload = {
-      capturedAt: captureSummary.capturedAt || new Date().toISOString(),
-      expectedCount: captureSummary.expectedCount,
-      pageUrl: captureSummary.pageUrl,
+      capturedAt:
+        captureSummaryAfterCollection.capturedAt ||
+        captureSummary.capturedAt ||
+        new Date().toISOString(),
+      expectedCount:
+        captureSummaryAfterCollection.expectedCount ?? captureSummary.expectedCount,
+      pageUrl: captureSummaryAfterCollection.pageUrl || captureSummary.pageUrl,
       jobs: rawJobs
     };
     const evaluation = evaluateCaptureRun(source, capturePayload, {
-      baselineCount: captureSummary.expectedCount
+      baselineCount: capturePayload.expectedCount
     });
     recordSourceHealthFromCaptureEvaluation(source, capturePayload, evaluation);
     const shouldIngest = shouldIngestCaptureEvaluation(evaluation, {

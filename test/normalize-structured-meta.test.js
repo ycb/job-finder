@@ -20,9 +20,9 @@ test("normalizeJobRecord emits structured metadata with required placeholders", 
     source
   );
 
-  assert.equal(normalized.location, "unknown");
-  assert.equal(normalized.salaryText, "unknown");
-  assert.equal(normalized.employmentType, "unknown");
+  assert.equal(normalized.location, null);
+  assert.equal(normalized.salaryText, null);
+  assert.equal(normalized.employmentType, null);
   assert.ok(normalized.structuredMeta);
   assert.equal(normalized.structuredMeta.location, "unknown");
   assert.equal(normalized.structuredMeta.salary.rawText, "unknown");

@@ -433,12 +433,15 @@ export function normalizeJobRecord(rawJob, source) {
     company,
     location
   });
-  const normalizedLocation = identity.location || "unknown";
-  const normalizedSalaryText = normalizeText(rawJob.salaryText) || "unknown";
-  const normalizedEmploymentType = normalizeText(rawJob.employmentType) || "unknown";
+  const normalizedLocation = identity.location || null;
+  const normalizedSalaryText = normalizeText(rawJob.salaryText) || null;
+  const normalizedEmploymentType = normalizeText(rawJob.employmentType) || null;
+  const structuredLocation = normalizedLocation || "unknown";
+  const structuredSalaryText = normalizedSalaryText || "unknown";
+  const structuredEmploymentType = normalizedEmploymentType || "unknown";
   const freshness = toFreshnessMeta(rawJob.postedAt, postedAt);
-  const salary = parseSalaryMeta(normalizedSalaryText);
-  const workModel = inferWorkModel(normalizedLocation, description);
+  const salary = parseSalaryMeta(structuredSalaryText);
+  const workModel = inferWorkModel(structuredLocation, description);
   const skills = extractTopSkills(description);
   const extractorProvenance =
     rawJob.extractorProvenance &&
@@ -449,11 +452,11 @@ export function normalizeJobRecord(rawJob, source) {
   const structuredMeta = {
     title,
     company: identity.company,
-    location: normalizedLocation,
+    location: structuredLocation,
     freshness,
     salary,
     description,
-    employmentType: normalizedEmploymentType
+    employmentType: structuredEmploymentType
   };
   if (workModel) {
     structuredMeta.workModel = workModel;
