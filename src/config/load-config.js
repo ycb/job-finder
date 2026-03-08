@@ -939,6 +939,33 @@ export function updateSourceSearchUrl(
   );
 }
 
+export function setEnabledSources(
+  enabledSourceIds,
+  sourcesPath = "config/sources.json"
+) {
+  const enabledSet = new Set(
+    (Array.isArray(enabledSourceIds) ? enabledSourceIds : [])
+      .map((value) => String(value || "").trim())
+      .filter(Boolean)
+  );
+  const { resolvedPath, data } = readJsonFileWithPath(sourcesPath);
+  const sources = requireSourcesArray(data, resolvedPath);
+
+  for (const source of sources) {
+    if (!source || typeof source !== "object") {
+      continue;
+    }
+    source.enabled = enabledSet.has(String(source.id || "").trim());
+  }
+
+  const validated = validateSources(data);
+  fs.writeFileSync(resolvedPath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+  return {
+    path: resolvedPath,
+    sources: validated.sources
+  };
+}
+
 export function updateSourceDefinition(
   sourceIdOrName,
   updates,

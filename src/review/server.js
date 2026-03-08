@@ -24,11 +24,17 @@ import {
   loadSearchCriteria,
   normalizeAllSourceSearchUrls,
   saveSearchCriteria,
+  setEnabledSources,
   useLegacyProfileSource,
   useMyGoalsProfileSource,
   loadSources,
   updateSourceDefinition
 } from "../config/load-config.js";
+import {
+  isAnalyticsEnabledByFlag,
+  isMonetizationLimitsEnabled,
+  isOnboardingWizardEnabled
+} from "../config/feature-flags.js";
 import { loadRetentionPolicy } from "../config/retention-policy.js";
 import { openDatabase } from "../db/client.js";
 import { runMigrations } from "../db/migrations.js";
@@ -64,6 +70,23 @@ import {
   recordSourceHealthFromCaptureEvaluation
 } from "../sources/source-health.js";
 import { collectJobsFromSource } from "../sources/linkedin-saved-search.js";
+import { buildAnalyticsEvent, recordAnalyticsEvent } from "../analytics/events.js";
+import { getEntitlementState } from "../monetization/entitlements.js";
+import {
+  checkEnvironmentReadiness,
+  checkSourceAccess,
+  normalizeSourceCheckResult
+} from "../onboarding/source-access.js";
+import {
+  getEffectiveOnboardingChannel,
+  loadUserSettings,
+  markFirstRunCompleted,
+  markOnboardingCompleted,
+  updateAnalyticsPreference,
+  updateOnboardingChannel,
+  updateOnboardingSourceCheck,
+  updateOnboardingSources
+} from "../onboarding/state.js";
 
 const dashboardAnalytics = createAnalyticsClient({ channel: "dashboard" });
 
@@ -1180,6 +1203,13 @@ function buildDashboardData(limit = 200) {
   const profile = activeProfile.profile;
   const searchCriteria = loadSearchCriteria();
   const sources = loadSources().sources;
+  const userSettings = loadUserSettings();
+  const settings = userSettings.settings;
+  const effectiveChannel = getEffectiveOnboardingChannel(settings);
+  const onboardingEnabled = isOnboardingWizardEnabled();
+  const analyticsFlagEnabled = isAnalyticsEnabledByFlag();
+  const monetizationLimitsEnabled = isMonetizationLimitsEnabled();
+  const entitlement = getEntitlementState(settings);
   const statsQueue = hydrateQueue(getAllJobsWithStatus(5_000), { includeRejected: true });
   const scoresBySourceIdAndHash = new Map();
   for (const job of statsQueue) {
@@ -1259,6 +1289,44 @@ function buildDashboardData(limit = 200) {
   }
 
   return {
+    featureFlags: {
+      onboardingWizard: onboardingEnabled,
+      analytics: analyticsFlagEnabled,
+      monetizationLimits: monetizationLimitsEnabled
+    },
+    onboarding: {
+      enabled: onboardingEnabled,
+      settingsPath: userSettings.path,
+      completed: Boolean(settings?.onboarding?.completed),
+      startedAt: settings?.onboarding?.startedAt || null,
+      completedAt: settings?.onboarding?.completedAt || null,
+      firstRunAt: settings?.onboarding?.firstRunAt || null,
+      selectedSourceIds: Array.isArray(settings?.onboarding?.selectedSourceIds)
+        ? settings.onboarding.selectedSourceIds
+        : [],
+      channel: {
+        value: String(effectiveChannel?.value || effectiveChannel?.channel || "unknown"),
+        confidence: String(
+          effectiveChannel?.confidence ||
+            settings?.onboarding?.channel?.confidence ||
+            "unknown"
+        )
+      },
+      analyticsEnabled: Boolean(settings?.analytics?.enabled),
+      checks:
+        settings?.onboarding?.checks &&
+        typeof settings.onboarding.checks === "object" &&
+        !Array.isArray(settings.onboarding.checks)
+          ? settings.onboarding.checks
+          : { sources: {} },
+      environmentChecks: checkEnvironmentReadiness()
+    },
+    monetization: {
+      ...entitlement,
+      donationUrl:
+        String(process.env.JOB_FINDER_DONATION_URL || "").trim() ||
+        "https://github.com/sponsors"
+    },
     profile: {
       candidateName: profile.candidateName,
       remotePreference: profile.remotePreference,
@@ -1276,7 +1344,8 @@ function buildDashboardData(limit = 200) {
       ),
       goalsFilePath: path.resolve(activeProfile.source.goalsPath || "config/my-goals.json"),
       sourcesPath: path.resolve("config/sources.json"),
-      searchCriteriaPath: searchCriteria.path
+      searchCriteriaPath: searchCriteria.path,
+      settingsPath: userSettings.path
     },
     searchCriteria: searchCriteria.criteria,
     sources: sources.map((source) => {
@@ -2449,9 +2518,15 @@ export function renderDashboardPage(dashboard, options = {}) {
       const narrataConnectEnabled = ${narrataConnectEnabled ? "true" : "false"};
       const wellfoundEnabled = ${wellfoundEnabled ? "true" : "false"};
       const remoteokEnabled = ${remoteokEnabled ? "true" : "false"};
+      const onboardingEnabled =
+        dashboard.featureFlags && dashboard.featureFlags.onboardingWizard !== false;
 
       const app = document.getElementById("app");
       const JOBS_PAGE_SIZE = 10;
+
+      if (onboardingEnabled && dashboard.onboarding && dashboard.onboarding.completed !== true) {
+        selectedTab = "searches";
+      }
 
       function escapeHtml(value) {
         return String(value)
@@ -2482,6 +2557,22 @@ export function renderDashboardPage(dashboard, options = {}) {
             Array.isArray(job.sourceIds) &&
             job.sourceIds.some((sourceId) => matchingSourceIds.has(sourceId))
         );
+      }
+
+      function onboardingData() {
+        return dashboard && typeof dashboard.onboarding === "object" ? dashboard.onboarding : {};
+      }
+
+      function onboardingChecksBySourceId() {
+        const onboarding = onboardingData();
+        const checks = onboarding && onboarding.checks && typeof onboarding.checks === "object"
+          ? onboarding.checks
+          : {};
+        return checks.sources && typeof checks.sources === "object" ? checks.sources : {};
+      }
+
+      function isOnboardingIncomplete() {
+        return onboardingEnabled && onboardingData().completed !== true;
       }
 
       function jobHasVisibleSource(job) {
@@ -3095,6 +3186,126 @@ export function renderDashboardPage(dashboard, options = {}) {
           criteriaBusy = false;
           busy = false;
           render();
+        }
+      }
+
+      async function saveOnboardingChannel() {
+        const channelInput = document.getElementById("onboarding-channel");
+        const analyticsToggle = document.getElementById("onboarding-analytics-enabled");
+        const channel =
+          channelInput && typeof channelInput.value === "string"
+            ? channelInput.value.trim()
+            : "";
+        const analyticsEnabled = analyticsToggle ? Boolean(analyticsToggle.checked) : true;
+
+        busy = true;
+        setFeedback("Saving onboarding preferences...");
+
+        try {
+          await getJson("/api/onboarding/channel", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ channel, analyticsEnabled })
+          });
+          await refreshDashboard();
+          setFeedback("Onboarding preferences saved.");
+        } catch (error) {
+          setFeedback(error.message, true);
+        } finally {
+          busy = false;
+          render();
+        }
+      }
+
+      async function saveOnboardingSources() {
+        const sourceIds = [...document.querySelectorAll("[data-onboarding-source]")]
+          .filter((input) => input.checked)
+          .map((input) => input.value);
+
+        busy = true;
+        setFeedback("Saving source selection...");
+
+        try {
+          await getJson("/api/onboarding/sources", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sourceIds })
+          });
+          await refreshDashboard();
+          setFeedback("Source selection saved.");
+        } catch (error) {
+          setFeedback(error.message, true);
+        } finally {
+          busy = false;
+          render();
+        }
+      }
+
+      async function runOnboardingSourceChecks() {
+        const sourceIds = [...document.querySelectorAll("[data-onboarding-source]")]
+          .filter((input) => input.checked)
+          .map((input) => input.value);
+
+        if (sourceIds.length === 0) {
+          setFeedback("Select at least one source first.", true);
+          return;
+        }
+
+        busy = true;
+        setFeedback("Running source checks...");
+
+        try {
+          for (const sourceId of sourceIds) {
+            await getJson("/api/onboarding/check-source", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ sourceId, probeLive: false })
+            });
+          }
+
+          await refreshDashboard();
+          setFeedback("Source checks complete.");
+        } catch (error) {
+          setFeedback(error.message, true);
+        } finally {
+          busy = false;
+          render();
+        }
+      }
+
+      async function completeOnboarding() {
+        busy = true;
+        setFeedback("Completing onboarding...");
+
+        try {
+          await getJson("/api/onboarding/complete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" }
+          });
+          await refreshDashboard();
+          setFeedback("Onboarding completed.");
+        } catch (error) {
+          setFeedback(error.message, true);
+        } finally {
+          busy = false;
+          render();
+        }
+      }
+
+      async function trackDonationClick() {
+        try {
+          await getJson("/api/analytics/event", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              eventName: "donation_click",
+              properties: {
+                location: selectedTab
+              }
+            })
+          });
+        } catch {
+          // no-op
         }
       }
 
@@ -4311,11 +4522,99 @@ export function renderDashboardPage(dashboard, options = {}) {
           "</div>"
         ].join("");
 
+        const onboarding = onboardingData();
+        const onboardingIncomplete = isOnboardingIncomplete();
+        const onboardingSourceChecks = onboardingChecksBySourceId();
+        const onboardingSelectedSources = new Set(
+          Array.isArray(onboarding.selectedSourceIds) ? onboarding.selectedSourceIds : []
+        );
+        const onboardingChannelValue =
+          onboarding.channel && onboarding.channel.value ? onboarding.channel.value : "unknown";
+        const onboardingSourcesMarkup = dashboard.sources
+          .map((source) => {
+            const checked = onboardingSelectedSources.has(source.id);
+            const checkResult = onboardingSourceChecks[source.id];
+            const checkStatus =
+              checkResult && typeof checkResult.status === "string"
+                ? checkResult.status
+                : "unknown";
+            const checkLabel =
+              checkResult && checkResult.userMessage
+                ? checkResult.userMessage
+                : "Not checked yet";
+            const statusPrefix =
+              checkStatus === "pass"
+                ? "[PASS]"
+                : checkStatus === "fail"
+                  ? "[FAIL]"
+                  : checkStatus === "warn"
+                    ? "[WARN]"
+                    : "[TODO]";
+
+            return (
+              '<label style="display:block; margin-bottom: 8px;">' +
+              '<input type="checkbox" data-onboarding-source="1" value="' +
+              escapeHtml(source.id) +
+              '"' +
+              (checked ? " checked" : "") +
+              "> " +
+              escapeHtml(source.name) +
+              ' <span class="muted">' +
+              escapeHtml(statusPrefix + " " + checkLabel) +
+              "</span></label>"
+            );
+          })
+          .join("");
+        const onboardingCard = onboardingEnabled
+          ? [
+              '<div class="card inset" style="margin-top: 12px;">',
+              '  <p class="section-label">Onboarding</p>',
+              '  <div class="subhead">' +
+                escapeHtml(
+                  onboardingIncomplete
+                    ? "Complete setup to run your first successful import."
+                    : "Onboarding complete."
+                ) +
+                "</div>",
+              '  <div class="search-form" style="margin-top: 10px;">',
+              '    <label>Install Channel<select id="onboarding-channel">' +
+                '<option value="unknown"' +
+                (onboardingChannelValue === "unknown" ? " selected" : "") +
+                ">Unknown</option>" +
+                '<option value="npm"' +
+                (onboardingChannelValue === "npm" ? " selected" : "") +
+                ">npm</option>" +
+                '<option value="codex"' +
+                (onboardingChannelValue === "codex" ? " selected" : "") +
+                ">Codex</option>" +
+                '<option value="claude"' +
+                (onboardingChannelValue === "claude" ? " selected" : "") +
+                ">Claude</option>" +
+                "</select></label>",
+              '    <label>Analytics' +
+                '<input id="onboarding-analytics-enabled" type="checkbox"' +
+                (onboarding.analyticsEnabled ? " checked" : "") +
+                ">" +
+                "</label>",
+              "  </div>",
+              '  <div style="margin-top: 10px;">' + onboardingSourcesMarkup + "</div>",
+              '  <div class="inline-actions" style="margin-top: 10px;">',
+              '    <button class="secondary" id="save-onboarding-channel"' + (busy ? " disabled" : "") + ">Save Preferences</button>",
+              '    <button class="secondary" id="save-onboarding-sources"' + (busy ? " disabled" : "") + ">Save Sources</button>",
+              '    <button class="secondary" id="run-onboarding-checks"' + (busy ? " disabled" : "") + ">Run Source Checks</button>",
+              '    <button class="primary" id="complete-onboarding"' + (busy ? " disabled" : "") + ">Complete Onboarding</button>",
+              "  </div>",
+              '  <div class="subhead" style="margin-top: 10px;">Step order: save preferences, save sources, run checks, then Find Jobs.</div>',
+              "</div>"
+            ].join("")
+          : "";
+
         const searchesSection = [
           '<section class="card" style="margin-top: 18px;">',
           '  <div class="search-header">',
           '    <p class="section-label">My Job Searches</p>',
           "  </div>",
+          onboardingCard,
           '  <div class="sub-tabs" style="margin-top: 8px;">' + searchFilterTabs + "</div>",
           '  <div style="margin-top: 16px; overflow-x: auto;">',
           '    <table>',
@@ -4341,11 +4640,20 @@ export function renderDashboardPage(dashboard, options = {}) {
           '    <div class="meta-item"><dt>Active</dt><dd>' + escapeHtml(dashboard.profile.activeCount) + "</dd></div>",
           '    <div class="meta-item"><dt>Applied</dt><dd>' + escapeHtml(dashboard.profile.appliedCount) + "</dd></div>",
           '    <div class="meta-item"><dt>Skipped</dt><dd>' + escapeHtml(dashboard.profile.skippedCount || 0) + "</dd></div>",
+          '    <div class="meta-item"><dt>Plan</dt><dd>' + escapeHtml(dashboard.monetization && dashboard.monetization.plan ? dashboard.monetization.plan : "free") + "</dd></div>",
+          '    <div class="meta-item"><dt>Daily Limit</dt><dd>' + escapeHtml(dashboard.monetization && dashboard.monetization.dailyViewLimit !== undefined ? String(dashboard.monetization.dailyViewLimit) : "10") + "</dd></div>",
+          '    <div class="meta-item"><dt>Views Used Today</dt><dd>' + escapeHtml(dashboard.monetization && dashboard.monetization.viewsUsedToday !== undefined ? String(dashboard.monetization.viewsUsedToday) : "0") + "</dd></div>",
           '    <div class="meta-item"><dt>Profile File</dt><dd>' + escapeHtml(dashboard.profile.profilePath || "") + "</dd></div>",
           '    <div class="meta-item"><dt>My Goals File</dt><dd>' + escapeHtml(dashboard.profile.goalsFilePath || "config/my-goals.json") + "</dd></div>",
           '    <div class="meta-item"><dt>Sources File</dt><dd>' + escapeHtml(dashboard.profile.sourcesPath || "") + "</dd></div>",
           '    <div class="meta-item"><dt>Search Criteria File</dt><dd>' + escapeHtml(dashboard.profile.searchCriteriaPath || "config/search-criteria.json") + "</dd></div>",
+          '    <div class="meta-item"><dt>User Settings File</dt><dd>' + escapeHtml(dashboard.profile.settingsPath || "data/user-settings.json") + "</dd></div>",
           "  </dl>",
+          '  <div class="inline-actions" style="margin-top: 10px;">' +
+            '<a class="primary" id="donate-cta" href="' +
+            escapeHtml((dashboard.monetization && dashboard.monetization.donationUrl) || "https://github.com/sponsors") +
+            '" target="_blank" rel="noopener noreferrer">Support Job Finder</a>' +
+          "</div>",
           ...(narrataConnectEnabled
             ? [
                 '  <div class="card inset" style="margin-top: 14px;">',
@@ -4445,6 +4753,26 @@ export function renderDashboardPage(dashboard, options = {}) {
         }
 
         if (selectedTab === "searches") {
+          const saveOnboardingChannelButton = document.getElementById("save-onboarding-channel");
+          if (saveOnboardingChannelButton) {
+            saveOnboardingChannelButton.addEventListener("click", saveOnboardingChannel);
+          }
+
+          const saveOnboardingSourcesButton = document.getElementById("save-onboarding-sources");
+          if (saveOnboardingSourcesButton) {
+            saveOnboardingSourcesButton.addEventListener("click", saveOnboardingSources);
+          }
+
+          const runOnboardingChecksButton = document.getElementById("run-onboarding-checks");
+          if (runOnboardingChecksButton) {
+            runOnboardingChecksButton.addEventListener("click", runOnboardingSourceChecks);
+          }
+
+          const completeOnboardingButton = document.getElementById("complete-onboarding");
+          if (completeOnboardingButton) {
+            completeOnboardingButton.addEventListener("click", completeOnboarding);
+          }
+
           for (const button of document.querySelectorAll("[data-search-source]")) {
             button.addEventListener("click", () => setSearchSourceFilter(button.dataset.searchSource));
           }
@@ -4473,6 +4801,13 @@ export function renderDashboardPage(dashboard, options = {}) {
         }
 
         if (selectedTab === "profile") {
+          const donateButton = document.getElementById("donate-cta");
+          if (donateButton) {
+            donateButton.addEventListener("click", () => {
+              void trackDonationClick();
+            });
+          }
+
           const useProfileButton = document.getElementById("use-profile-json");
           if (useProfileButton) {
             useProfileButton.addEventListener("click", () =>
@@ -4535,6 +4870,212 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
         response.end(
           JSON.stringify({ jobs: queue, appliedJobs: appliedQueue, skippedJobs: skippedQueue })
         );
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/onboarding/state") {
+        const dashboard = buildDashboardData(limit);
+        response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+        response.end(
+          JSON.stringify({
+            ok: true,
+            onboarding: dashboard.onboarding,
+            monetization: dashboard.monetization,
+            sources: dashboard.sources
+          })
+        );
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/onboarding/channel") {
+        const rawBody = await readRequestBody(request);
+        const parsedBody = rawBody ? JSON.parse(rawBody) : {};
+        const channel =
+          typeof parsedBody.channel === "string" ? parsedBody.channel.trim() : "";
+
+        if (channel) {
+          updateOnboardingChannel(channel, "self_reported");
+        }
+
+        if (typeof parsedBody.analyticsEnabled === "boolean") {
+          updateAnalyticsPreference(parsedBody.analyticsEnabled);
+        }
+
+        const settings = loadUserSettings().settings;
+        const effectiveChannel = getEffectiveOnboardingChannel(settings);
+        await recordAnalyticsEvent(
+          buildAnalyticsEvent(
+            "onboarding_channel_updated",
+            {
+              channel: effectiveChannel.value || effectiveChannel.channel || "unknown",
+              analyticsEnabled: Boolean(settings?.analytics?.enabled)
+            },
+            {
+              installId: settings.installId,
+              channel: effectiveChannel.value || effectiveChannel.channel || "unknown"
+            }
+          ),
+          {
+            analyticsEnabled: Boolean(settings?.analytics?.enabled)
+          }
+        );
+
+        const dashboard = buildDashboardData(limit);
+        response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+        response.end(JSON.stringify({ ok: true, onboarding: dashboard.onboarding }));
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/onboarding/sources") {
+        const rawBody = await readRequestBody(request);
+        const parsedBody = rawBody ? JSON.parse(rawBody) : {};
+        const sourceIds = Array.isArray(parsedBody.sourceIds)
+          ? parsedBody.sourceIds.map((value) => String(value || "").trim()).filter(Boolean)
+          : [];
+
+        setEnabledSources(sourceIds);
+        updateOnboardingSources(sourceIds);
+
+        const settings = loadUserSettings().settings;
+        const effectiveChannel = getEffectiveOnboardingChannel(settings);
+        await recordAnalyticsEvent(
+          buildAnalyticsEvent(
+            "onboarding_sources_updated",
+            {
+              selectedCount: sourceIds.length,
+              sourceIds
+            },
+            {
+              installId: settings.installId,
+              channel: effectiveChannel.value || effectiveChannel.channel || "unknown"
+            }
+          ),
+          {
+            analyticsEnabled: Boolean(settings?.analytics?.enabled)
+          }
+        );
+
+        const dashboard = buildDashboardData(limit);
+        response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+        response.end(
+          JSON.stringify({
+            ok: true,
+            sources: dashboard.sources,
+            onboarding: dashboard.onboarding
+          })
+        );
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/onboarding/check-source") {
+        const rawBody = await readRequestBody(request);
+        const parsedBody = rawBody ? JSON.parse(rawBody) : {};
+        const sourceId =
+          typeof parsedBody.sourceId === "string" ? parsedBody.sourceId.trim() : "";
+        if (!sourceId) {
+          response.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+          response.end(JSON.stringify({ error: "sourceId is required" }));
+          return;
+        }
+
+        const source = loadSources().sources.find((candidate) => candidate.id === sourceId);
+        if (!source) {
+          response.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });
+          response.end(JSON.stringify({ error: `Source not found: ${sourceId}` }));
+          return;
+        }
+
+        const result = normalizeSourceCheckResult(
+          checkSourceAccess(source, { probeLive: parsedBody.probeLive === true })
+        );
+        updateOnboardingSourceCheck(sourceId, result);
+
+        const settings = loadUserSettings().settings;
+        const effectiveChannel = getEffectiveOnboardingChannel(settings);
+        await recordAnalyticsEvent(
+          buildAnalyticsEvent(
+            "onboarding_source_check",
+            {
+              sourceId,
+              status: result.status,
+              reasonCode: result.reasonCode
+            },
+            {
+              installId: settings.installId,
+              channel: effectiveChannel.value || effectiveChannel.channel || "unknown"
+            }
+          ),
+          {
+            analyticsEnabled: Boolean(settings?.analytics?.enabled)
+          }
+        );
+
+        const dashboard = buildDashboardData(limit);
+        response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+        response.end(JSON.stringify({ ok: true, result, onboarding: dashboard.onboarding }));
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/onboarding/complete") {
+        const next = markOnboardingCompleted();
+        const settings = next.settings;
+        const effectiveChannel = getEffectiveOnboardingChannel(settings);
+        await recordAnalyticsEvent(
+          buildAnalyticsEvent(
+            "onboarding_completed",
+            {
+              completedAt: settings?.onboarding?.completedAt || null,
+              selectedSourceCount: Array.isArray(settings?.onboarding?.selectedSourceIds)
+                ? settings.onboarding.selectedSourceIds.length
+                : 0
+            },
+            {
+              installId: settings.installId,
+              channel: effectiveChannel.value || effectiveChannel.channel || "unknown"
+            }
+          ),
+          {
+            analyticsEnabled: Boolean(settings?.analytics?.enabled)
+          }
+        );
+        const dashboard = buildDashboardData(limit);
+        response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+        response.end(JSON.stringify({ ok: true, onboarding: dashboard.onboarding }));
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/analytics/event") {
+        const rawBody = await readRequestBody(request);
+        const parsedBody = rawBody ? JSON.parse(rawBody) : {};
+        const eventName =
+          typeof parsedBody.eventName === "string" ? parsedBody.eventName.trim() : "";
+        const properties =
+          parsedBody.properties &&
+          typeof parsedBody.properties === "object" &&
+          !Array.isArray(parsedBody.properties)
+            ? parsedBody.properties
+            : {};
+
+        if (!eventName) {
+          response.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+          response.end(JSON.stringify({ error: "eventName is required" }));
+          return;
+        }
+
+        const settings = loadUserSettings().settings;
+        const effectiveChannel = getEffectiveOnboardingChannel(settings);
+        await recordAnalyticsEvent(
+          buildAnalyticsEvent(eventName, properties, {
+            installId: settings.installId,
+            channel: effectiveChannel.value || effectiveChannel.channel || "unknown"
+          }),
+          {
+            analyticsEnabled: Boolean(settings?.analytics?.enabled)
+          }
+        );
+
+        response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+        response.end(JSON.stringify({ ok: true }));
         return;
       }
 
@@ -4721,6 +5262,24 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
           refreshProfile,
           forceRefresh
         });
+        const settings = loadUserSettings().settings;
+        const effectiveChannel = getEffectiveOnboardingChannel(settings);
+        await recordAnalyticsEvent(
+          buildAnalyticsEvent(
+            "sources_run_all",
+            {
+              captureCount: Array.isArray(result?.captures) ? result.captures.length : 0,
+              forceRefresh
+            },
+            {
+              installId: settings.installId,
+              channel: effectiveChannel.value || effectiveChannel.channel || "unknown"
+            }
+          ),
+          {
+            analyticsEnabled: Boolean(settings?.analytics?.enabled)
+          }
+        );
         response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
         response.end(JSON.stringify({ ok: true, ...result }));
         return;
@@ -4739,6 +5298,26 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
           evaluated: sync.evaluated,
           retention_deleted: Number(sync?.retentionCleanup?.totalDeleted || 0)
         });
+        const next = markFirstRunCompleted();
+        const settings = next.settings;
+        const effectiveChannel = getEffectiveOnboardingChannel(settings);
+        await recordAnalyticsEvent(
+          buildAnalyticsEvent(
+            "first_run_completed",
+            {
+              collected: Number(sync?.collected || 0),
+              upserted: Number(sync?.upserted || 0),
+              evaluated: Number(sync?.evaluated || 0)
+            },
+            {
+              installId: settings.installId,
+              channel: effectiveChannel.value || effectiveChannel.channel || "unknown"
+            }
+          ),
+          {
+            analyticsEnabled: Boolean(settings?.analytics?.enabled)
+          }
+        );
         response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
         response.end(JSON.stringify({ ok: true, sync }));
         return;

@@ -32,6 +32,8 @@ import {
   useMyGoalsProfileSource,
   updateSourceSearchUrl
 } from "./config/load-config.js";
+import { buildAnalyticsEvent, recordAnalyticsEvent } from "./analytics/events.js";
+import { isAnalyticsEnabledByFlag } from "./config/feature-flags.js";
 import { loadRetentionPolicy } from "./config/retention-policy.js";
 import { openDatabase } from "./db/client.js";
 import { runMigrations } from "./db/migrations.js";
@@ -77,6 +79,8 @@ import {
   collectJobsFromSource,
   importLinkedInSnapshot
 } from "./sources/linkedin-saved-search.js";
+import { checkEnvironmentReadiness, checkSourceAccess } from "./onboarding/source-access.js";
+import { getEffectiveOnboardingChannel, loadUserSettings } from "./onboarding/state.js";
 
 const terminalAnalytics = createAnalyticsClient({ channel: "terminal" });
 
@@ -185,7 +189,79 @@ function extractOption(args, optionName) {
 function runInit() {
   const { db, dbPath } = withDatabase();
   db.close();
+  const settings = loadUserSettings();
   console.log(`Database initialized at ${dbPath}`);
+  console.log(`User settings initialized at ${settings.path}`);
+}
+
+function printDoctorCheck(check) {
+  const status = String(check?.status || "warn").toLowerCase();
+  const marker = status === "pass" ? "PASS" : status === "fail" ? "FAIL" : "WARN";
+  console.log(`[${marker}] ${String(check?.label || "check")}: ${String(check?.userMessage || "")}`);
+}
+
+async function runDoctor(options = {}) {
+  const environmentChecks = checkEnvironmentReadiness();
+  console.log("Environment:");
+  for (const check of environmentChecks) {
+    printDoctorCheck(check);
+  }
+
+  let configuredSources = [];
+  try {
+    configuredSources = loadSources().sources;
+  } catch (error) {
+    console.log(
+      "\nSources:\n[WARN] Sources config not found. Create config/sources.json from config/sources.example.json or use the dashboard onboarding flow."
+    );
+    const message = String(error?.message || "").trim();
+    if (message) {
+      console.log(`[WARN] ${message}`);
+    }
+    return;
+  }
+
+  const sources = configuredSources.filter((source) => source.enabled);
+  if (sources.length === 0) {
+    console.log("\nSources:\n[WARN] No enabled sources configured.");
+    return;
+  }
+
+  console.log("\nEnabled sources:");
+  for (const source of sources) {
+    const check = checkSourceAccess(source, {
+      probeLive: Boolean(options.probeLive)
+    });
+    printDoctorCheck({
+      label: source.name,
+      status: check.status,
+      userMessage: `${check.userMessage} (${check.reasonCode})`
+    });
+  }
+
+  const userSettings = loadUserSettings();
+  const effectiveChannel = getEffectiveOnboardingChannel(userSettings.settings);
+  const analyticsEnabled = Boolean(userSettings.settings?.analytics?.enabled);
+  const shouldTrack = analyticsEnabled && isAnalyticsEnabledByFlag();
+
+  if (shouldTrack) {
+    await recordAnalyticsEvent(
+      buildAnalyticsEvent(
+        "doctor_run",
+        {
+          enabledSourceCount: sources.length,
+          probeLive: Boolean(options.probeLive)
+        },
+        {
+          installId: userSettings.settings.installId,
+          channel: effectiveChannel.channel || effectiveChannel.value
+        }
+      ),
+      {
+        analyticsEnabled
+      }
+    );
+  }
 }
 
 function resolveAllowQuarantinedIngest(options = {}) {
@@ -1721,6 +1797,7 @@ QUICK START:
 
 COMMON COMMANDS:
   jf sources                    List configured job sources
+  jf doctor [--probe-live]      Check environment and source readiness
   jf list [limit]              List jobs in terminal
   jf mark <job-id> <status>    Mark job as applied/rejected/skip_for_now
 
@@ -1805,6 +1882,12 @@ async function main() {
       break;
     case "sources":
       runListSources();
+      break;
+    case "doctor":
+      {
+        const parsed = extractFlag(args, "--probe-live");
+        await runDoctor({ probeLive: parsed.present });
+      }
       break;
     case "add-source":
       runAddSource(args[0], args[1]);

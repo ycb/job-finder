@@ -66,6 +66,19 @@ All notable changes to this project should be documented in this file.
   - all-sources totals row for search tab rollups
 - New dashboard API endpoint:
   - `POST /api/search-criteria` to save criteria and normalize source URLs
+- Dashboard-first onboarding foundation:
+  - onboarding state persistence in `data/user-settings.json` with install ID, channel, selected sources, and source-check results
+  - onboarding APIs (`/api/onboarding/state`, `/api/onboarding/channel`, `/api/onboarding/sources`, `/api/onboarding/check-source`, `/api/onboarding/complete`)
+  - onboarding card in `Searches` for first-run setup
+- `jf doctor` command for local environment + source readiness checks.
+- Analytics foundation:
+  - local event queue in `data/analytics-events.json`
+  - optional event flush via `JOB_FINDER_ANALYTICS_ENDPOINT`
+  - event schema for onboarding/run instrumentation
+- Monetization foundation:
+  - donation CTA wiring
+  - entitlement scaffolding behind `JOB_FINDER_ENABLE_MONETIZATION_LIMITS`
+- `src/output/render.js` shortlist writer module (fixes CLI startup import path).
 
 ### Changed
 
@@ -87,3 +100,4 @@ All notable changes to this project should be documented in this file.
 - Dashboard source visibility/creation for Wellfound/RemoteOK and Narrata connect UI are controlled by feature flags.
 - Source schema now validates structured `hardFilter` blocks (`requiredAll`, `requiredAny`, `excludeAny`, `fields`, `enforceContentOnSnippets`).
 - `ashby_search` URL construction now reports `minSalary` as unsupported instead of applying it as a query term.
+- `jf doctor` now warns (instead of crashing) when `config/sources.json` is missing on fresh setup.

@@ -53,7 +53,23 @@ jf review
 
 Open `http://localhost:4311`.
 
-### 3. Enter Search Input and Run
+### 3. Run Readiness Check (Recommended)
+
+```bash
+jf doctor
+```
+
+`jf doctor` reports environment checks and source readiness status. On fresh setup, it will warn if `config/sources.json` has not been created yet.
+
+### 4. Complete Onboarding in Dashboard
+
+In `Searches`, complete:
+- install channel selection
+- analytics preference
+- source selection
+- source checks
+
+### 5. Enter Search Input and Run
 
 Use the dashboard `Find Jobs` action.
 
@@ -69,7 +85,7 @@ No manual search creation is required in the default dashboard flow.
 
 **First sync takes 2-5 minutes** depending on number of sources.
 
-### 4. Review Jobs
+### 6. Review Jobs
 
 ---
 
