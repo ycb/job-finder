@@ -3,6 +3,7 @@ import {
   getFreshCachedJobs,
   writeSourceCapturePayload
 } from "./cache-policy.js";
+import { enrichJobsWithDetailPages } from "./detail-enrichment.js";
 
 function decodeHtmlEntities(value) {
   const input = String(value || "");
@@ -110,6 +111,32 @@ function parsePublishedDates(html) {
   }
 
   return byId;
+}
+
+function parseBuiltInExpectedCount(html) {
+  const text = normalizeText(String(html || "").slice(0, 20000));
+  if (!text) {
+    return null;
+  }
+
+  const patterns = [
+    /showing\s+\d+\s*[-–]\s*\d+\s+of\s+([\d,]+)\s+jobs?/i,
+    /([\d,]+)\s+jobs?\s+(?:available|found|open)/i,
+    /([\d,]+)\s+results?/i
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (!match?.[1]) {
+      continue;
+    }
+    const parsed = Number(String(match[1]).replace(/,/g, ""));
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return Math.round(parsed);
+    }
+  }
+
+  return null;
 }
 
 function extractJobCardBlocks(html) {
@@ -225,15 +252,21 @@ export function collectBuiltInJobsFromSearch(source) {
 
   const html = fetchBuiltInSearchHtml(source.searchUrl, source.requestTimeoutMs || 30_000);
   const jobs = parseBuiltInSearchHtml(html, source.searchUrl);
+  const jobsEnriched = enrichJobsWithDetailPages(source.type, jobs, {
+    maxJobs: Number(source.maxJobs) > 0 ? Number(source.maxJobs) : 25,
+    timeoutMs: Number(source.requestTimeoutMs) > 0 ? Number(source.requestTimeoutMs) : 30_000
+  });
+  const expectedCount = parseBuiltInExpectedCount(html);
   const retrievedAt = new Date().toISOString();
-  const jobsWithMetadata = jobs.map((job) => ({
+  const jobsWithMetadata = jobsEnriched.map((job) => ({
     ...job,
     retrievedAt
   }));
 
-  writeSourceCapturePayload(source, jobs, {
+  writeSourceCapturePayload(source, jobsWithMetadata, {
     capturedAt: retrievedAt,
-    pageUrl: source.searchUrl
+    pageUrl: source.searchUrl,
+    expectedCount
   });
 
   if (Number.isInteger(source.maxJobs) && source.maxJobs > 0) {

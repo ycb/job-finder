@@ -7,6 +7,17 @@ test("validateSources accepts wellfound and ashby source types", () => {
   const parsed = validateSources({
     sources: [
       {
+        id: "li-ai",
+        name: "LinkedIn AI",
+        type: "linkedin_capture_file",
+        enabled: true,
+        searchUrl: "https://www.linkedin.com/jobs/search/?keywords=ai+product+manager",
+        capturePath: "data/captures/li-ai.json",
+        maxPages: 5,
+        maxScrollSteps: 20,
+        maxIdleScrollSteps: 4
+      },
+      {
         id: "wf-ai",
         name: "Wellfound AI",
         type: "wellfound_search",
@@ -53,6 +64,19 @@ test("validateSources accepts wellfound and ashby source types", () => {
           minSalary: 195000,
           datePosted: "1w",
           experienceLevel: "senior"
+        },
+        criteriaAccountability: {
+          appliedInUrl: [
+            "title",
+            "keywords",
+            "location",
+            "distanceMiles",
+            "datePosted",
+            "minSalary"
+          ],
+          appliedInUiBootstrap: [],
+          appliedPostCapture: [],
+          unsupported: ["experienceLevel"]
         }
       },
       {
@@ -72,26 +96,43 @@ test("validateSources accepts wellfound and ashby source types", () => {
     ]
   });
 
-  assert.equal(parsed.sources.length, 6);
-  assert.equal(parsed.sources[0].type, "wellfound_search");
-  assert.equal(parsed.sources[1].type, "ashby_search");
-  assert.equal(parsed.sources[1].recencyWindow, "1w");
-  assert.deepEqual(parsed.sources[0].requiredTerms, ["product manager", "ai"]);
-  assert.deepEqual(parsed.sources[0].hardFilter.requiredAny, ["ai", "machine learning"]);
-  assert.deepEqual(parsed.sources[0].hardFilter.excludeAny, ["intern"]);
-  assert.deepEqual(parsed.sources[0].hardFilter.fields, ["title", "description"]);
-  assert.equal(parsed.sources[0].hardFilter.enforceContentOnSnippets, false);
-  assert.equal(parsed.sources[2].type, "google_search");
-  assert.equal(parsed.sources[3].type, "indeed_search");
-  assert.equal(parsed.sources[3].searchCriteria.title, "senior product manager");
-  assert.equal(parsed.sources[3].searchCriteria.keywords, "product manager ai");
-  assert.equal(parsed.sources[3].searchCriteria.location, "San Francisco, CA");
-  assert.equal(parsed.sources[3].searchCriteria.distanceMiles, 25);
-  assert.equal(parsed.sources[3].searchCriteria.minSalary, 195000);
-  assert.equal(parsed.sources[3].searchCriteria.datePosted, "1w");
-  assert.equal(parsed.sources[3].searchCriteria.experienceLevel, "senior");
-  assert.equal(parsed.sources[4].type, "ziprecruiter_search");
-  assert.equal(parsed.sources[5].type, "remoteok_search");
+  assert.equal(parsed.sources.length, 7);
+  assert.equal(parsed.sources[0].type, "linkedin_capture_file");
+  assert.equal(parsed.sources[0].maxPages, 5);
+  assert.equal(parsed.sources[0].maxScrollSteps, 20);
+  assert.equal(parsed.sources[0].maxIdleScrollSteps, 4);
+  assert.equal(parsed.sources[1].type, "wellfound_search");
+  assert.equal(parsed.sources[2].type, "ashby_search");
+  assert.equal(parsed.sources[2].recencyWindow, "1w");
+  assert.deepEqual(parsed.sources[1].requiredTerms, ["product manager", "ai"]);
+  assert.deepEqual(parsed.sources[1].hardFilter.requiredAny, ["ai", "machine learning"]);
+  assert.deepEqual(parsed.sources[1].hardFilter.excludeAny, ["intern"]);
+  assert.deepEqual(parsed.sources[1].hardFilter.fields, ["title", "description"]);
+  assert.equal(parsed.sources[1].hardFilter.enforceContentOnSnippets, false);
+  assert.equal(parsed.sources[3].type, "google_search");
+  assert.equal(parsed.sources[4].type, "indeed_search");
+  assert.equal(parsed.sources[4].searchCriteria.title, "senior product manager");
+  assert.equal(parsed.sources[4].searchCriteria.keywords, "product manager ai");
+  assert.equal(parsed.sources[4].searchCriteria.location, "San Francisco, CA");
+  assert.equal(parsed.sources[4].searchCriteria.distanceMiles, 25);
+  assert.equal(parsed.sources[4].searchCriteria.minSalary, 195000);
+  assert.equal(parsed.sources[4].searchCriteria.datePosted, "1w");
+  assert.equal(parsed.sources[4].searchCriteria.experienceLevel, "senior");
+  assert.deepEqual(parsed.sources[4].criteriaAccountability, {
+    appliedInUrl: [
+      "title",
+      "keywords",
+      "location",
+      "distanceMiles",
+      "datePosted",
+      "minSalary"
+    ],
+    appliedInUiBootstrap: [],
+    appliedPostCapture: [],
+    unsupported: ["experienceLevel"]
+  });
+  assert.equal(parsed.sources[5].type, "ziprecruiter_search");
+  assert.equal(parsed.sources[6].type, "remoteok_search");
 });
 
 test("validateSources defaults Ashby recencyWindow to 1m", () => {
@@ -194,6 +235,44 @@ test("validateSources rejects invalid hardFilter values", () => {
             requiredAny: "ai",
             enforceContentOnSnippets: "no"
           }
+        }
+      ]
+    })
+  );
+});
+
+test("validateSources rejects criteriaAccountability fields in multiple buckets", () => {
+  assert.throws(() =>
+    validateSources({
+      sources: [
+        {
+          id: "indeed-ai",
+          name: "Indeed AI PM",
+          type: "indeed_search",
+          enabled: true,
+          searchUrl: "https://www.indeed.com/jobs?q=product+manager+ai",
+          criteriaAccountability: {
+            appliedInUrl: ["keywords"],
+            unsupported: ["keywords"]
+          }
+        }
+      ]
+    })
+  );
+});
+
+test("validateSources rejects invalid maxScrollSteps for browser sources", () => {
+  assert.throws(() =>
+    validateSources({
+      sources: [
+        {
+          id: "li-ai",
+          name: "LinkedIn AI",
+          type: "linkedin_capture_file",
+          enabled: true,
+          searchUrl: "https://www.linkedin.com/jobs/search/?keywords=ai+product+manager",
+          capturePath: "data/captures/li-ai.json",
+          maxScrollSteps: 0
         }
       ]
     })

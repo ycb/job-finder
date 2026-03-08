@@ -15,8 +15,17 @@ After this change, every enabled source will have explicit accountability for ea
 - [x] (2026-03-06 22:14Z) Reviewed normalization/storage path (`/Users/admin/job-finder/src/jobs/normalize.js`, `/Users/admin/job-finder/src/jobs/repository.js`, `/Users/admin/job-finder/src/db/migrations.js`).
 - [x] (2026-03-06 22:21Z) Reviewed dashboard/source funnel metrics in `/Users/admin/job-finder/src/review/server.js`.
 - [x] (2026-03-06 22:28Z) Audited representative capture payloads in `/Users/admin/job-finder/data/captures/*main.json`.
-- [ ] Build and merge parallel workstreams A-E in isolated worktrees.
-- [ ] Validate end-to-end data quality gates with targeted tests and one live run per enabled board.
+- [x] (2026-03-07 00:54Z) Track A slice: added criteria accountability buckets to URL builder, persisted accountability in source metadata, exposed in URL preview and dashboard source payload, and added coverage in `test/search-url-builder.test.js`, `test/source-search-criteria-bootstrap.test.js`, `test/source-url-preview.test.js`, `test/source-criteria-accountability.test.js`, and `test/sources-schema.test.js`.
+- [x] (2026-03-07 02:18Z) Track B slice: persisted `expectedCount` across source writers, added baseline `captureFunnel` metadata (`available/capturedRaw/postHardFilter/postDedupe/imported`), added source paging/scroll config controls, and updated dashboard Found display to `X/Y` or `X/?`.
+- [x] (2026-03-07 02:36Z) Track C slice: added normalized `structuredMeta` payload with required placeholders (`location`, `salary`, `employmentType` fallback to `unknown`), plus `metadataQualityScore` and `missingRequiredFields`, and persisted fields in migrations/repository.
+- [x] (2026-03-07 03:11Z) Track D slice: added source contract registry + drift evaluator + CLI command, then completed tests in `test/source-contracts.test.js` and `test/source-contract-drift-check.test.js`; fixed null-coverage drift bug for empty captures.
+- [x] (2026-03-07 03:34Z) Track E/F docs slice: synchronized search-construction design doc with contract registry, added governance guide (`docs/analysis/source-contract-governance.md`), added source-by-source full-JD gap matrix spec (`docs/backlog-specs/p0-source-full-jd-gap-closure.md`), and updated backlog/README links.
+- [x] (2026-03-07 03:41Z) Validation sweep: `npm test` passed (`135 passed, 0 failed`) including new Track D and shortlist-render tests.
+- [x] Consolidate A-F workstream slices into one integration-ready branch for handoff.
+- [x] (2026-03-07 10:25Z) Ran live verification for in-scope sources: LinkedIn, BuiltIn (via `sync` collector path), Ashby, Google, Indeed, ZipRecruiter. Feature-flagged `wellfound` and `remoteok` remained excluded per scope decision.
+- [x] (2026-03-07 11:52Z) Updated CLI bridge auto-start behavior for `capture-source-live` to use a persistent detached bridge process, enabling one Chrome automation window/session reuse across sequential source captures.
+- [x] Validate end-to-end data quality gates with targeted tests and one live run per source type (including feature-flagged sources in controlled verification config). (Completed for in-scope enabled analysis sources; feature-flagged sources remain intentionally out of scope.)
+- [x] (2026-03-08 04:18Z) Parser reliability remediation shipped for in-scope sources (`linkedin`, `builtin`, `ashby`, `google`, `indeed`, `ziprecruiter`): detail-first extraction hardening, search-filter inference fallbacks, Ashby discovery correction, and contract-versioned rolling coverage history.
 
 ## Surprises & Discoveries
 
@@ -35,6 +44,12 @@ After this change, every enabled source will have explicit accountability for ea
 - Observation: Several non-LinkedIn sources show low metadata precision in current captures (for example title/company leakage, null postedAt, null salary/employment fields).
   Evidence: sampled payloads under `/Users/admin/job-finder/data/captures/google-main.json`, `/Users/admin/job-finder/data/captures/ashby-main.json`, `/Users/admin/job-finder/data/captures/ziprecruiter-main.json`, `/Users/admin/job-finder/data/captures/indeed-main.json`.
 
+- Observation: CLI runtime verification initially failed because `src/cli.js` imported missing module `src/output/render.js`.
+  Evidence: `node src/cli.js check-source-contracts` raised `ERR_MODULE_NOT_FOUND` for `./output/render.js`; restored module by adding `src/output/render.js` and test coverage in `test/shortlist-render.test.js`.
+
+- Observation: Live drift checks after capture show parser gaps concentrated in freshness, salary, and employment extraction for LinkedIn/Indeed/ZipRecruiter/Google/Ashby.
+  Evidence: `node src/cli.js check-source-contracts` after live runs reported errors on `postedAt`, `salaryText`, and/or `employmentType` coverage for those sources.
+
 ## Decision Log
 
 - Decision: Implement this epic as five parallel tracks with one integration owner, rather than a single serial branch.
@@ -45,13 +60,35 @@ After this change, every enabled source will have explicit accountability for ea
   Rationale: Prevent divergence between URL filter mappings and DOM extraction mappings, and make drift tests deterministic.
   Date/Author: 2026-03-06 / Codex
 
-- Decision: Recommend displaying Found as `imported/expected` when expected is known, with fallback to imported only when unknown.
-  Rationale: This communicates progress against source availability while preserving behavior when counts are unavailable.
+- Decision: Display Found as `X/Y` (`X=importedCount`, `Y=expectedCount`) and use `X/?` when expected is unknown.
+  Rationale: This communicates progress against source availability while preserving explicit unknown states.
+  Date/Author: 2026-03-06 / Codex
+
+- Decision: Treat `location` and `salary` as required user-facing fields now, with explicit placeholder value `unknown` when extraction fails.
+  Rationale: Users need these fields surfaced consistently; absence must be explicit rather than silent null.
+  Date/Author: 2026-03-06 / Codex
+
+- Decision: Execute parsing remediation before finalizing stricter per-source data-structure thresholds.
+  Rationale: Threshold and schema commitments should follow measured parser behavior, not assumptions.
   Date/Author: 2026-03-06 / Codex
 
 ## Outcomes & Retrospective
 
-Pending implementation.
+Tracks A-F are implemented in this branch with passing automated verification.
+
+Delivered outcomes:
+
+- Criteria accountability is explicit and persisted per source.
+- Found now communicates `imported/expected` denominator when available.
+- Capture payloads include baseline funnel metadata for coverage tracking.
+- Structured metadata is normalized with deterministic placeholder semantics (`unknown` for missing required user-facing fields).
+- Source contracts are versioned and drift-checkable via tests and CLI command.
+- Full-JD unresolved scope is now explicit by source with backlog acceptance criteria.
+
+Residual gap:
+
+- No active drift failures remain for in-scope sources after parser remediation.
+- Rolling coverage now scopes by `contractVersion` to avoid mixing pre-fix and post-fix runs; operationally, each parser version still needs repeated captures over time to reach true 3-sample trend confidence.
 
 ## Context and Orientation
 
@@ -65,17 +102,21 @@ The existing source criteria design document is `/Users/admin/job-finder/docs/pl
 
 ## Plan of Work
 
-This work is split into five tracks designed for parallel execution in separate worktrees.
+This work is split into six tracks designed for parallel execution in separate worktrees.
 
 Track A (`criteria fidelity`) makes criteria accountability explicit for every source. The implementation must enforce that each provided criterion is either applied in URL construction, applied via UI bootstrap path, applied via post-capture hard filter, or explicitly marked unsupported with persisted diagnostics.
 
 Track B (`max imports + baseline`) extends capture depth and expected-count extraction beyond LinkedIn, then persists a canonical funnel model per source run: `availableCount`, `capturedRawCount`, `postHardFilterCount`, `postDedupeCount`, and `importedCount`.
 
-Track C (`structured metadata`) introduces a normalized job summary object and extraction quality scoring so all sources emit the required core fields with explicit nullability/quality semantics.
+Track C (`structured metadata`) introduces a normalized job summary object and extraction quality scoring so all sources emit the required core fields with explicit placeholder semantics.
 
 Track D (`contract governance`) introduces a versioned per-source contract registry and automated drift checks to detect when UI/DOM changes invalidate either search construction or extraction selectors.
 
 Track E (`integration and UX`) merges A-D outputs into dashboard and CLI views, updates docs, and ensures `/Users/admin/job-finder/docs/plans/2026-03-06-search-construction-design.md` is updated alongside the new extraction contract content.
+
+Implementation ordering note: parser hardening work in Tracks B/C runs before final source contract lock in Track D and before strict UI/data guarantees in Track E.
+
+Track F (`full-JD gap scope and backlog closure`) is required before epic closure: identify sources still lacking full JD after A-E, document blockers, and add explicit follow-on specs to backlog.
 
 ## Parallel Worktree Assignment
 
@@ -91,7 +132,9 @@ Agent D (`contract governance`): branch `codex/data-quality-contract-governance`
 
 Agent E (`integration + docs`): branch `codex/data-quality-integration`
 
-Integration order: A, B, C, D merge into E worktree; E resolves conflicts, runs full verification, and produces final PR.
+Agent F (`full-JD gap scope`): branch `codex/data-quality-full-jd-gap-scope`
+
+Integration order: A, B, C, D merge into E worktree; E resolves conflicts and stabilizes UX. F runs last and must land before final PR.
 
 ## Detailed Track Specs
 
@@ -134,6 +177,8 @@ Add structured metadata model in normalization path by modifying:
 
 Required normalized object fields (core): `title`, `company`, `location`, `freshness`, `salary`, `description`, `employmentType`.
 
+`location` and `salary` must always be present as either extracted value or explicit string placeholder `unknown`.
+
 Optional normalized fields: `workModel`, `skills`.
 
 `freshness` must include both raw and parsed value (`rawText`, `postedAtIso`, `relativeDays`). `salary` must include at least `rawText`, plus parsed numeric bounds when possible.
@@ -151,7 +196,7 @@ Update tests:
 - add `/Users/admin/job-finder/test/normalize-structured-meta.test.js`
 - add `/Users/admin/job-finder/test/source-extraction-quality.test.js`
 
-Acceptance for Track C: each imported job has a structured metadata payload and explicit quality markers for missing required fields.
+Acceptance for Track C: each imported job has a structured metadata payload and explicit quality markers for missing required fields; `location` and `salary` are never omitted (value or `unknown`).
 
 ### Track D: Source Contract Governance and Drift Detection (Agent D)
 
@@ -184,7 +229,7 @@ Integrate Track A-D outputs into `/Users/admin/job-finder/src/review/server.js` 
 
 Dashboard/Searches table recommendation:
 - Found column displays `importedCount/expectedCount` when expected is known.
-- Found column displays `importedCount` when expected is unknown.
+- Found column displays `importedCount/?` when expected is unknown.
 - Keep advanced funnel columns (`captured`, `hard-filter dropped`, `dedupe dropped`, `imported`) available in expanded row/details.
 
 Update render and API tests:
@@ -199,6 +244,21 @@ Update documentation:
 
 Acceptance for Track E: user can see per-source criteria accountability, Found denominator when available, and source data quality status in one place.
 
+### Track F: Full-JD Gap Scope and Backlog Closure (Agent F)
+
+After Track E stabilization, audit all source types and produce a source-by-source matrix with:
+- full JD status (`yes/no/partial`)
+- extraction path (`detail`, `card`, `mixed`)
+- blocker class (`auth`, `anti-bot`, `selector volatility`, `navigation`, `other`)
+- concrete follow-on implementation step
+
+Required outputs:
+- update `/Users/admin/job-finder/docs/backlog.md`
+- add one or more detailed specs in `/Users/admin/job-finder/docs/backlog-specs/` for unresolved full-JD sources
+- add cross-links from `/Users/admin/job-finder/docs/plans/2026-03-06-search-construction-design.md`
+
+Acceptance for Track F: no source exits epic with ambiguous JD status; every unresolved source has explicit backlog scope and acceptance criteria.
+
 ## Concrete Steps
 
 Working directory for all commands: `/Users/admin/job-finder`.
@@ -212,6 +272,7 @@ Working directory for all commands: `/Users/admin/job-finder`.
     git worktree add ~/.config/superpowers/worktrees/job-finder/data-quality-meta -b codex/data-quality-structured-meta
     git worktree add ~/.config/superpowers/worktrees/job-finder/data-quality-contracts -b codex/data-quality-contract-governance
     git worktree add ~/.config/superpowers/worktrees/job-finder/data-quality-integration -b codex/data-quality-integration
+    git worktree add ~/.config/superpowers/worktrees/job-finder/data-quality-full-jd-gaps -b codex/data-quality-full-jd-gap-scope
 
 2. In each worktree, run baseline tests before edits.
 
@@ -237,9 +298,11 @@ Goal 1 (Quality Searches): For each source type, a test fixture with full criter
 
 Goal 2 (Max Imports): Capture payload must include `expectedCount` when detectable and always include `capturedRawCount`, `postHardFilterCount`, `postDedupeCount`, `importedCount`. Dashboard Found must consume these fields.
 
-Goal 3A (Structured metadata): Every imported job includes required structured fields with deterministic null handling; optional fields tracked when present. Extraction quality metrics are computed per source run.
+Goal 3A (Structured metadata): Every imported job includes required structured fields with deterministic placeholder handling; optional fields tracked when present. Extraction quality metrics are computed per source run.
 
 Goal 3B (Ongoing maintenance): Contract drift command must fail loudly when selectors/mappings break and must reference the same source contract data used by search construction docs.
+
+Goal 4 (Source completeness): work is not complete until all source types in `config/sources.json` are updated and verified in this epic (feature-flagged sources included via controlled verification runs).
 
 ## Idempotence and Recovery
 
@@ -256,9 +319,9 @@ Normalized metadata object shape (target):
     {
       title: string,
       company: string,
-      location: string | null,
+      location: string,
       freshness: {
-        rawText: string | null,
+        rawText: string,
         postedAtIso: string | null,
         relativeDays: number | null
       },
@@ -283,7 +346,7 @@ Normalized metadata object shape (target):
 Found metric recommendation for Searches table:
 
     Found = importedCount/expectedCount (when expectedCount != null)
-    Found = importedCount (when expectedCount == null)
+    Found = importedCount/? (when expectedCount == null)
 
 ## Interfaces and Dependencies
 
@@ -297,3 +360,4 @@ Core interfaces to add or extend:
 - `runSourceContractDriftCheck({ sourceId? }) -> { status, failures, warnings, verifiedAt }`
 
 Plan revision note (2026-03-06): Initial multi-agent ExecPlan created from codebase review for Data Quality Epic, including explicit worktree split and governance path tying extraction mapping to existing search-construction design.
+Plan revision note (2026-03-06): Updated per user feedback to require `location`/`salary` placeholders, parsing-first sequencing, and mandatory Track F full-JD gap scoping with backlog closure before epic completion.

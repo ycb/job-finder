@@ -84,6 +84,15 @@ const SEARCH_CRITERIA_EXPERIENCE_VALUES = new Set([
   "director",
   "executive"
 ]);
+const SEARCH_CRITERIA_FIELD_NAMES = new Set([
+  "title",
+  "keywords",
+  "location",
+  "distanceMiles",
+  "datePosted",
+  "experienceLevel",
+  "minSalary"
+]);
 
 export function validateSearchCriteria(raw, label = "Search criteria") {
   const criteria = assertOptionalObject(raw, label, {});
@@ -149,6 +158,70 @@ export function validateSearchCriteria(raw, label = "Search criteria") {
   }
 
   return normalizedCriteria;
+}
+
+function validateCriteriaAccountabilityBucket(rawBucket, label) {
+  if (rawBucket === undefined) {
+    return [];
+  }
+
+  if (!Array.isArray(rawBucket)) {
+    throw new Error(`${label} must be an array when provided.`);
+  }
+
+  const deduped = [];
+  for (let index = 0; index < rawBucket.length; index += 1) {
+    const field = assertString(rawBucket[index], `${label}[${index}]`);
+    if (!SEARCH_CRITERIA_FIELD_NAMES.has(field)) {
+      throw new Error(
+        `${label}[${index}] must be one of: ${Array.from(SEARCH_CRITERIA_FIELD_NAMES).join(", ")}.`
+      );
+    }
+    if (!deduped.includes(field)) {
+      deduped.push(field);
+    }
+  }
+
+  return deduped;
+}
+
+function validateSourceCriteriaAccountability(raw, label) {
+  const accountability = assertOptionalObject(raw, label, {});
+  const normalized = {
+    appliedInUrl: validateCriteriaAccountabilityBucket(
+      accountability.appliedInUrl,
+      `${label}.appliedInUrl`
+    ),
+    appliedInUiBootstrap: validateCriteriaAccountabilityBucket(
+      accountability.appliedInUiBootstrap,
+      `${label}.appliedInUiBootstrap`
+    ),
+    appliedPostCapture: validateCriteriaAccountabilityBucket(
+      accountability.appliedPostCapture,
+      `${label}.appliedPostCapture`
+    ),
+    unsupported: validateCriteriaAccountabilityBucket(
+      accountability.unsupported,
+      `${label}.unsupported`
+    )
+  };
+
+  const seen = new Set();
+  for (const field of [
+    ...normalized.appliedInUrl,
+    ...normalized.appliedInUiBootstrap,
+    ...normalized.appliedPostCapture,
+    ...normalized.unsupported
+  ]) {
+    if (seen.has(field)) {
+      throw new Error(
+        `${label} cannot assign field "${field}" to multiple buckets.`
+      );
+    }
+    seen.add(field);
+  }
+
+  return normalized;
 }
 
 export function validateProfile(raw) {
@@ -405,6 +478,13 @@ export function validateSources(raw) {
         );
       }
 
+      if (source.criteriaAccountability !== undefined) {
+        normalizedSource.criteriaAccountability = validateSourceCriteriaAccountability(
+          source.criteriaAccountability,
+          `Sources.sources[${index}].criteriaAccountability`
+        );
+      }
+
       if (source.requiredTerms !== undefined) {
         if (!Array.isArray(source.requiredTerms)) {
           throw new Error(
@@ -571,6 +651,18 @@ export function validateSources(raw) {
           normalizedSource.requestTimeoutMs = Math.round(source.requestTimeoutMs);
         }
 
+      }
+
+      if (
+        type === "linkedin_capture_file" ||
+        type === "builtin_search" ||
+        type === "google_search" ||
+        type === "wellfound_search" ||
+        type === "ashby_search" ||
+        type === "indeed_search" ||
+        type === "ziprecruiter_search" ||
+        type === "remoteok_search"
+      ) {
         if (source.maxPages !== undefined) {
           if (!Number.isInteger(source.maxPages) || source.maxPages <= 0) {
             throw new Error(
@@ -579,6 +671,39 @@ export function validateSources(raw) {
           }
 
           normalizedSource.maxPages = source.maxPages;
+        }
+      }
+
+      if (
+        type === "linkedin_capture_file" ||
+        type === "google_search" ||
+        type === "wellfound_search" ||
+        type === "ashby_search" ||
+        type === "indeed_search" ||
+        type === "ziprecruiter_search" ||
+        type === "remoteok_search"
+      ) {
+        if (source.maxScrollSteps !== undefined) {
+          if (!Number.isInteger(source.maxScrollSteps) || source.maxScrollSteps <= 0) {
+            throw new Error(
+              `Sources.sources[${index}].maxScrollSteps must be a positive integer when provided.`
+            );
+          }
+
+          normalizedSource.maxScrollSteps = source.maxScrollSteps;
+        }
+
+        if (source.maxIdleScrollSteps !== undefined) {
+          if (
+            !Number.isInteger(source.maxIdleScrollSteps) ||
+            source.maxIdleScrollSteps <= 0
+          ) {
+            throw new Error(
+              `Sources.sources[${index}].maxIdleScrollSteps must be a positive integer when provided.`
+            );
+          }
+
+          normalizedSource.maxIdleScrollSteps = source.maxIdleScrollSteps;
         }
       }
 

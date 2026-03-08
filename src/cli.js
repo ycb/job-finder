@@ -42,7 +42,7 @@ import {
   pruneSourceJobs
 } from "./jobs/repository.js";
 import { evaluateJobsFromSearchCriteria } from "./jobs/score.js";
-import { writeShortlistFile } from "./output/render.js";
+import { writeShortlistFile } from "./shortlist/render.js";
 import { startReviewServer } from "./review/server.js";
 import {
   getSourceRefreshDecision,
@@ -50,6 +50,21 @@ import {
   readSourceCaptureSummary
 } from "./sources/cache-policy.js";
 import { classifyRefreshErrorOutcome, recordRefreshEvent } from "./sources/refresh-state.js";
+import {
+  evaluateCaptureRun,
+  shouldIngestCaptureEvaluation,
+  writeCaptureQuarantineArtifact
+} from "./sources/capture-validation.js";
+import {
+  computeSourceHealthStatus,
+  recordSourceHealthFromCaptureEvaluation
+} from "./sources/source-health.js";
+import {
+  evaluateSourceCanaries,
+  loadSourceCanaries,
+  writeSourceCanaryDiagnostics
+} from "./sources/source-canaries.js";
+import { evaluateSourceContractDrift } from "./sources/source-contracts.js";
 import {
   collectJobsFromSource,
   importLinkedInSnapshot
@@ -109,23 +124,174 @@ function extractFlag(args, flag) {
   };
 }
 
+function extractOption(args, optionName) {
+  const remaining = [];
+  let value = null;
+
+  for (let index = 0; index < (Array.isArray(args) ? args.length : 0); index += 1) {
+    const arg = args[index];
+    if (arg === optionName) {
+      const next = args[index + 1];
+      if (typeof next === "string" && !next.startsWith("--")) {
+        value = next;
+        index += 1;
+      } else {
+        value = "";
+      }
+      continue;
+    }
+    remaining.push(arg);
+  }
+
+  return {
+    value,
+    args: remaining
+  };
+}
+
 function runInit() {
   const { db, dbPath } = withDatabase();
   db.close();
   console.log(`Database initialized at ${dbPath}`);
 }
 
-function runSync() {
+function resolveAllowQuarantinedIngest(options = {}) {
+  if (options.allowQuarantined === true) {
+    return true;
+  }
+
+  const envValue = String(
+    process.env.JOB_FINDER_ALLOW_QUARANTINED_CAPTURE || ""
+  ).trim().toLowerCase();
+
+  return envValue === "1" || envValue === "true" || envValue === "yes";
+}
+
+function buildRejectedEvaluation(reason) {
+  return {
+    outcome: "reject",
+    reasons: [String(reason || "capture validation rejected source ingest")],
+    metrics: {
+      sampleSize: 0,
+      baselineCount: null,
+      baselineRatio: null,
+      uniqueJobRatio: null,
+      urlValidityRatio: null,
+      requiredCoverage: {
+        title: null,
+        company: null,
+        url: null
+      },
+      optionalUnknownRates: {
+        location: null,
+        postedAt: null,
+        salaryText: null,
+        employmentType: null
+      }
+    },
+    evaluatedAt: new Date().toISOString()
+  };
+}
+
+function runSync(options = {}) {
   const sources = loadSources();
   const { db } = withDatabase();
+  const allowQuarantined = resolveAllowQuarantinedIngest(options);
 
   let totalCollected = 0;
   let totalUpserted = 0;
   let totalPruned = 0;
+  let skippedByQuality = 0;
+  const qualityMessages = [];
 
   for (const source of sources.sources.filter((item) => item.enabled)) {
-    const rawJobs = collectJobsFromSource(source);
-    const normalizedJobs = rawJobs.map((job) => normalizeJobRecord(job, source));
+    const captureSummary = readSourceCaptureSummary(source);
+    let rawJobs;
+    try {
+      rawJobs = collectJobsFromSource(source);
+    } catch (error) {
+      const evaluation = buildRejectedEvaluation(`collection failed: ${error.message}`);
+      const failurePayload = {
+        capturedAt: captureSummary.capturedAt || new Date().toISOString(),
+        expectedCount: captureSummary.expectedCount,
+        pageUrl: captureSummary.pageUrl,
+        jobs: []
+      };
+      recordSourceHealthFromCaptureEvaluation(source, failurePayload, evaluation);
+      const artifactPath = writeCaptureQuarantineArtifact(
+        source,
+        failurePayload,
+        evaluation
+      );
+      skippedByQuality += 1;
+      qualityMessages.push(
+        `${source.id}: rejected (collection failure). artifact=${artifactPath}`
+      );
+      continue;
+    }
+
+    const captureSummaryAfterCollection = readSourceCaptureSummary(source);
+    const capturePayload = {
+      capturedAt:
+        captureSummaryAfterCollection.capturedAt ||
+        captureSummary.capturedAt ||
+        new Date().toISOString(),
+      expectedCount:
+        captureSummaryAfterCollection.expectedCount ?? captureSummary.expectedCount,
+      pageUrl: captureSummaryAfterCollection.pageUrl || captureSummary.pageUrl,
+      jobs: rawJobs
+    };
+    const evaluation = evaluateCaptureRun(source, capturePayload, {
+      baselineCount: capturePayload.expectedCount
+    });
+    recordSourceHealthFromCaptureEvaluation(source, capturePayload, evaluation);
+    const shouldIngest = shouldIngestCaptureEvaluation(evaluation, {
+      allowQuarantined
+    });
+
+    if (!shouldIngest) {
+      const artifactPath = writeCaptureQuarantineArtifact(
+        source,
+        capturePayload,
+        evaluation
+      );
+      skippedByQuality += 1;
+      qualityMessages.push(
+        `${source.id}: ${evaluation.outcome}. ${evaluation.reasons.join(" | ") || "no reason"} artifact=${artifactPath}`
+      );
+      continue;
+    }
+
+    if (evaluation.outcome !== "accept" && allowQuarantined) {
+      qualityMessages.push(
+        `${source.id}: ${evaluation.outcome} accepted via override (--allow-quarantined).`
+      );
+    }
+
+    let normalizedJobs;
+    try {
+      normalizedJobs = rawJobs.map((job) => normalizeJobRecord(job, source));
+    } catch (error) {
+      const evaluationOnNormalizeError = buildRejectedEvaluation(
+        `normalization failed: ${error.message}`
+      );
+      recordSourceHealthFromCaptureEvaluation(
+        source,
+        capturePayload,
+        evaluationOnNormalizeError
+      );
+      const artifactPath = writeCaptureQuarantineArtifact(
+        source,
+        capturePayload,
+        evaluationOnNormalizeError
+      );
+      skippedByQuality += 1;
+      qualityMessages.push(
+        `${source.id}: rejected (normalization failure). artifact=${artifactPath}`
+      );
+      continue;
+    }
+
     totalCollected += normalizedJobs.length;
     totalUpserted += upsertJobs(db, normalizedJobs);
     totalPruned += pruneSourceJobs(
@@ -139,6 +305,14 @@ function runSync() {
   console.log(
     `Collected ${totalCollected} job(s). Upserted ${totalUpserted} record(s). Pruned ${totalPruned} stale record(s).`
   );
+  if (skippedByQuality > 0) {
+    console.log(
+      `Skipped ${skippedByQuality} source(s) due capture quality guardrails.`
+    );
+  }
+  for (const message of qualityMessages) {
+    console.log(`  quality: ${message}`);
+  }
 }
 
 function runScore() {
@@ -405,6 +579,39 @@ function runNormalizeSourceUrls(options = {}) {
         console.log(`  unsupported: ${row.unsupported.join(", ")}`);
       }
 
+      const accountability =
+        row.criteriaAccountability &&
+        typeof row.criteriaAccountability === "object"
+          ? row.criteriaAccountability
+          : null;
+      if (accountability) {
+        const appliedInUrl = Array.isArray(accountability.appliedInUrl)
+          ? accountability.appliedInUrl
+          : [];
+        const appliedInUiBootstrap = Array.isArray(
+          accountability.appliedInUiBootstrap
+        )
+          ? accountability.appliedInUiBootstrap
+          : [];
+        const appliedPostCapture = Array.isArray(accountability.appliedPostCapture)
+          ? accountability.appliedPostCapture
+          : [];
+
+        if (appliedInUrl.length > 0) {
+          console.log(`  criteria.appliedInUrl: ${appliedInUrl.join(", ")}`);
+        }
+        if (appliedInUiBootstrap.length > 0) {
+          console.log(
+            `  criteria.appliedInUiBootstrap: ${appliedInUiBootstrap.join(", ")}`
+          );
+        }
+        if (appliedPostCapture.length > 0) {
+          console.log(
+            `  criteria.appliedPostCapture: ${appliedPostCapture.join(", ")}`
+          );
+        }
+      }
+
       if (Array.isArray(row.notes) && row.notes.length > 0) {
         console.log(`  notes: ${row.notes.join(" | ")}`);
       }
@@ -415,6 +622,203 @@ function runNormalizeSourceUrls(options = {}) {
 
   const result = normalizeAllSourceSearchUrls();
   console.log(`Normalized ${result.changed} source URL(s).`);
+}
+
+function runSourceContractDriftCheck(options = {}) {
+  const report = evaluateSourceContractDrift({
+    sourcesPath: options.sourcesPath,
+    contractsPath: options.contractsPath,
+    staleAfterDays: options.staleAfterDays,
+    window: options.window,
+    minCoverage: options.minCoverage,
+    historyPath: options.historyPath
+  });
+
+  let hasError = false;
+  let hasWarning = false;
+
+  for (const row of report.rows) {
+    const health = computeSourceHealthStatus(row.sourceId, {
+      window: options.window,
+      staleAfterDays: options.staleAfterDays
+    });
+
+    if (row.status === "error") {
+      hasError = true;
+    } else if (row.status === "warning") {
+      hasWarning = true;
+    }
+    if (health.status === "failing") {
+      hasError = true;
+    } else if (health.status === "degraded" && row.status !== "error") {
+      hasWarning = true;
+    }
+
+    console.log(
+      [
+        `${row.sourceId} (${row.sourceType})`,
+        `status=${row.status}`,
+        `sample=${row.sampleSize}`,
+        `contract=${row.contractVersion || "missing"}`
+      ].join(" | ")
+    );
+
+    const latestCoverageEntries = Object.entries(
+      row.latestCoverageByField || row.coverageByField || {}
+    ).filter(
+      ([, ratio]) =>
+        ratio !== null &&
+        ratio !== undefined &&
+        Number.isFinite(Number(ratio))
+    );
+    if (latestCoverageEntries.length > 0) {
+      console.log(
+        "  latest: " +
+          latestCoverageEntries
+            .map(([field, ratio]) => `${field}=${Math.round(Number(ratio) * 100)}%`)
+            .join(", ")
+      );
+    }
+
+    const rollingCoverageEntries = Object.entries(row.rollingCoverageByField || {}).filter(
+      ([, ratio]) =>
+        ratio !== null &&
+        ratio !== undefined &&
+        Number.isFinite(Number(ratio))
+    );
+    if (rollingCoverageEntries.length > 0) {
+      console.log(
+        `  rolling(${row.rollingSamplesUsed || 0}/${row.rollingWindow || report.window}): ` +
+          rollingCoverageEntries
+            .map(([field, ratio]) => `${field}=${Math.round(Number(ratio) * 100)}%`)
+            .join(", ")
+      );
+    }
+
+    if (typeof row.passCoverageGate === "boolean") {
+      console.log(
+        `  gate(min=${Math.round(Number(row.minCoverage || report.minCoverage || 0) * 100)}%): ${row.passCoverageGate ? "pass" : "fail"}`
+      );
+    }
+
+    if (Array.isArray(row.issues) && row.issues.length > 0) {
+      console.log(`  issues: ${row.issues.join(" | ")}`);
+    }
+
+    const healthScore =
+      Number.isFinite(Number(health.score))
+        ? `${Math.round(Number(health.score) * 100)}%`
+        : "n/a";
+    console.log(
+      `  health: ${health.status} (score=${healthScore}; samples=${health.samplesUsed || 0})`
+    );
+    if (Array.isArray(health.reasons) && health.reasons.length > 0) {
+      console.log(`  health-issues: ${health.reasons.join(" | ")}`);
+    }
+  }
+
+  if (hasError) {
+    process.exitCode = 1;
+    return;
+  }
+
+  if (hasWarning) {
+    process.exitCode = 2;
+  }
+}
+
+function runSourceCanaryCheck(options = {}) {
+  const includeDisabled = options.includeDisabled === true;
+  const canaries = loadSourceCanaries(options.canariesPath);
+  const sources = loadSources().sources.filter(
+    (source) => includeDisabled || source.enabled
+  );
+
+  const rows = [];
+  let hasFailure = false;
+  let hasSkipped = false;
+
+  for (const source of sources) {
+    const result = evaluateSourceCanaries(source, {
+      canaries
+    });
+    rows.push(result);
+
+    const status = result.status || "skipped";
+    const canaryPayload = {
+      capturedAt:
+        result.payload?.capturedAt ||
+        result.captureEvaluation?.evaluatedAt ||
+        new Date().toISOString(),
+      expectedCount: result.payload?.expectedCount ?? null,
+      pageUrl: result.payload?.pageUrl || null,
+      jobs: Array.isArray(result.payload?.jobs) ? result.payload.jobs : []
+    };
+    if (status === "fail") {
+      hasFailure = true;
+
+      const canaryEvaluation = {
+        outcome: "quarantine",
+        reasons: [
+          `canary ${result.canaryId || "default"} failed`,
+          ...(Array.isArray(result.reasons) ? result.reasons : [])
+        ],
+        metrics: result.captureEvaluation?.metrics || {}
+      };
+      recordSourceHealthFromCaptureEvaluation(
+        source,
+        canaryPayload,
+        canaryEvaluation
+      );
+    } else if (status === "pass") {
+      recordSourceHealthFromCaptureEvaluation(source, canaryPayload, {
+        outcome: "accept",
+        reasons: [],
+        metrics: result.captureEvaluation?.metrics || {}
+      });
+    } else if (status === "skipped") {
+      hasSkipped = true;
+    }
+
+    console.log(
+      [
+        `${source.id} (${source.type})`,
+        `status=${status}`,
+        `canary=${result.canaryId || "none"}`
+      ].join(" | ")
+    );
+
+    for (const check of Array.isArray(result.checks) ? result.checks : []) {
+      console.log(
+        `  ${check.pass ? "pass" : "fail"} ${check.kind}: ${check.message}`
+      );
+    }
+    if (Array.isArray(result.reasons) && result.reasons.length > 0) {
+      console.log(`  issues: ${result.reasons.join(" | ")}`);
+    }
+  }
+
+  const diagnostics = writeSourceCanaryDiagnostics({
+    generatedAt: new Date().toISOString(),
+    rows: rows.map((row) => ({
+      sourceId: row.sourceId,
+      sourceType: row.sourceType,
+      canaryId: row.canaryId,
+      status: row.status,
+      reasons: row.reasons,
+      checks: row.checks
+    }))
+  });
+  console.log(`Canary diagnostics: ${diagnostics.latestPath}`);
+
+  if (hasFailure) {
+    process.exitCode = 1;
+    return;
+  }
+
+  if (hasSkipped) {
+    process.exitCode = 2;
+  }
 }
 
 function openUrlInBrowser(url) {
@@ -542,7 +946,35 @@ async function isBridgeAvailable(baseUrl) {
   }
 }
 
-async function ensureBridgeForLinkedInSources(sources) {
+async function waitForBridge(baseUrl, timeoutMs = 8_000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt <= timeoutMs) {
+    if (await isBridgeAvailable(baseUrl)) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return false;
+}
+
+function startDetachedBridgeProcess(port, providerName) {
+  const cliPath = path.resolve("src/cli.js");
+  const child = spawn(
+    process.execPath,
+    [cliPath, "bridge-server", String(port), String(providerName || "chrome_applescript")],
+    {
+      detached: true,
+      stdio: "ignore",
+      env: {
+        ...process.env,
+        JOB_FINDER_BRIDGE_PROVIDER: String(providerName || "chrome_applescript")
+      }
+    }
+  );
+  child.unref();
+}
+
+async function ensureBridgeForLinkedInSources(sources, options = {}) {
   const requiresBridge = Array.isArray(sources)
     ? sources.some((source) => isBrowserCaptureSource(source))
     : false;
@@ -572,6 +1004,31 @@ async function ensureBridgeForLinkedInSources(sources) {
   const providerName = String(
     process.env.JOB_FINDER_BRIDGE_PROVIDER || "chrome_applescript"
   );
+  const preferDetached = Boolean(options.preferDetached);
+
+  if (preferDetached) {
+    try {
+      startDetachedBridgeProcess(port, providerName);
+      const ready = await waitForBridge(baseUrl, 10_000);
+      if (!ready) {
+        throw new Error("bridge did not report healthy within timeout");
+      }
+
+      console.log(
+        `Auto-started persistent browser bridge at ${baseUrl} (provider=${providerName}).`
+      );
+
+      return {
+        baseUrl,
+        started: false,
+        server: null
+      };
+    } catch (error) {
+      throw new Error(
+        `Browser capture needs the bridge at ${baseUrl}, but persistent auto-start failed (${error.message}). Start it manually with: node src/cli.js bridge-server ${port}`
+      );
+    }
+  }
 
   try {
     const started = await startBrowserBridgeServer({ port, providerName });
@@ -760,7 +1217,9 @@ async function runCaptureSourceLive(sourceIdOrName, snapshotPathArg, options = {
     return;
   }
 
-  const bridgeSession = await ensureBridgeForLinkedInSources([source]);
+  const bridgeSession = await ensureBridgeForLinkedInSources([source], {
+    preferDetached: true
+  });
   const snapshotPath = path.resolve(snapshotPathArg || getDefaultSnapshotPath(source));
   let result;
 
@@ -968,7 +1427,7 @@ async function runPipeline(options = {}) {
     console.log("No enabled browser-capture sources. Skipping browser capture.");
   }
 
-  runSync();
+  runSync({ allowQuarantined: options.allowQuarantined });
   runScore();
   runShortlist();
   runList(10);
@@ -1004,6 +1463,8 @@ SOURCE MANAGEMENT:
   jf add-remoteok-source <label> <url>      Add RemoteOK search
   jf set-source-url <id-or-label> <url>     Update source URL
   jf normalize-source-urls [--dry-run]      Normalize URLs from search criteria
+  jf check-source-contracts [--window n] [--min-coverage 0.7]  Run source contract drift checks
+  jf check-source-canaries [--include-disabled]  Run source adapter canary checks
 
 PROFILE CONFIGURATION:
   jf profile-source                         Show current profile source
@@ -1016,6 +1477,7 @@ ADVANCED:
   jf score                     Score jobs only (no sync)
   jf shortlist                Generate shortlist file
   jf run --force-refresh      Force fresh collection (bypass cache)
+  jf sync --allow-quarantined Allow quarantined capture runs to ingest
   jf bridge-server [port]     Start browser bridge manually
 
 DEV/FROM SOURCE:
@@ -1054,7 +1516,10 @@ async function main() {
       runInit();
       break;
     case "sync":
-      runSync();
+      {
+        const parsed = extractFlag(args, "--allow-quarantined");
+        runSync({ allowQuarantined: parsed.present });
+      }
       break;
     case "score":
       runScore();
@@ -1099,6 +1564,43 @@ async function main() {
       {
         const parsed = extractFlag(args, "--dry-run");
         runNormalizeSourceUrls({ dryRun: parsed.present });
+      }
+      break;
+    case "check-source-contracts":
+      {
+        let parsedArgs = [...args];
+        const windowOption = extractOption(parsedArgs, "--window");
+        parsedArgs = windowOption.args;
+        const minCoverageOption = extractOption(parsedArgs, "--min-coverage");
+        parsedArgs = minCoverageOption.args;
+        const staleDaysOption = extractOption(parsedArgs, "--stale-days");
+
+        const parsedWindow = Number(windowOption.value);
+        const parsedMinCoverage = Number(minCoverageOption.value);
+        const parsedStaleDays = Number(staleDaysOption.value);
+
+        runSourceContractDriftCheck({
+          window:
+            Number.isInteger(parsedWindow) && parsedWindow > 0 ? parsedWindow : undefined,
+          minCoverage:
+            Number.isFinite(parsedMinCoverage) &&
+            parsedMinCoverage >= 0 &&
+            parsedMinCoverage <= 1
+              ? parsedMinCoverage
+              : undefined,
+          staleAfterDays:
+            Number.isInteger(parsedStaleDays) && parsedStaleDays > 0
+              ? parsedStaleDays
+              : undefined
+        });
+      }
+      break;
+    case "check-source-canaries":
+      {
+        const parsed = extractFlag(args, "--include-disabled");
+        runSourceCanaryCheck({
+          includeDisabled: parsed.present
+        });
       }
       break;
     case "profile-source":
@@ -1158,14 +1660,32 @@ async function main() {
       break;
     case "run":
       {
-        const parsed = extractFlag(args, "--force-refresh");
-        await runPipeline({ forceRefresh: parsed.present });
+        let parsedArgs = [...args];
+        const forceRefreshFlag = extractFlag(parsedArgs, "--force-refresh");
+        parsedArgs = forceRefreshFlag.args;
+        const allowQuarantinedFlag = extractFlag(
+          parsedArgs,
+          "--allow-quarantined"
+        );
+        await runPipeline({
+          forceRefresh: forceRefreshFlag.present,
+          allowQuarantined: allowQuarantinedFlag.present
+        });
       }
       break;
     case "run-live":
       {
-        const parsed = extractFlag(args, "--force-refresh");
-        await runLivePipeline({ forceRefresh: parsed.present });
+        let parsedArgs = [...args];
+        const forceRefreshFlag = extractFlag(parsedArgs, "--force-refresh");
+        parsedArgs = forceRefreshFlag.args;
+        const allowQuarantinedFlag = extractFlag(
+          parsedArgs,
+          "--allow-quarantined"
+        );
+        await runLivePipeline({
+          forceRefresh: forceRefreshFlag.present,
+          allowQuarantined: allowQuarantinedFlag.present
+        });
       }
       break;
     case "help":

@@ -1,0 +1,222 @@
+{
+  "version": "2026-03-07",
+  "contracts": [
+    {
+      "sourceType": "linkedin_capture_file",
+      "contractVersion": "1.1.0",
+      "lastVerified": "2026-03-08",
+      "criteriaMapping": {
+        "title": "url",
+        "keywords": "url",
+        "location": "url",
+        "distanceMiles": "url",
+        "datePosted": "url",
+        "experienceLevel": "url",
+        "minSalary": "url"
+      },
+      "extraction": {
+        "requiredFields": [
+          "title",
+          "company",
+          "location",
+          "description",
+          "postedAt",
+          "salaryText",
+          "employmentType"
+        ],
+        "fullJobDescription": "partial"
+      },
+      "expectedCountStrategy": "dom_counter",
+      "paginationStrategy": "page_plus_scroll"
+    },
+    {
+      "sourceType": "builtin_search",
+      "contractVersion": "1.0.0",
+      "lastVerified": "2026-03-07",
+      "criteriaMapping": {
+        "title": "url",
+        "keywords": "url",
+        "location": "url",
+        "distanceMiles": "unsupported",
+        "datePosted": "url",
+        "experienceLevel": "unsupported",
+        "minSalary": "unsupported"
+      },
+      "extraction": {
+        "requiredFields": [
+          "title",
+          "company",
+          "location",
+          "description",
+          "postedAt",
+          "salaryText"
+        ],
+        "fullJobDescription": "partial"
+      },
+      "expectedCountStrategy": "html_counter_best_effort",
+      "paginationStrategy": "single_page"
+    },
+    {
+      "sourceType": "wellfound_search",
+      "contractVersion": "1.0.0",
+      "lastVerified": "2026-03-07",
+      "criteriaMapping": {
+        "title": "unsupported",
+        "keywords": "unsupported",
+        "location": "unsupported",
+        "distanceMiles": "unsupported",
+        "datePosted": "unsupported",
+        "experienceLevel": "unsupported",
+        "minSalary": "unsupported"
+      },
+      "extraction": {
+        "requiredFields": [
+          "title",
+          "company",
+          "location",
+          "description",
+          "postedAt",
+          "salaryText"
+        ],
+        "fullJobDescription": "partial"
+      },
+      "expectedCountStrategy": "none",
+      "paginationStrategy": "scroll"
+    },
+    {
+      "sourceType": "ashby_search",
+      "contractVersion": "1.1.0",
+      "lastVerified": "2026-03-08",
+      "criteriaMapping": {
+        "title": "url",
+        "keywords": "url",
+        "location": "url",
+        "distanceMiles": "unsupported",
+        "datePosted": "url",
+        "experienceLevel": "url",
+        "minSalary": "unsupported"
+      },
+      "extraction": {
+        "requiredFields": [
+          "title",
+          "company",
+          "location",
+          "description",
+          "postedAt",
+          "salaryText"
+        ],
+        "fullJobDescription": "partial"
+      },
+      "expectedCountStrategy": "none",
+      "paginationStrategy": "board_discovery"
+    },
+    {
+      "sourceType": "google_search",
+      "contractVersion": "1.1.0",
+      "lastVerified": "2026-03-08",
+      "criteriaMapping": {
+        "title": "url",
+        "keywords": "url",
+        "location": "url",
+        "distanceMiles": "unsupported",
+        "datePosted": "url",
+        "experienceLevel": "url",
+        "minSalary": "url"
+      },
+      "extraction": {
+        "requiredFields": [
+          "title",
+          "company",
+          "location",
+          "description",
+          "postedAt",
+          "salaryText"
+        ],
+        "fullJobDescription": "partial"
+      },
+      "expectedCountStrategy": "none",
+      "paginationStrategy": "single_page"
+    },
+    {
+      "sourceType": "indeed_search",
+      "contractVersion": "1.1.0",
+      "lastVerified": "2026-03-08",
+      "criteriaMapping": {
+        "title": "url",
+        "keywords": "url",
+        "location": "url",
+        "distanceMiles": "url",
+        "datePosted": "url",
+        "experienceLevel": "unsupported",
+        "minSalary": "url"
+      },
+      "extraction": {
+        "requiredFields": [
+          "title",
+          "company",
+          "location",
+          "description",
+          "postedAt",
+          "salaryText"
+        ],
+        "fullJobDescription": "partial"
+      },
+      "expectedCountStrategy": "dom_counter_best_effort",
+      "paginationStrategy": "page_param"
+    },
+    {
+      "sourceType": "ziprecruiter_search",
+      "contractVersion": "1.1.0",
+      "lastVerified": "2026-03-08",
+      "criteriaMapping": {
+        "title": "url",
+        "keywords": "url",
+        "location": "url",
+        "distanceMiles": "url",
+        "datePosted": "url",
+        "experienceLevel": "url",
+        "minSalary": "url"
+      },
+      "extraction": {
+        "requiredFields": [
+          "title",
+          "company",
+          "location",
+          "description",
+          "postedAt",
+          "salaryText"
+        ],
+        "fullJobDescription": "partial"
+      },
+      "expectedCountStrategy": "dom_counter_best_effort",
+      "paginationStrategy": "page_param"
+    },
+    {
+      "sourceType": "remoteok_search",
+      "contractVersion": "1.0.0",
+      "lastVerified": "2026-03-07",
+      "criteriaMapping": {
+        "title": "url",
+        "keywords": "url",
+        "location": "unsupported",
+        "distanceMiles": "unsupported",
+        "datePosted": "unsupported",
+        "experienceLevel": "unsupported",
+        "minSalary": "unsupported"
+      },
+      "extraction": {
+        "requiredFields": [
+          "title",
+          "company",
+          "location",
+          "description",
+          "postedAt",
+          "salaryText"
+        ],
+        "fullJobDescription": "partial"
+      },
+      "expectedCountStrategy": "none",
+      "paginationStrategy": "single_page"
+    }
+  ]
+}

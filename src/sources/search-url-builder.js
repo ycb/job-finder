@@ -78,6 +78,77 @@ function dedupe(values) {
   return Array.from(new Set(values));
 }
 
+const CRITERIA_FIELDS = [
+  "title",
+  "keywords",
+  "location",
+  "distanceMiles",
+  "datePosted",
+  "experienceLevel",
+  "minSalary"
+];
+
+function emptyCriteriaAccountability() {
+  return {
+    appliedInUrl: [],
+    appliedInUiBootstrap: [],
+    appliedPostCapture: [],
+    unsupported: []
+  };
+}
+
+function createCriteriaAccountabilityTracker(criteria) {
+  const providedFields = CRITERIA_FIELDS.filter((field) =>
+    Object.prototype.hasOwnProperty.call(criteria, field)
+  );
+  const providedFieldSet = new Set(providedFields);
+  const bucketByField = new Map();
+
+  function mark(field, bucket) {
+    if (!providedFieldSet.has(field)) {
+      return;
+    }
+
+    bucketByField.set(field, bucket);
+  }
+
+  function finalize() {
+    const accountability = emptyCriteriaAccountability();
+
+    for (const field of providedFields) {
+      const bucket = bucketByField.get(field) || "unsupported";
+      accountability[bucket].push(field);
+    }
+
+    accountability.appliedInUrl = dedupe(accountability.appliedInUrl);
+    accountability.appliedInUiBootstrap = dedupe(
+      accountability.appliedInUiBootstrap
+    );
+    accountability.appliedPostCapture = dedupe(
+      accountability.appliedPostCapture
+    );
+    accountability.unsupported = dedupe(accountability.unsupported);
+
+    return accountability;
+  }
+
+  return {
+    markAppliedInUrl(field) {
+      mark(field, "appliedInUrl");
+    },
+    markAppliedInUiBootstrap(field) {
+      mark(field, "appliedInUiBootstrap");
+    },
+    markAppliedPostCapture(field) {
+      mark(field, "appliedPostCapture");
+    },
+    markUnsupported(field) {
+      mark(field, "unsupported");
+    },
+    finalize
+  };
+}
+
 function parseLocationParts(rawLocation) {
   const normalized = normalizeText(rawLocation);
   if (!normalized) {
@@ -310,23 +381,17 @@ export function toGoogleRecencyWindowFromDatePosted(datePosted) {
 
 export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {}) {
   const criteria = normalizeSearchCriteria(rawCriteria);
-  const unsupported = [];
   const notes = [];
+  const criteriaAccountability = createCriteriaAccountabilityTracker(criteria);
   const parsed = toUrl(options.baseUrl, sourceType);
 
   if (!parsed) {
+    const finalized = criteriaAccountability.finalize();
     return {
       url: "",
-      unsupported: [
-        "title",
-        "keywords",
-        "location",
-        "distanceMiles",
-        "datePosted",
-        "experienceLevel",
-        "minSalary"
-      ],
-      notes: ["No valid base URL available for source type."]
+      unsupported: finalized.unsupported,
+      notes: ["No valid base URL available for source type."],
+      criteriaAccountability: finalized
     };
   }
 
@@ -351,23 +416,32 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
     const titleKeywords = combineTitleAndKeywords(criteria);
     if (titleKeywords) {
       nextParams.set("keywords", titleKeywords);
+      if (criteria.title) criteriaAccountability.markAppliedInUrl("title");
+      if (criteria.keywords) criteriaAccountability.markAppliedInUrl("keywords");
     }
 
     if (criteria.location) {
       nextParams.delete("geoId");
       nextParams.set("location", criteria.location);
+      criteriaAccountability.markAppliedInUrl("location");
     }
 
     if (criteria.distanceMiles) {
       nextParams.set("distance", String(criteria.distanceMiles));
+      criteriaAccountability.markAppliedInUrl("distanceMiles");
     }
 
-    if (criteria.datePosted && criteria.datePosted !== "any") {
-      const days = DATE_POSTED_TO_DAYS.get(criteria.datePosted);
-      if (days) {
-        nextParams.set("f_TPR", `r${days * 24 * 60 * 60}`);
+    if (criteria.datePosted) {
+      if (criteria.datePosted === "any") {
+        criteriaAccountability.markAppliedInUrl("datePosted");
       } else {
-        unsupported.push("datePosted");
+        const days = DATE_POSTED_TO_DAYS.get(criteria.datePosted);
+        if (days) {
+          nextParams.set("f_TPR", `r${days * 24 * 60 * 60}`);
+          criteriaAccountability.markAppliedInUrl("datePosted");
+        } else {
+          criteriaAccountability.markUnsupported("datePosted");
+        }
       }
     }
 
@@ -375,8 +449,9 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
       const mapped = LINKEDIN_EXPERIENCE_TO_F_E.get(criteria.experienceLevel);
       if (mapped) {
         nextParams.set("f_E", mapped);
+        criteriaAccountability.markAppliedInUrl("experienceLevel");
       } else {
-        unsupported.push("experienceLevel");
+        criteriaAccountability.markUnsupported("experienceLevel");
       }
     }
 
@@ -384,18 +459,21 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
       const bucket = toLinkedInSalaryBucket(criteria.minSalary);
       if (bucket) {
         nextParams.set("f_SB2", bucket);
+        criteriaAccountability.markAppliedInUrl("minSalary");
       } else {
-        unsupported.push("minSalary");
+        criteriaAccountability.markUnsupported("minSalary");
       }
     }
 
     parsed.search = nextParams.toString();
     parsed.hash = "";
+    const finalized = criteriaAccountability.finalize();
 
     return {
       url: parsed.toString(),
-      unsupported: dedupe(unsupported),
-      notes
+      unsupported: finalized.unsupported,
+      notes,
+      criteriaAccountability: finalized
     };
   }
 
@@ -417,6 +495,8 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
     const titleKeywords = combineTitleAndKeywords(criteria);
     if (titleKeywords) {
       nextParams.set("search", titleKeywords);
+      if (criteria.title) criteriaAccountability.markAppliedInUrl("title");
+      if (criteria.keywords) criteriaAccountability.markAppliedInUrl("keywords");
     }
 
     if (criteria.location) {
@@ -424,57 +504,69 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
       if (parts.city) nextParams.set("city", parts.city);
       if (parts.state) nextParams.set("state", parts.state);
       if (parts.country) nextParams.set("country", parts.country);
+      criteriaAccountability.markAppliedInUrl("location");
     }
 
-    if (criteria.datePosted && criteria.datePosted !== "any") {
-      const days = DATE_POSTED_TO_DAYS.get(criteria.datePosted);
-      if (days) {
-        nextParams.set("daysSinceUpdated", String(days));
+    if (criteria.datePosted) {
+      if (criteria.datePosted === "any") {
+        criteriaAccountability.markAppliedInUrl("datePosted");
       } else {
-        unsupported.push("datePosted");
+        const days = DATE_POSTED_TO_DAYS.get(criteria.datePosted);
+        if (days) {
+          nextParams.set("daysSinceUpdated", String(days));
+          criteriaAccountability.markAppliedInUrl("datePosted");
+        } else {
+          criteriaAccountability.markUnsupported("datePosted");
+        }
       }
     }
 
     if (criteria.distanceMiles) {
-      unsupported.push("distanceMiles");
+      criteriaAccountability.markUnsupported("distanceMiles");
     }
 
     if (criteria.minSalary) {
-      unsupported.push("minSalary");
+      criteriaAccountability.markUnsupported("minSalary");
     }
 
     if (criteria.experienceLevel) {
-      unsupported.push("experienceLevel");
+      criteriaAccountability.markUnsupported("experienceLevel");
     }
 
     parsed.search = nextParams.toString();
     parsed.hash = "";
+    const finalized = criteriaAccountability.finalize();
 
     return {
       url: parsed.toString(),
-      unsupported: dedupe(unsupported),
-      notes
+      unsupported: finalized.unsupported,
+      notes,
+      criteriaAccountability: finalized
     };
   }
 
   if (sourceType === "wellfound_search") {
-    if (criteria.title) unsupported.push("title");
-    if (criteria.keywords) unsupported.push("keywords");
-    if (criteria.location) unsupported.push("location");
-    if (criteria.minSalary) unsupported.push("minSalary");
-    if (criteria.distanceMiles) unsupported.push("distanceMiles");
-    if (criteria.datePosted) unsupported.push("datePosted");
-    if (criteria.experienceLevel) unsupported.push("experienceLevel");
+    if (criteria.title) criteriaAccountability.markUnsupported("title");
+    if (criteria.keywords) criteriaAccountability.markUnsupported("keywords");
+    if (criteria.location) criteriaAccountability.markUnsupported("location");
+    if (criteria.minSalary) criteriaAccountability.markUnsupported("minSalary");
+    if (criteria.distanceMiles) criteriaAccountability.markUnsupported("distanceMiles");
+    if (criteria.datePosted) criteriaAccountability.markUnsupported("datePosted");
+    if (criteria.experienceLevel) {
+      criteriaAccountability.markUnsupported("experienceLevel");
+    }
 
     notes.push("Wellfound currently requires UI bootstrap; URL-only criteria are stubbed.");
 
     parsed.search = "";
     parsed.hash = "";
+    const finalized = criteriaAccountability.finalize();
 
     return {
       url: parsed.toString(),
-      unsupported: dedupe(unsupported),
-      notes
+      unsupported: finalized.unsupported,
+      notes,
+      criteriaAccountability: finalized
     };
   }
 
@@ -488,24 +580,29 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
 
     if (criteria.title) {
       queryTerms.push(criteria.title);
+      criteriaAccountability.markAppliedInUrl("title");
     }
 
     if (criteria.keywords) {
       queryTerms.push(criteria.keywords);
+      criteriaAccountability.markAppliedInUrl("keywords");
     }
 
     if (criteria.location) {
       queryTerms.push(`"${criteria.location}"`);
+      criteriaAccountability.markAppliedInUrl("location");
     }
 
     if (criteria.minSalary && sourceType !== "ashby_search") {
       queryTerms.push(`${formatUsdAmount(criteria.minSalary)}+`);
+      criteriaAccountability.markAppliedInUrl("minSalary");
     } else if (criteria.minSalary && sourceType === "ashby_search") {
-      unsupported.push("minSalary");
+      criteriaAccountability.markUnsupported("minSalary");
     }
 
     if (criteria.experienceLevel) {
       queryTerms.push(criteria.experienceLevel);
+      criteriaAccountability.markAppliedInUrl("experienceLevel");
     }
 
     if (queryTerms.length === 0) {
@@ -530,18 +627,23 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
         ? options.recencyWindow
         : ""
     );
+    if (criteria.datePosted) {
+      criteriaAccountability.markAppliedInUrl("datePosted");
+    }
 
     if (criteria.distanceMiles) {
-      unsupported.push("distanceMiles");
+      criteriaAccountability.markUnsupported("distanceMiles");
     }
 
     parsed.search = nextParams.toString();
     parsed.hash = "";
+    const finalized = criteriaAccountability.finalize();
 
     return {
       url: parsed.toString(),
-      unsupported: dedupe(unsupported),
-      notes
+      unsupported: finalized.unsupported,
+      notes,
+      criteriaAccountability: finalized
     };
   }
 
@@ -551,6 +653,8 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
 
     if (titleKeywords) {
       nextParams.set("q", titleKeywords);
+      if (criteria.title) criteriaAccountability.markAppliedInUrl("title");
+      if (criteria.keywords) criteriaAccountability.markAppliedInUrl("keywords");
     } else {
       const existingQuery = normalizeText(parsed.searchParams.get("q"));
       if (existingQuery) {
@@ -560,6 +664,7 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
 
     if (criteria.location) {
       nextParams.set("l", criteria.location);
+      criteriaAccountability.markAppliedInUrl("location");
     } else {
       const existingLocation =
         normalizeText(parsed.searchParams.get("l")) ||
@@ -571,6 +676,7 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
 
     if (criteria.distanceMiles) {
       nextParams.set("radius", String(criteria.distanceMiles));
+      criteriaAccountability.markAppliedInUrl("distanceMiles");
     } else {
       const existingRadius = normalizePositiveInt(parsed.searchParams.get("radius"));
       if (existingRadius) {
@@ -580,6 +686,7 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
 
     if (criteria.minSalary) {
       nextParams.set("salaryType", formatUsdAmount(criteria.minSalary));
+      criteriaAccountability.markAppliedInUrl("minSalary");
     } else {
       const existingSalary = normalizeText(parsed.searchParams.get("salaryType"));
       if (existingSalary) {
@@ -587,26 +694,33 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
       }
     }
 
-    if (criteria.datePosted && criteria.datePosted !== "any") {
-      const days = DATE_POSTED_TO_DAYS.get(criteria.datePosted);
-      if (days) {
-        nextParams.set("fromage", String(days));
+    if (criteria.datePosted) {
+      if (criteria.datePosted === "any") {
+        criteriaAccountability.markAppliedInUrl("datePosted");
       } else {
-        unsupported.push("datePosted");
+        const days = DATE_POSTED_TO_DAYS.get(criteria.datePosted);
+        if (days) {
+          nextParams.set("fromage", String(days));
+          criteriaAccountability.markAppliedInUrl("datePosted");
+        } else {
+          criteriaAccountability.markUnsupported("datePosted");
+        }
       }
     }
 
     if (criteria.experienceLevel) {
-      unsupported.push("experienceLevel");
+      criteriaAccountability.markUnsupported("experienceLevel");
     }
 
     parsed.search = nextParams.toString();
     parsed.hash = "";
+    const finalized = criteriaAccountability.finalize();
 
     return {
       url: parsed.toString(),
-      unsupported: dedupe(unsupported),
-      notes
+      unsupported: finalized.unsupported,
+      notes,
+      criteriaAccountability: finalized
     };
   }
 
@@ -616,6 +730,8 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
 
     if (titleKeywords) {
       nextParams.set("search", titleKeywords);
+      if (criteria.title) criteriaAccountability.markAppliedInUrl("title");
+      if (criteria.keywords) criteriaAccountability.markAppliedInUrl("keywords");
     } else {
       const existingQuery = normalizeText(parsed.searchParams.get("search"));
       if (existingQuery) {
@@ -625,6 +741,7 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
 
     if (criteria.location) {
       nextParams.set("location", criteria.location);
+      criteriaAccountability.markAppliedInUrl("location");
     } else {
       const existingLocation = normalizeText(parsed.searchParams.get("location"));
       if (existingLocation) {
@@ -634,6 +751,7 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
 
     if (criteria.distanceMiles) {
       nextParams.set("radius", String(criteria.distanceMiles));
+      criteriaAccountability.markAppliedInUrl("distanceMiles");
     } else {
       const existingRadius = normalizePositiveInt(parsed.searchParams.get("radius"));
       if (existingRadius) {
@@ -641,36 +759,45 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
       }
     }
 
-    if (criteria.datePosted && criteria.datePosted !== "any") {
-      const days = DATE_POSTED_TO_DAYS.get(criteria.datePosted);
-      if (days) {
-        nextParams.set("days", String(days));
+    if (criteria.datePosted) {
+      if (criteria.datePosted === "any") {
+        criteriaAccountability.markAppliedInUrl("datePosted");
       } else {
-        unsupported.push("datePosted");
+        const days = DATE_POSTED_TO_DAYS.get(criteria.datePosted);
+        if (days) {
+          nextParams.set("days", String(days));
+          criteriaAccountability.markAppliedInUrl("datePosted");
+        } else {
+          criteriaAccountability.markUnsupported("datePosted");
+        }
       }
     }
 
     if (criteria.minSalary) {
       nextParams.set("refine_by_salary", String(criteria.minSalary));
+      criteriaAccountability.markAppliedInUrl("minSalary");
     }
 
     if (criteria.experienceLevel) {
       const mapped = ZIP_EXPERIENCE_LEVELS.get(criteria.experienceLevel);
       if (mapped) {
         nextParams.set("refine_by_experience_level", mapped);
+        criteriaAccountability.markAppliedInUrl("experienceLevel");
       } else {
-        unsupported.push("experienceLevel");
+        criteriaAccountability.markUnsupported("experienceLevel");
       }
     }
 
     nextParams.set("page", "1");
     parsed.search = nextParams.toString();
     parsed.hash = "";
+    const finalized = criteriaAccountability.finalize();
 
     return {
       url: parsed.toString(),
-      unsupported: dedupe(unsupported),
-      notes
+      unsupported: finalized.unsupported,
+      notes,
+      criteriaAccountability: finalized
     };
   }
 
@@ -678,27 +805,33 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
     const keywordSlug = slugifyKeywords(combineTitleAndKeywords(criteria));
     if (keywordSlug) {
       parsed.pathname = `/remote-${keywordSlug}-jobs`;
+      if (criteria.title) criteriaAccountability.markAppliedInUrl("title");
+      if (criteria.keywords) criteriaAccountability.markAppliedInUrl("keywords");
     }
     parsed.search = "";
     parsed.hash = "";
 
-    if (criteria.location) unsupported.push("location");
-    if (criteria.distanceMiles) unsupported.push("distanceMiles");
-    if (criteria.minSalary) unsupported.push("minSalary");
-    if (criteria.datePosted) unsupported.push("datePosted");
-    if (criteria.experienceLevel) unsupported.push("experienceLevel");
+    if (criteria.location) criteriaAccountability.markUnsupported("location");
+    if (criteria.distanceMiles) criteriaAccountability.markUnsupported("distanceMiles");
+    if (criteria.minSalary) criteriaAccountability.markUnsupported("minSalary");
+    if (criteria.datePosted) criteriaAccountability.markUnsupported("datePosted");
+    if (criteria.experienceLevel) criteriaAccountability.markUnsupported("experienceLevel");
+    const finalized = criteriaAccountability.finalize();
 
     return {
       url: parsed.toString(),
-      unsupported: dedupe(unsupported),
-      notes
+      unsupported: finalized.unsupported,
+      notes,
+      criteriaAccountability: finalized
     };
   }
 
   notes.push(`No URL formatter available for source type "${sourceType}".`);
+  const finalized = criteriaAccountability.finalize();
   return {
     url: parsed.toString(),
-    unsupported: dedupe(unsupported),
-    notes
+    unsupported: finalized.unsupported,
+    notes,
+    criteriaAccountability: finalized
   };
 }

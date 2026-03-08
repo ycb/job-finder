@@ -59,6 +59,19 @@ export function readSourceCaptureSummary(source) {
       typeof payload?.capturedAt === "string" && payload.capturedAt.trim()
         ? payload.capturedAt
         : null;
+    const rawCaptureFunnel =
+      payload?.captureFunnel &&
+      typeof payload.captureFunnel === "object" &&
+      !Array.isArray(payload.captureFunnel)
+        ? payload.captureFunnel
+        : null;
+    const normalizeCount = (value) => {
+      if (value === null || value === undefined || value === "") {
+        return null;
+      }
+      const numeric = Number(value);
+      return Number.isFinite(numeric) && numeric >= 0 ? Math.round(numeric) : null;
+    };
 
     return {
       capturePath,
@@ -80,6 +93,15 @@ export function readSourceCaptureSummary(source) {
           Number.isFinite(Number(payload?.expectedCount)) && Number(payload.expectedCount) > 0
             ? Math.round(Number(payload.expectedCount))
             : null,
+        captureFunnel: rawCaptureFunnel
+          ? {
+              availableCount: normalizeCount(rawCaptureFunnel.availableCount),
+              capturedRawCount: normalizeCount(rawCaptureFunnel.capturedRawCount),
+              postHardFilterCount: normalizeCount(rawCaptureFunnel.postHardFilterCount),
+              postDedupeCount: normalizeCount(rawCaptureFunnel.postDedupeCount),
+              importedCount: normalizeCount(rawCaptureFunnel.importedCount)
+            }
+          : null,
         pageUrl: typeof payload?.pageUrl === "string" ? payload.pageUrl : null
       }
     };
@@ -170,9 +192,47 @@ export function writeSourceCapturePayload(source, jobs, options = {}) {
     capturedAt: options.capturedAt || new Date().toISOString(),
     jobs: Array.isArray(jobs) ? jobs : []
   };
+  const expectedCountValue = Number(options.expectedCount);
+  const expectedCount =
+    Number.isFinite(expectedCountValue) && expectedCountValue > 0
+      ? Math.round(expectedCountValue)
+      : null;
 
   if (typeof options.pageUrl === "string" && options.pageUrl.trim()) {
     payload.pageUrl = options.pageUrl.trim();
+  }
+
+  if (expectedCount !== null) {
+    payload.expectedCount = expectedCount;
+  }
+
+  const rawFunnel = options.captureFunnel;
+  if (rawFunnel && typeof rawFunnel === "object" && !Array.isArray(rawFunnel)) {
+    const normalizeCount = (value) => {
+      if (value === null || value === undefined || value === "") {
+        return null;
+      }
+      const numeric = Number(value);
+      return Number.isFinite(numeric) && numeric >= 0 ? Math.round(numeric) : null;
+    };
+
+    payload.captureFunnel = {
+      availableCount: normalizeCount(rawFunnel.availableCount ?? expectedCount),
+      capturedRawCount: normalizeCount(
+        rawFunnel.capturedRawCount ?? payload.jobs.length
+      ),
+      postHardFilterCount: normalizeCount(rawFunnel.postHardFilterCount),
+      postDedupeCount: normalizeCount(rawFunnel.postDedupeCount),
+      importedCount: normalizeCount(rawFunnel.importedCount)
+    };
+  } else {
+    payload.captureFunnel = {
+      availableCount: expectedCount,
+      capturedRawCount: payload.jobs.length,
+      postHardFilterCount: null,
+      postDedupeCount: null,
+      importedCount: null
+    };
   }
 
   fs.writeFileSync(capturePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");

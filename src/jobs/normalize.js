@@ -257,6 +257,155 @@ function parsePostedAt(value) {
   return raw;
 }
 
+function parseRelativeFreshnessDays(rawText) {
+  const normalized = normalizeText(rawText).toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized === "today") {
+    return 0;
+  }
+  if (normalized === "yesterday") {
+    return 1;
+  }
+
+  const match = normalized.match(/^(\d+)\s+(hour|day|week|month|year)s?\s+ago$/);
+  if (!match) {
+    return null;
+  }
+
+  const amount = Number(match[1]);
+  const unit = match[2];
+  if (!Number.isFinite(amount) || amount < 0) {
+    return null;
+  }
+
+  if (unit === "hour") {
+    return Math.max(0, Math.floor(amount / 24));
+  }
+  if (unit === "day") {
+    return amount;
+  }
+  if (unit === "week") {
+    return amount * 7;
+  }
+  if (unit === "month") {
+    return amount * 30;
+  }
+  if (unit === "year") {
+    return amount * 365;
+  }
+
+  return null;
+}
+
+function toFreshnessMeta(rawPostedAt, postedAtIso) {
+  const rawText = normalizeText(rawPostedAt);
+  const postedAtMs = Date.parse(String(postedAtIso || ""));
+  let relativeDays = null;
+
+  if (Number.isFinite(postedAtMs)) {
+    relativeDays = Math.max(
+      0,
+      Math.floor((Date.now() - postedAtMs) / (24 * 60 * 60 * 1000))
+    );
+  } else {
+    relativeDays = parseRelativeFreshnessDays(rawText);
+  }
+
+  return {
+    rawText: rawText || "unknown",
+    postedAtIso: Number.isFinite(postedAtMs) ? new Date(postedAtMs).toISOString() : null,
+    relativeDays: Number.isFinite(relativeDays) ? relativeDays : null
+  };
+}
+
+function parseSalaryMeta(rawSalaryText) {
+  const rawText = normalizeText(rawSalaryText);
+  const matches = String(rawText).match(
+    /\$?\s*\d[\d,]*(?:\.\d+)?\s*[kKmM]?/g
+  );
+
+  if (!rawText) {
+    return {
+      rawText: "unknown",
+      minAnnualUsd: null,
+      maxAnnualUsd: null
+    };
+  }
+
+  const parsedNumbers = [];
+  for (const entry of matches || []) {
+    const normalized = String(entry || "").toLowerCase();
+    const suffixMatch = normalized.match(/[km]$/i);
+    const suffix = suffixMatch ? suffixMatch[0].toLowerCase() : "";
+    const numeric = Number(
+      normalized
+        .replace(/[,$\s]/g, "")
+        .replace(/[km]$/i, "")
+    );
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+      continue;
+    }
+    const scaled =
+      suffix === "k" ? numeric * 1000 : suffix === "m" ? numeric * 1000000 : numeric;
+    parsedNumbers.push(Math.round(scaled));
+  }
+
+  if (parsedNumbers.length === 0) {
+    return {
+      rawText,
+      minAnnualUsd: null,
+      maxAnnualUsd: null
+    };
+  }
+
+  parsedNumbers.sort((left, right) => left - right);
+  return {
+    rawText,
+    minAnnualUsd: parsedNumbers[0],
+    maxAnnualUsd: parsedNumbers[parsedNumbers.length - 1]
+  };
+}
+
+function inferWorkModel(location, description) {
+  const haystack = `${normalizeText(location)} ${normalizeText(description)}`.toLowerCase();
+  if (!haystack) {
+    return null;
+  }
+  if (/\bhybrid\b/.test(haystack)) {
+    return "hybrid";
+  }
+  if (/\bremote\b/.test(haystack)) {
+    return "remote";
+  }
+  if (/\bon[\s-]?site\b|\bin[\s-]?office\b/.test(haystack)) {
+    return "on-site";
+  }
+  return null;
+}
+
+function extractTopSkills(description) {
+  const text = normalizeText(description).toLowerCase();
+  if (!text) {
+    return [];
+  }
+
+  const knownSkills = [
+    "ai",
+    "machine learning",
+    "llm",
+    "python",
+    "sql",
+    "product management",
+    "data infrastructure",
+    "distributed systems"
+  ];
+
+  return knownSkills.filter((skill) => text.includes(skill)).slice(0, 8);
+}
+
 export function normalizeJobRecord(rawJob, source) {
   const title = normalizeText(rawJob.title);
   const company = normalizeText(rawJob.company);
@@ -274,6 +423,7 @@ export function normalizeJobRecord(rawJob, source) {
 
   const now = new Date().toISOString();
   const retrievedAt = normalizeText(rawJob.retrievedAt) || now;
+  const postedAt = parsePostedAt(rawJob.postedAt);
   const identity = buildJobIdentity({
     sourceType: source.type,
     sourceId: source.id,
@@ -283,6 +433,60 @@ export function normalizeJobRecord(rawJob, source) {
     company,
     location
   });
+  const normalizedLocation = identity.location || null;
+  const normalizedSalaryText = normalizeText(rawJob.salaryText) || null;
+  const normalizedEmploymentType = normalizeText(rawJob.employmentType) || null;
+  const structuredLocation = normalizedLocation || "unknown";
+  const structuredSalaryText = normalizedSalaryText || "unknown";
+  const structuredEmploymentType = normalizedEmploymentType || "unknown";
+  const freshness = toFreshnessMeta(rawJob.postedAt, postedAt);
+  const salary = parseSalaryMeta(structuredSalaryText);
+  const workModel = inferWorkModel(structuredLocation, description);
+  const skills = extractTopSkills(description);
+  const extractorProvenance =
+    rawJob.extractorProvenance &&
+    typeof rawJob.extractorProvenance === "object" &&
+    !Array.isArray(rawJob.extractorProvenance)
+      ? rawJob.extractorProvenance
+      : null;
+  const structuredMeta = {
+    title,
+    company: identity.company,
+    location: structuredLocation,
+    freshness,
+    salary,
+    description,
+    employmentType: structuredEmploymentType
+  };
+  if (workModel) {
+    structuredMeta.workModel = workModel;
+  }
+  if (skills.length > 0) {
+    structuredMeta.skills = skills;
+  }
+  if (extractorProvenance) {
+    structuredMeta.extractorProvenance = extractorProvenance;
+    structuredMeta.descriptionSource =
+      normalizeText(extractorProvenance.description) || "unknown";
+  }
+
+  const missingRequiredFields = [];
+  if (structuredMeta.location === "unknown") {
+    missingRequiredFields.push("location");
+  }
+  if (structuredMeta.salary.rawText === "unknown") {
+    missingRequiredFields.push("salary");
+  }
+  if (structuredMeta.freshness.rawText === "unknown") {
+    missingRequiredFields.push("freshness");
+  }
+  if (structuredMeta.employmentType === "unknown") {
+    missingRequiredFields.push("employmentType");
+  }
+  const metadataQualityScore = Math.max(
+    0,
+    Math.round(((6 - missingRequiredFields.length) / 6) * 100)
+  );
 
   return {
     id: identity.id,
@@ -292,13 +496,16 @@ export function normalizeJobRecord(rawJob, source) {
     externalId: identity.externalId,
     title,
     company: identity.company,
-    location: identity.location,
-    postedAt: parsePostedAt(rawJob.postedAt),
-    employmentType: normalizeText(rawJob.employmentType) || null,
+    location: normalizedLocation,
+    postedAt,
+    employmentType: normalizedEmploymentType,
     easyApply: Boolean(rawJob.easyApply),
-    salaryText: normalizeText(rawJob.salaryText) || null,
+    salaryText: normalizedSalaryText,
     description,
     normalizedHash: identity.normalizedHash,
+    structuredMeta,
+    metadataQualityScore,
+    missingRequiredFields,
     createdAt: now,
     updatedAt: retrievedAt
   };

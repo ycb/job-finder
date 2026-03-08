@@ -27,3 +27,9 @@ As of 2026-03-06.
 - In this environment, commands can reconnect to the extension page between calls. Reliable workaround:
   1. Use one `browser_run_code` call for multi-step validation (`goto` + interaction + assertions) when possible.
   2. Otherwise, re-run `browser_navigate` to the app URL immediately before each interaction command.
+
+## Data Quality Planning Precision
+
+- When proposing cross-source data contracts, include user-critical fields (`salary`, `location`) immediately with explicit placeholder semantics (for example `unknown`) instead of downgrading them out of the required set.
+- Do not include disabled sources in “current-state” quality analysis unless the user asks for projected analysis; label them as out-of-scope for the snapshot.
+- Sequence planning as parser-hardening first, then final schema/threshold commitments. Data-structure decisions should be based on measured parser output, not inferred capability.

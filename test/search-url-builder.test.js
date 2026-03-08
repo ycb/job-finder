@@ -154,3 +154,29 @@ test("buildSearchUrlForSourceType stubs Wellfound criteria as unsupported", () =
     "title"
   ]);
 });
+
+test("buildSearchUrlForSourceType returns accountability buckets for Indeed criteria", () => {
+  const result = buildSearchUrlForSourceType("indeed_search", {
+    title: "senior product manager",
+    keywords: "fintech payments",
+    location: "San Francisco, CA",
+    distanceMiles: 25,
+    minSalary: 195000,
+    datePosted: "3d",
+    experienceLevel: "mid"
+  });
+
+  assert.ok(result.criteriaAccountability);
+  assert.deepEqual(result.criteriaAccountability.appliedInUiBootstrap, []);
+  assert.deepEqual(result.criteriaAccountability.appliedPostCapture, []);
+  assert.deepEqual(result.criteriaAccountability.appliedInUrl.sort(), [
+    "datePosted",
+    "distanceMiles",
+    "keywords",
+    "location",
+    "minSalary",
+    "title"
+  ]);
+  assert.deepEqual(result.criteriaAccountability.unsupported, ["experienceLevel"]);
+  assert.deepEqual(result.unsupported, result.criteriaAccountability.unsupported);
+});
