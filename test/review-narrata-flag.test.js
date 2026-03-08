@@ -173,6 +173,23 @@ test("renderDashboardPage searches table shows funnel columns", () => {
   assert.equal(html.includes("<th>Jobs Found</th>"), false);
 });
 
+test("renderDashboardPage computes Found as imported-over-expected ratio", () => {
+  const html = renderDashboardPage({});
+  assert.equal(html.includes("const foundLabel ="), true);
+  assert.equal(html.includes("source.hasUnknownExpectedCount"), true);
+  assert.equal(html.includes('String(source.importedCount) + "/?"'), true);
+  assert.equal(
+    html.includes(
+      "String(source.importedCount) +"
+    ),
+    true
+  );
+  assert.equal(
+    html.includes("String(Math.max(0, Math.round(source.expectedFoundCount)))"),
+    true
+  );
+});
+
 test("renderDashboardPage includes bold totals row for all-sources view", () => {
   const html = renderDashboardPage({});
   assert.equal(

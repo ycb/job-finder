@@ -325,6 +325,11 @@ export function writeWellfoundCaptureFile(source, jobs, options = {}) {
     payload.pageUrl = options.pageUrl;
   }
 
+  const expectedCount = Number(options.expectedCount);
+  if (Number.isFinite(expectedCount) && expectedCount > 0) {
+    payload.expectedCount = Math.round(expectedCount);
+  }
+
   fs.writeFileSync(capturePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 
   return {
@@ -332,7 +337,8 @@ export function writeWellfoundCaptureFile(source, jobs, options = {}) {
     capturePath,
     jobsImported: payload.jobs.length,
     capturedAt: payload.capturedAt,
-    pageUrl: payload.pageUrl || null
+    pageUrl: payload.pageUrl || null,
+    expectedCount: payload.expectedCount || null
   };
 }
 

@@ -50,6 +50,7 @@ import {
   readSourceCaptureSummary
 } from "./sources/cache-policy.js";
 import { classifyRefreshErrorOutcome, recordRefreshEvent } from "./sources/refresh-state.js";
+import { evaluateSourceContractDrift } from "./sources/source-contracts.js";
 import {
   collectJobsFromSource,
   importLinkedInSnapshot
@@ -105,6 +106,31 @@ function extractFlag(args, flag) {
 
   return {
     present,
+    args: remaining
+  };
+}
+
+function extractOption(args, optionName) {
+  const remaining = [];
+  let value = null;
+
+  for (let index = 0; index < (Array.isArray(args) ? args.length : 0); index += 1) {
+    const arg = args[index];
+    if (arg === optionName) {
+      const next = args[index + 1];
+      if (typeof next === "string" && !next.startsWith("--")) {
+        value = next;
+        index += 1;
+      } else {
+        value = "";
+      }
+      continue;
+    }
+    remaining.push(arg);
+  }
+
+  return {
+    value,
     args: remaining
   };
 }
@@ -405,6 +431,39 @@ function runNormalizeSourceUrls(options = {}) {
         console.log(`  unsupported: ${row.unsupported.join(", ")}`);
       }
 
+      const accountability =
+        row.criteriaAccountability &&
+        typeof row.criteriaAccountability === "object"
+          ? row.criteriaAccountability
+          : null;
+      if (accountability) {
+        const appliedInUrl = Array.isArray(accountability.appliedInUrl)
+          ? accountability.appliedInUrl
+          : [];
+        const appliedInUiBootstrap = Array.isArray(
+          accountability.appliedInUiBootstrap
+        )
+          ? accountability.appliedInUiBootstrap
+          : [];
+        const appliedPostCapture = Array.isArray(accountability.appliedPostCapture)
+          ? accountability.appliedPostCapture
+          : [];
+
+        if (appliedInUrl.length > 0) {
+          console.log(`  criteria.appliedInUrl: ${appliedInUrl.join(", ")}`);
+        }
+        if (appliedInUiBootstrap.length > 0) {
+          console.log(
+            `  criteria.appliedInUiBootstrap: ${appliedInUiBootstrap.join(", ")}`
+          );
+        }
+        if (appliedPostCapture.length > 0) {
+          console.log(
+            `  criteria.appliedPostCapture: ${appliedPostCapture.join(", ")}`
+          );
+        }
+      }
+
       if (Array.isArray(row.notes) && row.notes.length > 0) {
         console.log(`  notes: ${row.notes.join(" | ")}`);
       }
@@ -415,6 +474,88 @@ function runNormalizeSourceUrls(options = {}) {
 
   const result = normalizeAllSourceSearchUrls();
   console.log(`Normalized ${result.changed} source URL(s).`);
+}
+
+function runSourceContractDriftCheck(options = {}) {
+  const report = evaluateSourceContractDrift({
+    sourcesPath: options.sourcesPath,
+    contractsPath: options.contractsPath,
+    staleAfterDays: options.staleAfterDays,
+    window: options.window,
+    minCoverage: options.minCoverage,
+    historyPath: options.historyPath
+  });
+
+  let hasError = false;
+  let hasWarning = false;
+
+  for (const row of report.rows) {
+    if (row.status === "error") {
+      hasError = true;
+    } else if (row.status === "warning") {
+      hasWarning = true;
+    }
+
+    console.log(
+      [
+        `${row.sourceId} (${row.sourceType})`,
+        `status=${row.status}`,
+        `sample=${row.sampleSize}`,
+        `contract=${row.contractVersion || "missing"}`
+      ].join(" | ")
+    );
+
+    const latestCoverageEntries = Object.entries(
+      row.latestCoverageByField || row.coverageByField || {}
+    ).filter(
+      ([, ratio]) =>
+        ratio !== null &&
+        ratio !== undefined &&
+        Number.isFinite(Number(ratio))
+    );
+    if (latestCoverageEntries.length > 0) {
+      console.log(
+        "  latest: " +
+          latestCoverageEntries
+            .map(([field, ratio]) => `${field}=${Math.round(Number(ratio) * 100)}%`)
+            .join(", ")
+      );
+    }
+
+    const rollingCoverageEntries = Object.entries(row.rollingCoverageByField || {}).filter(
+      ([, ratio]) =>
+        ratio !== null &&
+        ratio !== undefined &&
+        Number.isFinite(Number(ratio))
+    );
+    if (rollingCoverageEntries.length > 0) {
+      console.log(
+        `  rolling(${row.rollingSamplesUsed || 0}/${row.rollingWindow || report.window}): ` +
+          rollingCoverageEntries
+            .map(([field, ratio]) => `${field}=${Math.round(Number(ratio) * 100)}%`)
+            .join(", ")
+      );
+    }
+
+    if (typeof row.passCoverageGate === "boolean") {
+      console.log(
+        `  gate(min=${Math.round(Number(row.minCoverage || report.minCoverage || 0) * 100)}%): ${row.passCoverageGate ? "pass" : "fail"}`
+      );
+    }
+
+    if (Array.isArray(row.issues) && row.issues.length > 0) {
+      console.log(`  issues: ${row.issues.join(" | ")}`);
+    }
+  }
+
+  if (hasError) {
+    process.exitCode = 1;
+    return;
+  }
+
+  if (hasWarning) {
+    process.exitCode = 2;
+  }
 }
 
 function openUrlInBrowser(url) {
@@ -542,7 +683,35 @@ async function isBridgeAvailable(baseUrl) {
   }
 }
 
-async function ensureBridgeForLinkedInSources(sources) {
+async function waitForBridge(baseUrl, timeoutMs = 8_000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt <= timeoutMs) {
+    if (await isBridgeAvailable(baseUrl)) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return false;
+}
+
+function startDetachedBridgeProcess(port, providerName) {
+  const cliPath = path.resolve("src/cli.js");
+  const child = spawn(
+    process.execPath,
+    [cliPath, "bridge-server", String(port), String(providerName || "chrome_applescript")],
+    {
+      detached: true,
+      stdio: "ignore",
+      env: {
+        ...process.env,
+        JOB_FINDER_BRIDGE_PROVIDER: String(providerName || "chrome_applescript")
+      }
+    }
+  );
+  child.unref();
+}
+
+async function ensureBridgeForLinkedInSources(sources, options = {}) {
   const requiresBridge = Array.isArray(sources)
     ? sources.some((source) => isBrowserCaptureSource(source))
     : false;
@@ -572,6 +741,31 @@ async function ensureBridgeForLinkedInSources(sources) {
   const providerName = String(
     process.env.JOB_FINDER_BRIDGE_PROVIDER || "chrome_applescript"
   );
+  const preferDetached = Boolean(options.preferDetached);
+
+  if (preferDetached) {
+    try {
+      startDetachedBridgeProcess(port, providerName);
+      const ready = await waitForBridge(baseUrl, 10_000);
+      if (!ready) {
+        throw new Error("bridge did not report healthy within timeout");
+      }
+
+      console.log(
+        `Auto-started persistent browser bridge at ${baseUrl} (provider=${providerName}).`
+      );
+
+      return {
+        baseUrl,
+        started: false,
+        server: null
+      };
+    } catch (error) {
+      throw new Error(
+        `Browser capture needs the bridge at ${baseUrl}, but persistent auto-start failed (${error.message}). Start it manually with: node src/cli.js bridge-server ${port}`
+      );
+    }
+  }
 
   try {
     const started = await startBrowserBridgeServer({ port, providerName });
@@ -760,7 +954,9 @@ async function runCaptureSourceLive(sourceIdOrName, snapshotPathArg, options = {
     return;
   }
 
-  const bridgeSession = await ensureBridgeForLinkedInSources([source]);
+  const bridgeSession = await ensureBridgeForLinkedInSources([source], {
+    preferDetached: true
+  });
   const snapshotPath = path.resolve(snapshotPathArg || getDefaultSnapshotPath(source));
   let result;
 
@@ -1004,6 +1200,7 @@ SOURCE MANAGEMENT:
   jf add-remoteok-source <label> <url>      Add RemoteOK search
   jf set-source-url <id-or-label> <url>     Update source URL
   jf normalize-source-urls [--dry-run]      Normalize URLs from search criteria
+  jf check-source-contracts [--window n] [--min-coverage 0.7]  Run source contract drift checks
 
 PROFILE CONFIGURATION:
   jf profile-source                         Show current profile source
@@ -1099,6 +1296,35 @@ async function main() {
       {
         const parsed = extractFlag(args, "--dry-run");
         runNormalizeSourceUrls({ dryRun: parsed.present });
+      }
+      break;
+    case "check-source-contracts":
+      {
+        let parsedArgs = [...args];
+        const windowOption = extractOption(parsedArgs, "--window");
+        parsedArgs = windowOption.args;
+        const minCoverageOption = extractOption(parsedArgs, "--min-coverage");
+        parsedArgs = minCoverageOption.args;
+        const staleDaysOption = extractOption(parsedArgs, "--stale-days");
+
+        const parsedWindow = Number(windowOption.value);
+        const parsedMinCoverage = Number(minCoverageOption.value);
+        const parsedStaleDays = Number(staleDaysOption.value);
+
+        runSourceContractDriftCheck({
+          window:
+            Number.isInteger(parsedWindow) && parsedWindow > 0 ? parsedWindow : undefined,
+          minCoverage:
+            Number.isFinite(parsedMinCoverage) &&
+            parsedMinCoverage >= 0 &&
+            parsedMinCoverage <= 1
+              ? parsedMinCoverage
+              : undefined,
+          staleAfterDays:
+            Number.isInteger(parsedStaleDays) && parsedStaleDays > 0
+              ? parsedStaleDays
+              : undefined
+        });
       }
       break;
     case "profile-source":

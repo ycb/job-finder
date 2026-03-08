@@ -15,9 +15,12 @@ export function upsertJobs(db, jobs) {
       salary_text,
       description,
       normalized_hash,
+      structured_meta,
+      metadata_quality_score,
+      missing_required_fields,
       created_at,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT DO UPDATE SET
       external_id = excluded.external_id,
       title = excluded.title,
@@ -29,6 +32,9 @@ export function upsertJobs(db, jobs) {
       salary_text = excluded.salary_text,
       description = excluded.description,
       normalized_hash = excluded.normalized_hash,
+      structured_meta = excluded.structured_meta,
+      metadata_quality_score = excluded.metadata_quality_score,
+      missing_required_fields = excluded.missing_required_fields,
       updated_at = excluded.updated_at;
   `);
 
@@ -51,6 +57,13 @@ export function upsertJobs(db, jobs) {
       job.salaryText,
       job.description,
       job.normalizedHash,
+      job.structuredMeta ? JSON.stringify(job.structuredMeta) : null,
+      Number.isFinite(Number(job.metadataQualityScore))
+        ? Math.round(Number(job.metadataQualityScore))
+        : null,
+      Array.isArray(job.missingRequiredFields)
+        ? JSON.stringify(job.missingRequiredFields)
+        : null,
       job.createdAt,
       job.updatedAt
     );
@@ -209,6 +222,9 @@ export function listReviewQueue(db, limit = 100) {
         j.updated_at AS updatedAt,
         j.employment_type AS employmentType,
         j.salary_text AS salaryText,
+        j.structured_meta AS structuredMeta,
+        j.metadata_quality_score AS metadataQualityScore,
+        j.missing_required_fields AS missingRequiredFields,
         e.score,
         e.bucket,
         e.summary,
@@ -249,6 +265,9 @@ export function listAllJobsWithStatus(db, limit = 100) {
         j.updated_at AS updatedAt,
         j.employment_type AS employmentType,
         j.salary_text AS salaryText,
+        j.structured_meta AS structuredMeta,
+        j.metadata_quality_score AS metadataQualityScore,
+        j.missing_required_fields AS missingRequiredFields,
         e.score,
         e.bucket,
         e.summary,

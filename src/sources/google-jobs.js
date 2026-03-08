@@ -3,6 +3,7 @@ import {
   getFreshCachedJobs,
   writeSourceCapturePayload
 } from "./cache-policy.js";
+import { enrichJobsWithDetailPages } from "./detail-enrichment.js";
 
 const DEFAULT_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36";
@@ -191,7 +192,11 @@ export function writeGoogleCaptureFile(source, jobs, options = {}) {
     capturePath,
     jobsImported: Array.isArray(jobs) ? jobs.length : 0,
     capturedAt: options.capturedAt || new Date().toISOString(),
-    pageUrl: options.pageUrl || null
+    pageUrl: options.pageUrl || null,
+    expectedCount:
+      Number.isFinite(Number(options.expectedCount)) && Number(options.expectedCount) > 0
+        ? Math.round(Number(options.expectedCount))
+        : null
   };
 }
 
@@ -227,13 +232,17 @@ export function collectGoogleJobsFromSearch(source) {
 
   const html = fetchGoogleSearchHtml(source.searchUrl, source.requestTimeoutMs || 30_000);
   const jobs = parseGoogleSearchHtml(html, source.searchUrl);
+  const jobsEnriched = enrichJobsWithDetailPages(source.type, jobs, {
+    maxJobs: Number(source.maxJobs) > 0 ? Number(source.maxJobs) : 25,
+    timeoutMs: Number(source.requestTimeoutMs) > 0 ? Number(source.requestTimeoutMs) : 30_000
+  });
   const retrievedAt = new Date().toISOString();
-  const jobsWithMetadata = jobs.map((job) => ({
+  const jobsWithMetadata = jobsEnriched.map((job) => ({
     ...job,
     retrievedAt
   }));
 
-  writeSourceCapturePayload(source, jobs, {
+  writeSourceCapturePayload(source, jobsWithMetadata, {
     capturedAt: retrievedAt,
     pageUrl: source.searchUrl
   });

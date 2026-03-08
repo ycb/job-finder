@@ -1129,6 +1129,7 @@ function buildDashboardData(limit = 200) {
         id: source.id,
         name: source.name,
         searchUrl: source.searchUrl,
+        criteriaAccountability: source.criteriaAccountability || null,
         recencyWindow: source.recencyWindow || null,
         enabled: source.enabled,
         type: source.type,
@@ -3228,6 +3229,8 @@ export function renderDashboardPage(dashboard, options = {}) {
             filteredCount: 0,
             dedupedCount: 0,
             importedCount: 0,
+            expectedFoundCount: 0,
+            hasUnknownExpectedCount: false,
             appliedCount: 0,
             skippedCount: 0,
             highSignalCount: 0,
@@ -3289,6 +3292,9 @@ export function renderDashboardPage(dashboard, options = {}) {
           const sourceFilteredCount = Number(source.droppedByHardFilterCount || 0);
           const sourceDedupedCount = Number(source.droppedByDedupeCount || 0);
           const sourceImportedCount = Number(source.importedCount || 0);
+          const sourceExpectedCount = Number.isFinite(Number(source.captureExpectedCount))
+            ? Math.max(0, Math.round(Number(source.captureExpectedCount)))
+            : null;
           const sourceHighSignalCount = Number(source.highSignalCount || 0);
           const sourceAppliedCount = Number(source.appliedCount || 0);
           const sourceSkippedCount = Number(source.skippedCount || 0);
@@ -3302,6 +3308,11 @@ export function renderDashboardPage(dashboard, options = {}) {
           current.filteredCount += sourceFilteredCount;
           current.dedupedCount += sourceDedupedCount;
           current.importedCount += sourceImportedCount;
+          if (sourceExpectedCount === null) {
+            current.hasUnknownExpectedCount = true;
+          } else {
+            current.expectedFoundCount += sourceExpectedCount;
+          }
           current.highSignalCount += sourceHighSignalCount;
           current.appliedCount += sourceAppliedCount;
           current.skippedCount += sourceSkippedCount;
@@ -3380,6 +3391,12 @@ export function renderDashboardPage(dashboard, options = {}) {
                 safeName +
                 ' <span class="external-link-icon" aria-hidden="true">&#8599;</span></a>'
               : '<span class="search-name search-link-label">' + safeName + "</span>";
+            const foundLabel =
+              source.hasUnknownExpectedCount || !Number.isFinite(source.expectedFoundCount)
+                ? String(source.importedCount) + "/?"
+                : String(source.importedCount) +
+                  "/" +
+                  String(Math.max(0, Math.round(source.expectedFoundCount)));
 
             return [
               '<tr class="search-row" data-open-jobs-row="' + escapeHtml(source.kind) + '">',
@@ -3395,7 +3412,7 @@ export function renderDashboardPage(dashboard, options = {}) {
                   ? '<div class="subhead">' + escapeHtml(statusDetail) + "</div>"
                   : "") +
                 "</td>",
-              "  <td>" + escapeHtml(source.capturedCount) + "</td>",
+              "  <td>" + escapeHtml(foundLabel) + "</td>",
               "  <td>" + escapeHtml(source.filteredCount) + "</td>",
               "  <td>" + escapeHtml(source.dedupedCount) + "</td>",
               "  <td>" + escapeHtml(source.importedCount) + "</td>",
@@ -3422,6 +3439,17 @@ export function renderDashboardPage(dashboard, options = {}) {
                     accumulator.filtered += Number(source.filteredCount || 0);
                     accumulator.deduped += Number(source.dedupedCount || 0);
                     accumulator.imported += Number(source.importedCount || 0);
+                    if (
+                      source.hasUnknownExpectedCount ||
+                      !Number.isFinite(Number(source.expectedFoundCount))
+                    ) {
+                      accumulator.hasUnknownExpected = true;
+                    } else {
+                      accumulator.expectedFound += Math.max(
+                        0,
+                        Math.round(Number(source.expectedFoundCount))
+                      );
+                    }
                     accumulator.avgScoreTotal += Number(source.weightedAvgScoreTotal || 0);
                     accumulator.avgScoreCount += Number(source.weightedAvgScoreCount || 0);
                     return accumulator;
@@ -3431,10 +3459,18 @@ export function renderDashboardPage(dashboard, options = {}) {
                     filtered: 0,
                     deduped: 0,
                     imported: 0,
+                    expectedFound: 0,
+                    hasUnknownExpected: false,
                     avgScoreTotal: 0,
                     avgScoreCount: 0
                   }
                 );
+                const foundTotalLabel =
+                  totals.hasUnknownExpected || !Number.isFinite(totals.expectedFound)
+                    ? String(totals.imported) + "/?"
+                    : String(totals.imported) +
+                      "/" +
+                      String(Math.max(0, Math.round(totals.expectedFound)));
                 const totalAvgScore =
                   totals.avgScoreCount > 0
                     ? Math.round(totals.avgScoreTotal / totals.avgScoreCount)
@@ -3445,7 +3481,7 @@ export function renderDashboardPage(dashboard, options = {}) {
                   "  <td>All Sources Total</td>",
                   "  <td>—</td>",
                   "  <td>—</td>",
-                  "  <td>" + escapeHtml(totals.captured) + "</td>",
+                  "  <td>" + escapeHtml(foundTotalLabel) + "</td>",
                   "  <td>" + escapeHtml(totals.filtered) + "</td>",
                   "  <td>" + escapeHtml(totals.deduped) + "</td>",
                   "  <td>" + escapeHtml(totals.imported) + "</td>",

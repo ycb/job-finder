@@ -127,6 +127,7 @@ npm run run
 - `npm run init`
 - `npm run sources`
 - `node src/cli.js normalize-source-urls --dry-run`
+- `node src/cli.js check-source-contracts`
 - `node src/cli.js open-source <source-id-or-label>`
 - `node src/cli.js open-sources`
 - `npm run capture -- <source-id-or-label> [snapshot-path]`
@@ -159,7 +160,9 @@ The dashboard includes:
 - job views: `All`, `New`, `Best Match`, `Applied`, `Skipped`, `Rejected`
 - source-kind job filters in `Jobs` (for example, LinkedIn/Built In/Ashby)
 - `Searches` tab grouped by source kind with funnel metrics: `Found`, `Filtered`, `Dupes`, `Imported`, `Avg Score`
+- `Found` shown as `imported/expected` when expected totals are detectable, otherwise `imported/?`
 - source refresh/capture status signals including cache/live state
+- per-source criteria-accountability metadata (URL-applied, UI-bootstrap, post-capture, unsupported)
 - row click-through from `Searches` into filtered `Jobs` view
 - per-job attribution showing which source/search URLs surfaced the role
 
@@ -205,6 +208,12 @@ Per-source quality/caching knobs in `config/sources.json`:
 - `searchCriteria.minSalary` is intentionally not applied to `ashby_search` URL construction; it remains available to scoring.
 - Default TTLs: `12h` for HTTP sources (for example, Built In) and `24h` for browser-capture sources (LinkedIn/Wellfound/Ashby/Google/Indeed/ZipRecruiter/RemoteOK).
 
+Source contract governance:
+
+- Canonical source mapping registry: `config/source-contracts.json`
+- Drift-check command: `node src/cli.js check-source-contracts`
+- Governance and update workflow: `docs/analysis/source-contract-governance.md`
+
 Refresh policy behavior:
 
 - The UI `Refresh` action can serve cache or run live capture depending on policy/state.
@@ -239,11 +248,14 @@ Supported statuses: `new`, `viewed`, `applied`, `skip_for_now`, `rejected`.
 
 Browser-capture sources require a browser bridge service. `npm run run` and dashboard `Find Jobs` auto-start a local bridge when needed.
 
+`capture-source-live` now auto-starts a persistent local bridge process when one is not running, so sequential source captures can reuse one Chrome automation window/tab instead of opening a new window per source.
+
 Manual bridge startup is still available:
 
 - Start it with `node src/cli.js bridge-server [port] [provider]`
 - Default port: `4315`
 - Default provider: `chrome_applescript`
+- Stop a detached bridge process with `pkill -f "src/cli.js bridge-server"`
 - Fastest automation on macOS: `chrome_applescript`
 - Temporary fallback provider: `playwright_cli`
 - Manual handoff fallback provider: `persistent_scaffold`

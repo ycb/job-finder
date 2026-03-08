@@ -538,6 +538,45 @@ function resolveEffectiveSearchCriteria(source, globalSearchCriteria) {
   };
 }
 
+function emptyCriteriaAccountability() {
+  return {
+    appliedInUrl: [],
+    appliedInUiBootstrap: [],
+    appliedPostCapture: [],
+    unsupported: []
+  };
+}
+
+function normalizeCriteriaAccountability(rawAccountability, fallbackUnsupported = []) {
+  const safeAccountability =
+    rawAccountability && typeof rawAccountability === "object"
+      ? rawAccountability
+      : {};
+
+  const unsupportedFallback = Array.isArray(fallbackUnsupported)
+    ? fallbackUnsupported
+    : [];
+
+  return {
+    appliedInUrl: Array.isArray(safeAccountability.appliedInUrl)
+      ? safeAccountability.appliedInUrl
+      : [],
+    appliedInUiBootstrap: Array.isArray(safeAccountability.appliedInUiBootstrap)
+      ? safeAccountability.appliedInUiBootstrap
+      : [],
+    appliedPostCapture: Array.isArray(safeAccountability.appliedPostCapture)
+      ? safeAccountability.appliedPostCapture
+      : [],
+    unsupported: Array.isArray(safeAccountability.unsupported)
+      ? safeAccountability.unsupported
+      : unsupportedFallback
+  };
+}
+
+function criteriaAccountabilityEquals(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 function ensureDerivedSourceMetadata(raw, resolvedPath, globalSearchCriteria = null) {
   if (!raw || !Array.isArray(raw.sources)) {
     return false;
@@ -598,6 +637,7 @@ function ensureDerivedSourceMetadata(raw, resolvedPath, globalSearchCriteria = n
       source,
       globalSearchCriteria
     );
+    let nextCriteriaAccountability = emptyCriteriaAccountability();
 
     if (effectiveCriteria) {
       const criteriaRecencyWindow =
@@ -618,6 +658,10 @@ function ensureDerivedSourceMetadata(raw, resolvedPath, globalSearchCriteria = n
         baseUrl: source.searchUrl,
         recencyWindow: source.recencyWindow
       });
+      nextCriteriaAccountability = normalizeCriteriaAccountability(
+        built.criteriaAccountability,
+        built.unsupported
+      );
       if (
         built.url &&
         built.url !== String(source.searchUrl || "").trim()
@@ -625,6 +669,19 @@ function ensureDerivedSourceMetadata(raw, resolvedPath, globalSearchCriteria = n
         source.searchUrl = built.url;
         changed = true;
       }
+    }
+
+    const currentCriteriaAccountability = normalizeCriteriaAccountability(
+      source.criteriaAccountability
+    );
+    if (
+      !criteriaAccountabilityEquals(
+        currentCriteriaAccountability,
+        nextCriteriaAccountability
+      )
+    ) {
+      source.criteriaAccountability = nextCriteriaAccountability;
+      changed = true;
     }
 
     if (source.type === "ashby_search" || source.type === "google_search") {
@@ -1172,6 +1229,7 @@ function deriveNextSearchMetadata(source, globalSearchCriteria = null) {
   let nextSearchUrl = currentUrl;
   let unsupported = [];
   let notes = [];
+  let criteriaAccountability = emptyCriteriaAccountability();
 
   const effectiveCriteria = resolveEffectiveSearchCriteria(
     source,
@@ -1195,6 +1253,10 @@ function deriveNextSearchMetadata(source, globalSearchCriteria = null) {
     }
     unsupported = Array.isArray(built.unsupported) ? built.unsupported : [];
     notes = Array.isArray(built.notes) ? built.notes : [];
+    criteriaAccountability = normalizeCriteriaAccountability(
+      built.criteriaAccountability,
+      unsupported
+    );
   }
 
   if (isGoogleLike) {
@@ -1210,7 +1272,8 @@ function deriveNextSearchMetadata(source, globalSearchCriteria = null) {
     nextSearchUrl,
     nextRecencyWindow,
     unsupported,
-    notes
+    notes,
+    criteriaAccountability
   };
 }
 
@@ -1263,7 +1326,8 @@ export function previewNormalizedSourceSearchUrls(
           ? String(derived.nextRecencyWindow || "")
           : null,
       unsupported: derived.unsupported,
-      notes: derived.notes
+      notes: derived.notes,
+      criteriaAccountability: derived.criteriaAccountability
     });
   }
 
@@ -1304,6 +1368,19 @@ export function normalizeAllSourceSearchUrls(
 
     if (derived.nextSearchUrl && derived.nextSearchUrl !== source.searchUrl) {
       source.searchUrl = derived.nextSearchUrl;
+      changed += 1;
+    }
+
+    const currentCriteriaAccountability = normalizeCriteriaAccountability(
+      source.criteriaAccountability
+    );
+    if (
+      !criteriaAccountabilityEquals(
+        currentCriteriaAccountability,
+        derived.criteriaAccountability
+      )
+    ) {
+      source.criteriaAccountability = derived.criteriaAccountability;
       changed += 1;
     }
 

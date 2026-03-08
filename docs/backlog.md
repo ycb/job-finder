@@ -13,6 +13,10 @@ As of 2026-03-06.
   - WHY: Snippet-only text can miss key terms and skew decisions.
   - IMPACT: Higher precision for hard-filter and fit classification.
 
+- `P0` Close full-JD extraction gaps per source before re-enable/scale. [Detailed spec](./backlog-specs/p0-source-full-jd-gap-closure.md)
+  - WHY: Current source coverage is mostly card/snippet level and creates avoidable scoring/filter noise.
+  - IMPACT: Better quality decisions, clearer source readiness, and safer re-enable path for feature-flagged sources.
+
 - `P0` Add source capture verification framework (expected count vs imported count). [Detailed spec](./backlog-specs/p0-source-capture-verification-framework.md)
   - WHY: Under-capture currently surfaces only through manual inspection.
   - IMPACT: Faster detection of source regressions and more trustworthy counts.

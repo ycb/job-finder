@@ -53,6 +53,34 @@ test("loadSourcesWithPath derives URL for Indeed source with searchCriteria", ()
     assert.equal(parsed.searchParams.get("radius"), "25");
     assert.equal(parsed.searchParams.get("salaryType"), "$195,000");
     assert.equal(parsed.searchParams.get("fromage"), "7");
+    assert.deepEqual(source.criteriaAccountability, {
+      appliedInUrl: [
+        "title",
+        "keywords",
+        "location",
+        "distanceMiles",
+        "datePosted",
+        "minSalary"
+      ],
+      appliedInUiBootstrap: [],
+      appliedPostCapture: [],
+      unsupported: []
+    });
+
+    const persisted = JSON.parse(fs.readFileSync(sourcesPath, "utf8"));
+    assert.deepEqual(persisted.sources[0].criteriaAccountability, {
+      appliedInUrl: [
+        "title",
+        "keywords",
+        "location",
+        "distanceMiles",
+        "datePosted",
+        "minSalary"
+      ],
+      appliedInUiBootstrap: [],
+      appliedPostCapture: [],
+      unsupported: []
+    });
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

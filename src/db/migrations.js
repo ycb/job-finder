@@ -83,6 +83,9 @@ export function runMigrations(db) {
         salary_text TEXT,
         description TEXT NOT NULL,
         normalized_hash TEXT NOT NULL,
+        structured_meta TEXT,
+        metadata_quality_score INTEGER,
+        missing_required_fields TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -120,5 +123,8 @@ export function runMigrations(db) {
   addColumnIfMissing(db, "evaluations", "confidence", "INTEGER");
   addColumnIfMissing(db, "evaluations", "freshness_days", "INTEGER");
   addColumnIfMissing(db, "evaluations", "hard_filtered", "INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing(db, "jobs", "structured_meta", "TEXT");
+  addColumnIfMissing(db, "jobs", "metadata_quality_score", "INTEGER");
+  addColumnIfMissing(db, "jobs", "missing_required_fields", "TEXT");
   backfillJobNormalization(db);
 }

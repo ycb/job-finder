@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { enrichJobsWithDetailPages } from "./detail-enrichment.js";
 
 const DEFAULT_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36";
@@ -494,6 +495,11 @@ export function writeAshbyCaptureFile(source, jobs, options = {}) {
     payload.pageUrl = options.pageUrl;
   }
 
+  const expectedCount = Number(options.expectedCount);
+  if (Number.isFinite(expectedCount) && expectedCount > 0) {
+    payload.expectedCount = Math.round(expectedCount);
+  }
+
   fs.writeFileSync(capturePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 
   return {
@@ -501,7 +507,8 @@ export function writeAshbyCaptureFile(source, jobs, options = {}) {
     capturePath,
     jobsImported: payload.jobs.length,
     capturedAt: payload.capturedAt,
-    pageUrl: payload.pageUrl || null
+    pageUrl: payload.pageUrl || null,
+    expectedCount: payload.expectedCount || null
   };
 }
 
@@ -583,7 +590,11 @@ export function collectAshbyJobsFromSearch(source) {
   }
 
   const retrievedAt = new Date().toISOString();
-  const jobsWithMetadata = [...deduped.values()].map((job) => ({
+  const jobsEnriched = enrichJobsWithDetailPages(source.type, [...deduped.values()], {
+    maxJobs: Number(source.maxJobs) > 0 ? Number(source.maxJobs) : 25,
+    timeoutMs: Number(source.requestTimeoutMs) > 0 ? Number(source.requestTimeoutMs) : 30_000
+  });
+  const jobsWithMetadata = jobsEnriched.map((job) => ({
     ...job,
     retrievedAt
   }));

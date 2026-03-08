@@ -54,6 +54,18 @@ test("previewNormalizedSourceSearchUrls reports URL changes without mutating fil
     assert.equal(parsed.searchParams.get("radius"), "25");
     assert.equal(parsed.searchParams.get("salaryType"), "$195,000");
     assert.equal(parsed.searchParams.get("fromage"), "7");
+    assert.deepEqual(preview.sources[0].criteriaAccountability, {
+      appliedInUrl: [
+        "keywords",
+        "location",
+        "distanceMiles",
+        "datePosted",
+        "minSalary"
+      ],
+      appliedInUiBootstrap: [],
+      appliedPostCapture: [],
+      unsupported: []
+    });
 
     const afterText = fs.readFileSync(sourcesPath, "utf8");
     assert.equal(afterText, beforeText);
