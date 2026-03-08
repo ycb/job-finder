@@ -93,3 +93,8 @@ As of 2026-03-06.
 - Legal/operational consent should be captured during CLI `init` (first-run), not deferred to dashboard-only onboarding.
 - Require explicit opt-in for ToS risk and rate-limit responsibility before continuing initialization.
 - Provide non-interactive consent flags for scripted installs to keep automation deterministic.
+
+## Onboarding Surface Ownership
+
+- When a setup field is moved to CLI ownership (for example install channel), remove the duplicate control from dashboard onboarding to avoid conflicting sources of truth.
+- Dashboard onboarding should only expose preferences that remain editable post-install (for example analytics toggle), and copy should point to CLI where appropriate.

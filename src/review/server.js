@@ -3435,12 +3435,7 @@ export function renderDashboardPage(dashboard, options = {}) {
       }
 
       async function saveOnboardingSetup() {
-        const channelInput = document.getElementById("onboarding-channel");
         const analyticsToggle = document.getElementById("onboarding-analytics-enabled");
-        const channel =
-          channelInput && typeof channelInput.value === "string"
-            ? channelInput.value.trim()
-            : "";
         const analyticsEnabled = analyticsToggle ? Boolean(analyticsToggle.checked) : true;
         const sourceIds = selectedOnboardingSourceIdsFromDom();
 
@@ -3464,7 +3459,7 @@ export function renderDashboardPage(dashboard, options = {}) {
           await getJson("/api/onboarding/channel", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ channel, analyticsEnabled })
+            body: JSON.stringify({ analyticsEnabled })
           });
           await getJson("/api/onboarding/sources", {
             method: "POST",
@@ -4860,8 +4855,6 @@ export function renderDashboardPage(dashboard, options = {}) {
         const onboardingSourceChecks = onboardingChecksBySourceId();
         const onboardingSources = onboardingCandidateSources();
         const onboardingSelectedSources = new Set(onboardingSelectedSourceIdsForRender());
-        const onboardingChannelValue =
-          onboarding.channel && onboarding.channel.value ? onboarding.channel.value : "unknown";
         const failedAuthSourcesForRetry = failedAuthSourceIds(onboardingSourceChecks);
         const onboardingSourcesMarkup = onboardingSources
           .map((source) => {
@@ -4930,27 +4923,14 @@ export function renderDashboardPage(dashboard, options = {}) {
               '    <section class="onboarding-step">',
               '      <p class="onboarding-step-label">Step 1</p>',
               '      <h4>Choose sources and preferences</h4>',
-              '      <div class="search-form" style="margin-top: 10px;">',
-              '        <label>Install Channel<select id="onboarding-channel">' +
-                '<option value="unknown"' +
-                (onboardingChannelValue === "unknown" ? " selected" : "") +
-                ">Unknown</option>" +
-                '<option value="npm"' +
-                (onboardingChannelValue === "npm" ? " selected" : "") +
-                ">npm</option>" +
-                '<option value="codex"' +
-                (onboardingChannelValue === "codex" ? " selected" : "") +
-                ">Codex</option>" +
-                '<option value="claude"' +
-                (onboardingChannelValue === "claude" ? " selected" : "") +
-                ">Claude</option>" +
-                "</select></label>",
-              '        <label>Analytics' +
+              '      <div class="search-form" style="margin-top: 10px; grid-template-columns: minmax(180px, 320px);">',
+                '        <label>Analytics' +
                 '<input id="onboarding-analytics-enabled" type="checkbox" class="onboarding-toggle"' +
                 (onboarding.analyticsEnabled ? " checked" : "") +
                 ">" +
                 "</label>",
               "      </div>",
+              '      <div class="subhead">Install channel is captured during CLI setup (jf init).</div>',
               '      <div class="onboarding-source-list">' +
               (onboardingSourcesMarkup || '<div class="onboarding-source-empty">No sources are currently available.</div>') +
               "</div>",

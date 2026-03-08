@@ -189,6 +189,9 @@ test("renderDashboardPage renders onboarding stepper flow with auth badges and c
   assert.equal(html.includes('id="onboarding-go-jobs"'), true);
   assert.equal(html.includes("Auth required"), true);
   assert.equal(html.includes("No auth"), true);
+  assert.equal(html.includes("Install Channel"), false);
+  assert.equal(html.includes('id="onboarding-analytics-enabled"'), true);
+  assert.equal(html.includes("Install channel is captured during CLI setup"), true);
   assert.equal(html.includes("verifyOnboardingSources"), true);
 });
 
