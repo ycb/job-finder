@@ -12,6 +12,10 @@ import {
   validateSearchCriteria,
   validateSources
 } from "./schema.js";
+import {
+  defaultSourceEnabledMap,
+  materializeSourcesFromLibraryMap
+} from "./source-library.js";
 
 const DEFAULT_PROFILE_SOURCE_CONFIG = {
   provider: "legacy_profile",
@@ -25,7 +29,8 @@ const DEFAULT_PROFILE_SOURCE_CONFIG = {
     serviceRoleEnv: "NARRATA_SUPABASE_SERVICE_ROLE_KEY"
   }
 };
-const DEFAULT_SEARCH_CRITERIA_PATH = "config/search-criteria.json";
+const DEFAULT_SOURCE_CRITERIA_PATH = "config/source-criteria.json";
+const LEGACY_SEARCH_CRITERIA_PATH = "config/search-criteria.json";
 
 const GOOGLE_RECENCY_WINDOWS = new Set(["any", "1d", "1w", "1m"]);
 const GOOGLE_RECENCY_TO_QDR = new Map([
@@ -43,7 +48,65 @@ function resolveSearchCriteriaPathForSources(sourcesPath, explicitSearchCriteria
   const resolvedSourcesPath = path.resolve(
     String(sourcesPath || "config/sources.json")
   );
-  return path.join(path.dirname(resolvedSourcesPath), "search-criteria.json");
+  const candidateCanonical = path.join(path.dirname(resolvedSourcesPath), "source-criteria.json");
+  const candidateLegacy = path.join(path.dirname(resolvedSourcesPath), "search-criteria.json");
+
+  if (fs.existsSync(candidateCanonical)) {
+    return candidateCanonical;
+  }
+
+  if (fs.existsSync(candidateLegacy)) {
+    return candidateLegacy;
+  }
+
+  return candidateCanonical;
+}
+
+function resolveSearchCriteriaPath(searchCriteriaPath = "") {
+  const explicit = String(searchCriteriaPath || "").trim();
+  if (explicit) {
+    return path.resolve(explicit);
+  }
+
+  const canonical = path.resolve(DEFAULT_SOURCE_CRITERIA_PATH);
+  if (fs.existsSync(canonical)) {
+    return canonical;
+  }
+
+  const legacy = path.resolve(LEGACY_SEARCH_CRITERIA_PATH);
+  if (fs.existsSync(legacy)) {
+    return legacy;
+  }
+
+  return canonical;
+}
+
+function defaultSourcesConfigPayload() {
+  return {
+    sources: defaultSourceEnabledMap()
+  };
+}
+
+function readSourcesFileWithBootstrap(sourcesPath = "config/sources.json") {
+  const resolvedPath = path.resolve(String(sourcesPath || "config/sources.json"));
+
+  if (!fs.existsSync(resolvedPath)) {
+    const payload = defaultSourcesConfigPayload();
+    fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
+    fs.writeFileSync(resolvedPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+    return {
+      resolvedPath,
+      data: payload,
+      bootstrapped: true
+    };
+  }
+
+  const { data } = readJsonFileWithPath(resolvedPath);
+  return {
+    resolvedPath,
+    data,
+    bootstrapped: false
+  };
 }
 
 function resolveDefaultProfileSourceConfig() {
@@ -176,8 +239,8 @@ export function loadGoals(goalsPath = "config/my-goals.json") {
   return validateGoals(readJsonFileWithPath(goalsPath).data);
 }
 
-export function loadSearchCriteria(searchCriteriaPath = DEFAULT_SEARCH_CRITERIA_PATH) {
-  const resolvedPath = path.resolve(searchCriteriaPath);
+export function loadSearchCriteria(searchCriteriaPath = "") {
+  const resolvedPath = resolveSearchCriteriaPath(searchCriteriaPath);
   if (!fs.existsSync(resolvedPath)) {
     return {
       path: resolvedPath,
@@ -185,16 +248,16 @@ export function loadSearchCriteria(searchCriteriaPath = DEFAULT_SEARCH_CRITERIA_
     };
   }
 
-  const { data } = readJsonFileWithPath(searchCriteriaPath);
+  const { data } = readJsonFileWithPath(resolvedPath);
   return {
     path: resolvedPath,
     criteria: validateSearchCriteria(data, "Search criteria")
   };
 }
 
-export function saveSearchCriteria(criteria, searchCriteriaPath = DEFAULT_SEARCH_CRITERIA_PATH) {
+export function saveSearchCriteria(criteria, searchCriteriaPath = "") {
   const normalizedCriteria = validateSearchCriteria(criteria, "Search criteria");
-  const resolvedPath = path.resolve(searchCriteriaPath);
+  const resolvedPath = resolveSearchCriteriaPath(searchCriteriaPath);
   fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
   fs.writeFileSync(resolvedPath, `${JSON.stringify(normalizedCriteria, null, 2)}\n`, "utf8");
 
@@ -500,11 +563,16 @@ export function loadSourcesWithPath(
     options.searchCriteriaPath
   );
   const searchCriteria = loadSearchCriteria(searchCriteriaPath).criteria;
-  const { resolvedPath, data } = readJsonFileWithPath(sourcesPath);
-  const changed = ensureDerivedSourceMetadata(data, resolvedPath, searchCriteria);
-  const validated = validateSources(data);
+  const { resolvedPath, data } = readSourcesFileWithBootstrap(sourcesPath);
+  const normalized = normalizeSourcesPayload(data, resolvedPath);
+  const changed = ensureDerivedSourceMetadata(
+    normalized.sources,
+    resolvedPath,
+    searchCriteria
+  );
+  const validated = validateSources({ sources: normalized.sources });
 
-  if (changed) {
+  if (changed && normalized.mode === "array") {
     fs.writeFileSync(resolvedPath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
   }
 
@@ -622,15 +690,14 @@ function criteriaAccountabilityEquals(left, right) {
 function formatterDiagnosticsEquals(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
-
-function ensureDerivedSourceMetadata(raw, resolvedPath, globalSearchCriteria = null) {
-  if (!raw || !Array.isArray(raw.sources)) {
+function ensureDerivedSourceMetadata(sources, resolvedPath, globalSearchCriteria = null) {
+  if (!Array.isArray(sources)) {
     return false;
   }
 
   let changed = false;
 
-  for (const source of raw.sources) {
+  for (const source of sources) {
     if (!source || typeof source !== "object") {
       continue;
     }
@@ -781,6 +848,34 @@ function ensureDerivedSourceMetadata(raw, resolvedPath, globalSearchCriteria = n
   return changed;
 }
 
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeSourcesPayload(raw, resolvedPath) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error(`Sources in ${resolvedPath} must be a JSON object.`);
+  }
+
+  if (Array.isArray(raw.sources)) {
+    return {
+      mode: "array",
+      sources: raw.sources
+    };
+  }
+
+  if (isPlainObject(raw.sources)) {
+    return {
+      mode: "library_map",
+      sources: materializeSourcesFromLibraryMap(raw.sources)
+    };
+  }
+
+  throw new Error(
+    `Sources in ${resolvedPath} must include either a sources array (legacy) or a sources object map (library mode).`
+  );
+}
+
 function slugifySourceId(label) {
   const slug = String(label || "")
     .toLowerCase()
@@ -809,7 +904,9 @@ function findSourceIndexByIdOrName(sources, sourceIdOrName) {
 
 function requireSourcesArray(raw, resolvedPath) {
   if (!raw || !Array.isArray(raw.sources)) {
-    throw new Error(`Sources in ${resolvedPath} must include a sources array.`);
+    throw new Error(
+      `Sources in ${resolvedPath} must include a sources array for this command. Current sources map mode only supports enable/disable selection.`
+    );
   }
 
   return raw.sources;
@@ -948,7 +1045,45 @@ export function setEnabledSources(
       .map((value) => String(value || "").trim())
       .filter(Boolean)
   );
-  const { resolvedPath, data } = readJsonFileWithPath(sourcesPath);
+  const { resolvedPath, data } = readSourcesFileWithBootstrap(sourcesPath);
+  if (isPlainObject(data.sources)) {
+    const nextSourcesMap = {};
+    const currentMap = data.sources;
+    const defaults = defaultSourceEnabledMap();
+    const sourceIds = new Set([
+      ...Object.keys(defaults),
+      ...Object.keys(currentMap || {})
+    ]);
+
+    for (const sourceId of sourceIds) {
+      if (!Object.prototype.hasOwnProperty.call(defaults, sourceId)) {
+        nextSourcesMap[sourceId] = currentMap[sourceId];
+        continue;
+      }
+
+      const currentEntry = currentMap[sourceId];
+      const nextEnabled = enabledSet.has(sourceId);
+
+      if (isPlainObject(currentEntry)) {
+        nextSourcesMap[sourceId] = {
+          ...currentEntry,
+          enabled: nextEnabled
+        };
+      } else {
+        nextSourcesMap[sourceId] = nextEnabled;
+      }
+    }
+
+    data.sources = nextSourcesMap;
+    const materialized = materializeSourcesFromLibraryMap(data.sources);
+    const validated = validateSources({ sources: materialized });
+    fs.writeFileSync(resolvedPath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+    return {
+      path: resolvedPath,
+      sources: validated.sources
+    };
+  }
+
   const sources = requireSourcesArray(data, resolvedPath);
 
   for (const source of sources) {
@@ -1384,8 +1519,40 @@ export function previewNormalizedSourceSearchUrls(
     options.searchCriteriaPath
   );
   const globalSearchCriteria = loadSearchCriteria(searchCriteriaPath).criteria;
-  const { resolvedPath, data } = readJsonFileWithPath(sourcesPath);
-  const sources = requireSourcesArray(data, resolvedPath);
+  const { resolvedPath, data } = readSourcesFileWithBootstrap(sourcesPath);
+  const normalized = normalizeSourcesPayload(data, resolvedPath);
+  if (normalized.mode !== "array") {
+    ensureDerivedSourceMetadata(
+      normalized.sources,
+      resolvedPath,
+      globalSearchCriteria
+    );
+    const validated = validateSources({ sources: normalized.sources });
+    return {
+      changed: 0,
+      sources: validated.sources.map((source) => ({
+        id: String(source.id || "").trim(),
+        name: String(source.name || "").trim(),
+        type: String(source.type || "").trim(),
+        changed: false,
+        currentSearchUrl: String(source.searchUrl || "").trim(),
+        nextSearchUrl: String(source.searchUrl || "").trim(),
+        currentRecencyWindow:
+          source.type === "ashby_search" || source.type === "google_search"
+            ? String(source.recencyWindow || "").trim()
+            : null,
+        nextRecencyWindow:
+          source.type === "ashby_search" || source.type === "google_search"
+            ? String(source.recencyWindow || "").trim()
+            : null,
+        unsupported: [],
+        notes: [
+          "Search URLs are generated at runtime from source-criteria in sources map mode."
+        ]
+      }))
+    };
+  }
+  const sources = normalized.sources;
   const previewRows = [];
   let changed = 0;
 
@@ -1445,8 +1612,20 @@ export function normalizeAllSourceSearchUrls(
     options.searchCriteriaPath
   );
   const globalSearchCriteria = loadSearchCriteria(searchCriteriaPath).criteria;
-  const { resolvedPath, data } = readJsonFileWithPath(sourcesPath);
-  const sources = requireSourcesArray(data, resolvedPath);
+  const { resolvedPath, data } = readSourcesFileWithBootstrap(sourcesPath);
+  const normalized = normalizeSourcesPayload(data, resolvedPath);
+  if (normalized.mode !== "array") {
+    ensureDerivedSourceMetadata(
+      normalized.sources,
+      resolvedPath,
+      globalSearchCriteria
+    );
+    return {
+      changed: 0,
+      sources: validateSources({ sources: normalized.sources }).sources
+    };
+  }
+  const sources = normalized.sources;
 
   let changed = 0;
 
@@ -1518,22 +1697,17 @@ export function getSourceByIdOrName(
     sourcesPath,
     options.searchCriteriaPath
   );
-  const globalSearchCriteria = loadSearchCriteria(searchCriteriaPath).criteria;
-  const { resolvedPath, data } = readJsonFileWithPath(sourcesPath);
-  const changed = ensureDerivedSourceMetadata(data, resolvedPath, globalSearchCriteria);
-  const sources = requireSourcesArray(data, resolvedPath);
-  const validated = validateSources(data);
+  const validated = loadSourcesWithPath(sourcesPath, {
+    searchCriteriaPath
+  });
+  const sources = validated.sources;
   const sourceIndex = findSourceIndexByIdOrName(sources, sourceIdOrName);
-
-  if (changed) {
-    fs.writeFileSync(resolvedPath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
-  }
 
   if (sourceIndex === -1) {
     throw new Error(`Source not found: ${String(sourceIdOrName || "").trim()}`);
   }
 
-  return validated.sources[sourceIndex];
+  return sources[sourceIndex];
 }
 
 export function loadAppConfig() {

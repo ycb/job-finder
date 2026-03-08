@@ -59,7 +59,7 @@ Open `http://localhost:4311`.
 jf doctor
 ```
 
-`jf doctor` reports environment checks and source readiness status. On fresh setup, it will warn if `config/sources.json` has not been created yet.
+`jf doctor` reports environment checks and source readiness status. On fresh setup, it warns if `config/sources.json` is missing. The dashboard bootstraps this file automatically on first run.
 
 ### 4. Complete Onboarding in Dashboard
 

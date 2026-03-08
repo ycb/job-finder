@@ -1,85 +1,12 @@
 {
-  "sources": [
-    {
-      "id": "linkedin-live-capture",
-      "name": "LinkedIn Lead Product Manager Search",
-      "type": "linkedin_capture_file",
-      "enabled": true,
-      "searchUrl": "https://www.linkedin.com/jobs/search-results/?keywords=lead%20product%20manager&geoId=90000084&distance=25",
-      "capturePath": "data/captures/linkedin-live-capture.json",
-      "cacheTtlHours": 24
-    },
-    {
-      "id": "builtin-sf-ai-pm",
-      "name": "Built In SF AI Product Jobs",
-      "type": "builtin_search",
-      "enabled": false,
-      "searchUrl": "https://www.builtinsf.com/jobs/product-management/product-manager/senior/expert-leader?search=AI&daysSinceUpdated=7&city=San+Francisco&state=California&country=USA&allLocations=true",
-      "maxJobs": 50,
-      "requiredTerms": ["product manager", "ai"],
-      "cacheTtlHours": 12
-    },
-    {
-      "id": "google-ai-pm",
-      "name": "Google AI PM Discovery",
-      "type": "google_search",
-      "enabled": false,
-      "searchUrl": "https://www.google.com/search?q=ai+product+manager+san+francisco+salary+200000",
-      "recencyWindow": "1w",
-      "requiredTerms": ["product manager", "ai"],
-      "cacheTtlHours": 12
-    },
-    {
-      "id": "wellfound-ai-pm",
-      "name": "Wellfound AI Product Jobs",
-      "type": "wellfound_search",
-      "enabled": false,
-      "searchUrl": "https://wellfound.com/jobs",
-      "maxJobs": 50,
-      "cacheTtlHours": 24,
-      "hardFilter": {
-        "requiredAll": ["product manager"],
-        "requiredAny": ["ai", "machine learning"],
-        "excludeAny": ["intern", "contract"],
-        "fields": ["title", "summary", "description"],
-        "enforceContentOnSnippets": false
-      }
-    },
-    {
-      "id": "ashby-pm-roles",
-      "name": "Ashby PM Roles",
-      "type": "ashby_search",
-      "enabled": false,
-      "searchUrl": "https://jobs.ashbyhq.com/",
-      "maxJobs": 50,
-      "cacheTtlHours": 24
-    },
-    {
-      "id": "indeed-ai-pm",
-      "name": "Indeed AI Product Jobs",
-      "type": "indeed_search",
-      "enabled": false,
-      "searchUrl": "https://www.indeed.com/jobs",
-      "requiredTerms": ["product manager", "ai"],
-      "cacheTtlHours": 24
-    },
-    {
-      "id": "zip-ai-pm",
-      "name": "ZipRecruiter AI Product Jobs",
-      "type": "ziprecruiter_search",
-      "enabled": false,
-      "searchUrl": "https://www.ziprecruiter.com/jobs-search?search=product+manager+ai&location=San+Francisco%2C+CA",
-      "requiredTerms": ["product manager", "ai"],
-      "cacheTtlHours": 24
-    },
-    {
-      "id": "remoteok-ai-pm",
-      "name": "RemoteOK AI Product Jobs",
-      "type": "remoteok_search",
-      "enabled": false,
-      "searchUrl": "https://remoteok.com/remote-manager+saas-jobs",
-      "requiredTerms": ["product manager", "ai"],
-      "cacheTtlHours": 24
-    }
-  ]
+  "sources": {
+    "linkedin-live-capture": true,
+    "builtin-sf-ai-pm": false,
+    "ashby-pm-roles": false,
+    "indeed-ai-pm": false,
+    "zip-ai-pm": false,
+    "google-ai-pm": false,
+    "wellfound-ai-pm": false,
+    "remoteok-ai-pm": false
+  }
 }

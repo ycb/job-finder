@@ -207,13 +207,18 @@ async function runDoctor(options = {}) {
     printDoctorCheck(check);
   }
 
+  const defaultSourcesPath = path.resolve("config/sources.json");
+  if (!fs.existsSync(defaultSourcesPath)) {
+    console.log(
+      "\nSources:\n[WARN] Sources config not found. Create config/sources.json from config/sources.example.json or use the dashboard onboarding flow."
+    );
+    return;
+  }
+
   let configuredSources = [];
   try {
     configuredSources = loadSources().sources;
   } catch (error) {
-    console.log(
-      "\nSources:\n[WARN] Sources config not found. Create config/sources.json from config/sources.example.json or use the dashboard onboarding flow."
-    );
     const message = String(error?.message || "").trim();
     if (message) {
       console.log(`[WARN] ${message}`);
@@ -1727,8 +1732,7 @@ async function runReview(portArg) {
   db.close();
 
   if (queue.length === 0) {
-    console.log("No reviewable jobs in queue. Run sync and score first.");
-    return;
+    console.log("No reviewable jobs in queue yet. Opening dashboard onboarding/empty state.");
   }
 
   await startReviewServer({ port, limit: reviewLimit });

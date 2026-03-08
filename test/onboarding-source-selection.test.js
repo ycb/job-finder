@@ -40,6 +40,21 @@ function createTempSourcesConfig() {
   return { tempDir, sourcesPath };
 }
 
+function createTempSourcesMapConfig() {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-finder-onboarding-sources-map-"));
+  const sourcesPath = path.join(tempDir, "sources.json");
+  const payload = {
+    sources: {
+      "linkedin-live-capture": true,
+      "indeed-ai-pm": true,
+      "google-ai-pm": false
+    }
+  };
+
+  fs.writeFileSync(sourcesPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  return { tempDir, sourcesPath };
+}
+
 test("setEnabledSources persists selected source ids", () => {
   const { tempDir, sourcesPath } = createTempSourcesConfig();
   try {
@@ -50,6 +65,57 @@ test("setEnabledSources persists selected source ids", () => {
     assert.equal(loaded.find((source) => source.id === "linkedin")?.enabled, true);
     assert.equal(loaded.find((source) => source.id === "google")?.enabled, true);
     assert.equal(loaded.find((source) => source.id === "indeed")?.enabled, false);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("setEnabledSources persists selected source ids in map mode", () => {
+  const { tempDir, sourcesPath } = createTempSourcesMapConfig();
+  try {
+    const result = setEnabledSources(
+      ["linkedin-live-capture", "google-ai-pm"],
+      sourcesPath
+    );
+    assert.equal(typeof result.path, "string");
+
+    const persisted = JSON.parse(fs.readFileSync(sourcesPath, "utf8"));
+    assert.equal(persisted.sources["linkedin-live-capture"], true);
+    assert.equal(persisted.sources["indeed-ai-pm"], false);
+    assert.equal(persisted.sources["google-ai-pm"], true);
+
+    const loaded = loadSourcesWithPath(sourcesPath).sources;
+    assert.equal(
+      loaded.find((source) => source.id === "linkedin-live-capture")?.enabled,
+      true
+    );
+    assert.equal(
+      loaded.find((source) => source.id === "google-ai-pm")?.enabled,
+      true
+    );
+    assert.equal(
+      loaded.find((source) => source.id === "indeed-ai-pm")?.enabled,
+      false
+    );
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("loadSourcesWithPath bootstraps sources.json when missing", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-finder-onboarding-bootstrap-"));
+  const sourcesPath = path.join(tempDir, "sources.json");
+
+  try {
+    const loaded = loadSourcesWithPath(sourcesPath);
+    assert.ok(Array.isArray(loaded.sources));
+    assert.ok(loaded.sources.length > 0);
+    assert.equal(fs.existsSync(sourcesPath), true);
+
+    const persisted = JSON.parse(fs.readFileSync(sourcesPath, "utf8"));
+    assert.equal(typeof persisted.sources, "object");
+    assert.equal(Array.isArray(persisted.sources), false);
+    assert.equal(typeof persisted.sources["linkedin-live-capture"], "boolean");
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

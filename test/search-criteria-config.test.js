@@ -20,6 +20,16 @@ function createTempConfigDir() {
   };
 }
 
+function withTempCwd(tempDir, fn) {
+  const previousCwd = process.cwd();
+  process.chdir(tempDir);
+  try {
+    return fn();
+  } finally {
+    process.chdir(previousCwd);
+  }
+}
+
 test("loadSearchCriteria returns empty criteria when file is missing", () => {
   const { tempDir, configDir } = createTempConfigDir();
   const criteriaPath = path.join(configDir, "search-criteria.json");
@@ -28,6 +38,53 @@ test("loadSearchCriteria returns empty criteria when file is missing", () => {
     const loaded = loadSearchCriteria(criteriaPath);
     assert.equal(loaded.path, path.resolve(criteriaPath));
     assert.deepEqual(loaded.criteria, {});
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("loadSearchCriteria prefers config/source-criteria.json over legacy config/search-criteria.json", () => {
+  const { tempDir, configDir } = createTempConfigDir();
+
+  try {
+    fs.writeFileSync(
+      path.join(configDir, "search-criteria.json"),
+      `${JSON.stringify({ title: "legacy title" }, null, 2)}\n`,
+      "utf8"
+    );
+    fs.writeFileSync(
+      path.join(configDir, "source-criteria.json"),
+      `${JSON.stringify({ title: "canonical title" }, null, 2)}\n`,
+      "utf8"
+    );
+
+    const loaded = withTempCwd(tempDir, () => loadSearchCriteria());
+    assert.equal(
+      fs.realpathSync(loaded.path),
+      fs.realpathSync(path.join(tempDir, "config", "source-criteria.json"))
+    );
+    assert.equal(loaded.criteria.title, "canonical title");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("loadSearchCriteria falls back to legacy config/search-criteria.json when canonical file is missing", () => {
+  const { tempDir, configDir } = createTempConfigDir();
+
+  try {
+    fs.writeFileSync(
+      path.join(configDir, "search-criteria.json"),
+      `${JSON.stringify({ title: "legacy title" }, null, 2)}\n`,
+      "utf8"
+    );
+
+    const loaded = withTempCwd(tempDir, () => loadSearchCriteria());
+    assert.equal(
+      fs.realpathSync(loaded.path),
+      fs.realpathSync(path.join(tempDir, "config", "search-criteria.json"))
+    );
+    assert.equal(loaded.criteria.title, "legacy title");
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

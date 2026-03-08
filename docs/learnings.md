@@ -4,10 +4,21 @@ As of 2026-03-06.
 
 ## Search-Driven Scoring Scope
 
-- Current product scope: scoring is derived from `search-criteria.json`, not from goals/profile files.
+- Current product scope: scoring is derived from `source-criteria.json` (with legacy fallback to `search-criteria.json`), not from goals/profile files.
 - When scoring from search criteria, only use these inputs: `title`, `keywords`, `location`, `minSalary`, `datePosted`.
 - Do not blend in profile preferences, historical-learning boosts/penalties, source bonuses, or data-confidence penalties unless explicitly re-approved.
 - If results look incoherent, first verify that score denominators and weights map directly to configured criteria fields.
+
+## Config Boundary Clarity
+
+- Keep config responsibilities distinct:
+  - `config/profile.json`: candidate/profile content only (not source search criteria).
+  - `config/source-criteria.json`: canonical search intent inputs used for URL construction + scoring.
+  - `config/sources.json`: source enablement in library-map mode (`sourceId -> true/false`) by default.
+- Preserve backward compatibility during migrations:
+  - accept legacy `search-criteria.json` as fallback.
+  - accept legacy `sources` array mode, but treat map mode as canonical for onboarding and first-run flows.
+- First-run UX should not require manual config copy. Missing `sources.json` should bootstrap safely.
 
 ## Playwright MCP Session Discipline
 

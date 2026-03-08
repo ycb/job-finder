@@ -28,6 +28,12 @@ The observable behavior is:
 - [x] (2026-03-06 19:48Z) Hardened `jf doctor` for missing `config/sources.json` to warn instead of exit non-zero.
 - [x] (2026-03-06 20:05Z) Added regression tests for onboarding state, source checks, analytics events, entitlements, and CLI startup.
 - [x] (2026-03-06 20:10Z) Verified full repository test suite passes.
+- [x] (2026-03-07 21:40Z) Canonicalized config model boundaries: `config/source-criteria.json` for search intent, `config/sources.json` source-library map mode for enable/disable, legacy file modes retained as fallback.
+- [x] (2026-03-07 21:45Z) Added safe bootstrap for missing `config/sources.json` in config loader to unblock true first-run dashboard onboarding.
+- [x] (2026-03-07 21:50Z) Updated source normalization/read paths to support both map mode and legacy array mode, including `setEnabledSources`, URL preview/normalize, and source lookup.
+- [x] (2026-03-07 21:53Z) Updated `runReview` to open dashboard empty-state onboarding even when review queue is empty.
+- [x] (2026-03-07 21:58Z) Added/updated tests for map mode selection, source bootstrap, canonical search-criteria resolution, and map-mode preview/normalize behavior.
+- [x] (2026-03-07 22:00Z) Verified full repository test suite passes (`138/138`).
 
 ## Surprises & Discoveries
 
@@ -37,6 +43,8 @@ The observable behavior is:
   Evidence: command exited with missing config error before source warnings.
 - Observation: Playwright MCP browser verification was not available in this session due extension bridge timeout.
   Evidence: `browser_navigate` returned `Extension connection timeout`.
+- Observation: Config migration had drifted to partial support only: canonical path constants existed, but several read/write paths still assumed legacy array mode or wrong object shapes.
+  Evidence: `getSourceByIdOrName` called metadata derivation with full config object rather than `sources[]`, and URL normalize helpers threw in map mode.
 
 ## Decision Log
 
@@ -52,10 +60,16 @@ The observable behavior is:
 - Decision: Normalize source-check contract to `{ status, reasonCode, userMessage, technicalDetails }`.
   Rationale: This shape is reusable in both CLI doctor output and onboarding dashboard APIs.
   Date/Author: 2026-03-06 / Codex
+- Decision: Treat `config/source-criteria.json` as canonical and keep `config/search-criteria.json` as compatibility fallback only.
+  Rationale: Keeps search intent config explicit and aligned with auto-constructed source URLs/scoring.
+  Date/Author: 2026-03-07 / Codex
+- Decision: Treat `config/sources.json` map mode (`sourceId -> bool|override`) as canonical onboarding shape; retain legacy array mode for compatibility commands.
+  Rationale: Matches product direction away from manually managed static source URL lists while avoiding hard migration breakage.
+  Date/Author: 2026-03-07 / Codex
 
 ## Outcomes & Retrospective
 
-The foundation is now in place for dashboard-first onboarding and optional analytics/monetization telemetry. The largest remaining gap is deeper source-specific auth/challenge classification beyond baseline readiness checks. This is intentionally left in backlog as a follow-up so core onboarding can ship without blocking on per-source complexity.
+The foundation is now in place for dashboard-first onboarding and optional analytics/monetization telemetry. First-run flow no longer requires manual creation of `config/sources.json`; it bootstraps safely. Config boundaries are now explicit across profile/onboarding, search intent, and source enablement. The largest remaining gap is deeper source-specific auth/challenge classification beyond baseline readiness checks. This is intentionally left in backlog as a follow-up so core onboarding can ship without blocking on per-source complexity.
 
 ## Context and Orientation
 
@@ -66,6 +80,7 @@ Key files for this work:
 - `src/monetization/entitlements.js`: feature-flagged limit state scaffolding.
 - `src/config/feature-flags.js`: onboarding/analytics/monetization feature flags.
 - `src/config/load-config.js`: source enablement persistence helper.
+- `src/config/source-library.js`: canonical source library definitions and map-mode materialization.
 - `src/review/server.js`: onboarding APIs and dashboard UI wiring.
 - `src/cli.js`: `init` settings bootstrap and `doctor` command.
 - `src/output/render.js`: shortlist writer used by CLI startup path.
@@ -84,11 +99,14 @@ CLI changes ensure first-run setup initializes settings and provides a doctor co
 Run from repository root:
 
     npm test
+    npm test -- test/search-criteria-config.test.js test/onboarding-source-selection.test.js test/source-url-preview.test.js test/cli-smoke.test.js
     node src/cli.js doctor
 
 Expected outcomes:
 - all tests pass.
 - doctor prints environment checks and source warnings (including missing sources config on fresh setups) without non-zero exit.
+- map-mode `sources.json` selection updates enabled source state correctly.
+- `loadSearchCriteria()` prefers `source-criteria.json` and falls back to legacy `search-criteria.json`.
 
 ## Validation and Acceptance
 
@@ -115,8 +133,15 @@ Recovery:
 Verification transcript:
 
     npm test
-    ℹ tests 132
-    ℹ pass 132
+    ℹ tests 138
+    ℹ pass 138
+    ℹ fail 0
+
+Targeted config regression transcript:
+
+    npm test -- test/search-criteria-config.test.js test/onboarding-source-selection.test.js test/source-url-preview.test.js test/cli-smoke.test.js
+    ℹ tests 12
+    ℹ pass 12
     ℹ fail 0
 
 Doctor transcript on fresh config:

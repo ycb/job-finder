@@ -4646,7 +4646,7 @@ export function renderDashboardPage(dashboard, options = {}) {
           '    <div class="meta-item"><dt>Profile File</dt><dd>' + escapeHtml(dashboard.profile.profilePath || "") + "</dd></div>",
           '    <div class="meta-item"><dt>My Goals File</dt><dd>' + escapeHtml(dashboard.profile.goalsFilePath || "config/my-goals.json") + "</dd></div>",
           '    <div class="meta-item"><dt>Sources File</dt><dd>' + escapeHtml(dashboard.profile.sourcesPath || "") + "</dd></div>",
-          '    <div class="meta-item"><dt>Search Criteria File</dt><dd>' + escapeHtml(dashboard.profile.searchCriteriaPath || "config/search-criteria.json") + "</dd></div>",
+          '    <div class="meta-item"><dt>Search Criteria File</dt><dd>' + escapeHtml(dashboard.profile.searchCriteriaPath || "config/source-criteria.json") + "</dd></div>",
           '    <div class="meta-item"><dt>User Settings File</dt><dd>' + escapeHtml(dashboard.profile.settingsPath || "data/user-settings.json") + "</dd></div>",
           "  </dl>",
           '  <div class="inline-actions" style="margin-top: 10px;">' +
