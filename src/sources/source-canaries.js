@@ -44,6 +44,10 @@ function normalizeStringArray(value) {
   return output;
 }
 
+function toNonEmptyObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
 function isPresent(value) {
   const normalized = normalizeText(value);
   return normalized !== "" && normalized.toLowerCase() !== "unknown";
@@ -72,6 +76,45 @@ function formatPercent(value) {
   }
 
   return `${Math.round(numeric * 100)}%`;
+}
+
+function normalizeValueMatcher(rawMatch = {}) {
+  const field = normalizeText(rawMatch.field);
+  const equals = normalizeText(rawMatch.equals);
+  const includes = normalizeText(rawMatch.includes);
+  const regex = normalizeText(rawMatch.regex);
+
+  return {
+    field: field || "url",
+    equals: equals || null,
+    includes: includes || null,
+    regex: regex || null
+  };
+}
+
+function normalizeExpectedFieldRule(rawRule) {
+  if (typeof rawRule === "string") {
+    const value = normalizeText(rawRule);
+    return value ? { equals: value } : null;
+  }
+
+  if (!rawRule || typeof rawRule !== "object" || Array.isArray(rawRule)) {
+    return null;
+  }
+
+  const equals = normalizeText(rawRule.equals);
+  const includes = normalizeText(rawRule.includes);
+  const regex = normalizeText(rawRule.regex);
+
+  if (!equals && !includes && !regex) {
+    return null;
+  }
+
+  return {
+    equals: equals || null,
+    includes: includes || null,
+    regex: regex || null
+  };
 }
 
 function normalizeCheck(rawCheck = {}) {
@@ -115,6 +158,30 @@ function normalizeCheck(rawCheck = {}) {
     return {
       kind,
       min: toRatio(rawCheck.min) ?? 0.4
+    };
+  }
+
+  if (kind === "expected_record") {
+    const match = normalizeValueMatcher(rawCheck.match || {});
+    const expectedRaw = toNonEmptyObject(rawCheck.expected);
+    const expected = {};
+
+    for (const [fieldName, fieldRule] of Object.entries(expectedRaw)) {
+      const normalizedField = normalizeText(fieldName);
+      if (!normalizedField) {
+        continue;
+      }
+      const normalizedRule = normalizeExpectedFieldRule(fieldRule);
+      if (!normalizedRule) {
+        continue;
+      }
+      expected[normalizedField] = normalizedRule;
+    }
+
+    return {
+      kind,
+      match,
+      expected
     };
   }
 
@@ -301,11 +368,110 @@ function evaluateCanaryCheck(check, payload, captureEvaluation) {
     };
   }
 
+  if (check.kind === "expected_record") {
+    const matcher = toNonEmptyObject(check.match);
+    const expected = toNonEmptyObject(check.expected);
+    const matchedRecord = jobs.find((job) =>
+      doesRecordMatch(job, matcher)
+    );
+
+    if (!matchedRecord) {
+      return {
+        kind: check.kind,
+        pass: false,
+        diffs: [],
+        message: `expected record not found for ${describeMatcher(matcher)}`
+      };
+    }
+
+    const diffs = [];
+    for (const [fieldName, rule] of Object.entries(expected)) {
+      const actualValue = normalizeText(matchedRecord?.[fieldName]);
+      if (!doesValueMatchRule(actualValue, rule)) {
+        diffs.push({
+          field: fieldName,
+          expected: describeRule(rule),
+          actual: actualValue || "(empty)"
+        });
+      }
+    }
+
+    const pass = diffs.length === 0;
+    return {
+      kind: check.kind,
+      pass,
+      diffs,
+      message: pass
+        ? `expected record matched for ${describeMatcher(matcher)}`
+        : `expected record mismatch for ${describeMatcher(matcher)}: ${diffs
+            .map((diff) => `${diff.field} expected ${diff.expected} got ${diff.actual}`)
+            .join("; ")}`
+    };
+  }
+
   return {
     kind: check.kind,
     pass: true,
     message: `unsupported canary check kind "${check.kind}" ignored`
   };
+}
+
+function doesValueMatchRule(value, rule) {
+  const actual = normalizeText(value);
+  const normalizedRule = toNonEmptyObject(rule);
+  const expectedEquals = normalizeText(normalizedRule.equals);
+  const expectedIncludes = normalizeText(normalizedRule.includes);
+  const expectedRegex = normalizeText(normalizedRule.regex);
+
+  if (expectedEquals) {
+    return actual.toLowerCase() === expectedEquals.toLowerCase();
+  }
+
+  if (expectedIncludes) {
+    return actual.toLowerCase().includes(expectedIncludes.toLowerCase());
+  }
+
+  if (expectedRegex) {
+    try {
+      return new RegExp(expectedRegex, "i").test(actual);
+    } catch {
+      return false;
+    }
+  }
+
+  return false;
+}
+
+function doesRecordMatch(record, matcher) {
+  const normalizedMatcher = toNonEmptyObject(matcher);
+  const fieldName = normalizeText(normalizedMatcher.field) || "url";
+  const value = normalizeText(record?.[fieldName]);
+  return doesValueMatchRule(value, normalizedMatcher);
+}
+
+function describeRule(rule) {
+  const normalizedRule = toNonEmptyObject(rule);
+  const equals = normalizeText(normalizedRule.equals);
+  const includes = normalizeText(normalizedRule.includes);
+  const regex = normalizeText(normalizedRule.regex);
+
+  if (equals) {
+    return `equals "${equals}"`;
+  }
+  if (includes) {
+    return `includes "${includes}"`;
+  }
+  if (regex) {
+    return `regex /${regex}/i`;
+  }
+
+  return "unknown expectation";
+}
+
+function describeMatcher(matcher) {
+  const normalizedMatcher = toNonEmptyObject(matcher);
+  const fieldName = normalizeText(normalizedMatcher.field) || "url";
+  return `${fieldName} ${describeRule(normalizedMatcher)}`;
 }
 
 export function evaluateSourceCanaries(source, options = {}) {

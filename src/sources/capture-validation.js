@@ -129,36 +129,80 @@ function formatPercent(value) {
   return `${Math.round(numeric * 100)}%`;
 }
 
+function pushReason(reasonDetails, code, message) {
+  reasonDetails.push({
+    code: normalizeText(code) || "unknown_reason",
+    message: normalizeText(message)
+  });
+}
+
+function buildReasonResult(outcome, reasonDetails) {
+  return {
+    outcome,
+    reasonDetails,
+    reasons: reasonDetails.map((reason) => reason.message).filter(Boolean)
+  };
+}
+
+function getEmptyMetrics() {
+  return {
+    sampleSize: 0,
+    baselineCount: null,
+    baselineRatio: null,
+    uniqueJobRatio: null,
+    urlValidityRatio: null,
+    requiredCoverage: {
+      title: null,
+      company: null,
+      url: null
+    },
+    optionalUnknownRates: {
+      location: null,
+      postedAt: null,
+      salaryText: null,
+      employmentType: null
+    }
+  };
+}
+
 function evaluateOutcome(metrics, thresholds) {
-  const rejectReasons = [];
-  const quarantineReasons = [];
+  const rejectReasonDetails = [];
+  const quarantineReasonDetails = [];
 
   if (metrics.requiredCoverage.title !== null && metrics.requiredCoverage.title < thresholds.minRequiredCoverageReject) {
-    rejectReasons.push(
+    pushReason(
+      rejectReasonDetails,
+      "required_coverage_title_low",
       `required field coverage too low: title ${formatPercent(metrics.requiredCoverage.title)} < ${formatPercent(thresholds.minRequiredCoverageReject)}`
     );
   }
 
   if (metrics.requiredCoverage.company !== null && metrics.requiredCoverage.company < thresholds.minRequiredCoverageReject) {
-    rejectReasons.push(
+    pushReason(
+      rejectReasonDetails,
+      "required_coverage_company_low",
       `required field coverage too low: company ${formatPercent(metrics.requiredCoverage.company)} < ${formatPercent(thresholds.minRequiredCoverageReject)}`
     );
   }
 
   if (metrics.requiredCoverage.url !== null && metrics.requiredCoverage.url < thresholds.minRequiredCoverageReject) {
-    rejectReasons.push(
+    pushReason(
+      rejectReasonDetails,
+      "required_coverage_url_low",
       `required field coverage too low: url ${formatPercent(metrics.requiredCoverage.url)} < ${formatPercent(thresholds.minRequiredCoverageReject)}`
     );
   }
 
-  if (rejectReasons.length === 0) {
+  if (rejectReasonDetails.length === 0) {
     if (
       metrics.baselineCount !== null &&
       metrics.baselineCount >= thresholds.minExpectedForBaseline &&
       metrics.baselineRatio !== null &&
       metrics.baselineRatio < thresholds.minBaselineRatio
     ) {
-      quarantineReasons.push(
+      pushReason(
+        quarantineReasonDetails,
+        "baseline_volume_low",
         `capture volume below baseline: ${metrics.sampleSize}/${metrics.baselineCount} (${formatPercent(metrics.baselineRatio)}) < ${formatPercent(thresholds.minBaselineRatio)}`
       );
     }
@@ -168,7 +212,9 @@ function evaluateOutcome(metrics, thresholds) {
       metrics.uniqueJobRatio !== null &&
       metrics.uniqueJobRatio < thresholds.minUniqueJobRatio
     ) {
-      quarantineReasons.push(
+      pushReason(
+        quarantineReasonDetails,
+        "duplicate_ratio_low",
         `duplicate inflation detected: unique ratio ${formatPercent(metrics.uniqueJobRatio)} < ${formatPercent(thresholds.minUniqueJobRatio)}`
       );
     }
@@ -177,7 +223,9 @@ function evaluateOutcome(metrics, thresholds) {
       metrics.urlValidityRatio !== null &&
       metrics.urlValidityRatio < thresholds.minUrlValidityRatio
     ) {
-      quarantineReasons.push(
+      pushReason(
+        quarantineReasonDetails,
+        "url_validity_low",
         `invalid URL rate too high: valid ratio ${formatPercent(metrics.urlValidityRatio)} < ${formatPercent(thresholds.minUrlValidityRatio)}`
       );
     }
@@ -187,7 +235,9 @@ function evaluateOutcome(metrics, thresholds) {
         coverage !== null &&
         coverage < thresholds.minRequiredCoverageQuarantine
       ) {
-        quarantineReasons.push(
+        pushReason(
+          quarantineReasonDetails,
+          `required_coverage_${fieldName}_degraded`,
           `required field coverage degraded: ${fieldName} ${formatPercent(coverage)} < ${formatPercent(thresholds.minRequiredCoverageQuarantine)}`
         );
       }
@@ -201,30 +251,23 @@ function evaluateOutcome(metrics, thresholds) {
       unknownRates.every((ratio) => ratio >= thresholds.severeUnknownRate) &&
       metrics.sampleSize >= thresholds.minSampleForDuplicateCheck
     ) {
-      quarantineReasons.push(
+      pushReason(
+        quarantineReasonDetails,
+        "optional_fields_near_empty",
         `all optional fields near-empty (unknown rate >= ${formatPercent(thresholds.severeUnknownRate)})`
       );
     }
   }
 
-  if (rejectReasons.length > 0) {
-    return {
-      outcome: "reject",
-      reasons: rejectReasons
-    };
+  if (rejectReasonDetails.length > 0) {
+    return buildReasonResult("reject", rejectReasonDetails);
   }
 
-  if (quarantineReasons.length > 0) {
-    return {
-      outcome: "quarantine",
-      reasons: quarantineReasons
-    };
+  if (quarantineReasonDetails.length > 0) {
+    return buildReasonResult("quarantine", quarantineReasonDetails);
   }
 
-  return {
-    outcome: "accept",
-    reasons: []
-  };
+  return buildReasonResult("accept", []);
 }
 
 export function evaluateCaptureRun(source, payload, options = {}) {
@@ -234,27 +277,17 @@ export function evaluateCaptureRun(source, payload, options = {}) {
   };
 
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    const reasonDetails = [
+      {
+        code: "payload_invalid_object",
+        message: "capture payload must be an object"
+      }
+    ];
     return {
       outcome: "reject",
-      reasons: ["capture payload must be an object"],
-      metrics: {
-        sampleSize: 0,
-        baselineCount: null,
-        baselineRatio: null,
-        uniqueJobRatio: null,
-        urlValidityRatio: null,
-        requiredCoverage: {
-          title: null,
-          company: null,
-          url: null
-        },
-        optionalUnknownRates: {
-          location: null,
-          postedAt: null,
-          salaryText: null,
-          employmentType: null
-        }
-      },
+      reasons: reasonDetails.map((reason) => reason.message),
+      reasonDetails,
+      metrics: getEmptyMetrics(),
       evaluatedAt: new Date().toISOString(),
       sourceId: source?.id || null,
       sourceType: source?.type || null
@@ -262,27 +295,17 @@ export function evaluateCaptureRun(source, payload, options = {}) {
   }
 
   if (!Array.isArray(payload.jobs)) {
+    const reasonDetails = [
+      {
+        code: "payload_jobs_missing",
+        message: "capture payload must include a jobs array"
+      }
+    ];
     return {
       outcome: "reject",
-      reasons: ["capture payload must include a jobs array"],
-      metrics: {
-        sampleSize: 0,
-        baselineCount: null,
-        baselineRatio: null,
-        uniqueJobRatio: null,
-        urlValidityRatio: null,
-        requiredCoverage: {
-          title: null,
-          company: null,
-          url: null
-        },
-        optionalUnknownRates: {
-          location: null,
-          postedAt: null,
-          salaryText: null,
-          employmentType: null
-        }
-      },
+      reasons: reasonDetails.map((reason) => reason.message),
+      reasonDetails,
+      metrics: getEmptyMetrics(),
       evaluatedAt: new Date().toISOString(),
       sourceId: source?.id || null,
       sourceType: source?.type || null
@@ -325,6 +348,7 @@ export function evaluateCaptureRun(source, payload, options = {}) {
     sourceType: source?.type || null,
     outcome: evaluated.outcome,
     reasons: evaluated.reasons,
+    reasonDetails: evaluated.reasonDetails,
     metrics,
     evaluatedAt: new Date().toISOString()
   };

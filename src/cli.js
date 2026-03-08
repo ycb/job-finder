@@ -168,9 +168,18 @@ function resolveAllowQuarantinedIngest(options = {}) {
 }
 
 function buildRejectedEvaluation(reason) {
+  const normalizedReason = String(
+    reason || "capture validation rejected source ingest"
+  );
   return {
     outcome: "reject",
-    reasons: [String(reason || "capture validation rejected source ingest")],
+    reasons: [normalizedReason],
+    reasonDetails: [
+      {
+        code: "ingest_runtime_failure",
+        message: normalizedReason
+      }
+    ],
     metrics: {
       sampleSize: 0,
       baselineCount: null,
@@ -712,6 +721,9 @@ function runSourceContractDriftCheck(options = {}) {
     console.log(
       `  health: ${health.status} (score=${healthScore}; samples=${health.samplesUsed || 0})`
     );
+    if (health.status === "degraded" || health.status === "failing") {
+      console.log("  action: adapter needs attention");
+    }
     if (Array.isArray(health.reasons) && health.reasons.length > 0) {
       console.log(`  health-issues: ${health.reasons.join(" | ")}`);
     }
@@ -736,7 +748,7 @@ function runSourceCanaryCheck(options = {}) {
 
   const rows = [];
   let hasFailure = false;
-  let hasSkipped = false;
+  let skippedCount = 0;
 
   for (const source of sources) {
     const result = evaluateSourceCanaries(source, {
@@ -777,7 +789,7 @@ function runSourceCanaryCheck(options = {}) {
         metrics: result.captureEvaluation?.metrics || {}
       });
     } else if (status === "skipped") {
-      hasSkipped = true;
+      skippedCount += 1;
     }
 
     console.log(
@@ -816,8 +828,10 @@ function runSourceCanaryCheck(options = {}) {
     return;
   }
 
-  if (hasSkipped) {
-    process.exitCode = 2;
+  if (skippedCount > 0) {
+    console.log(
+      `Skipped canary checks for ${skippedCount} source(s) with no canary configuration.`
+    );
   }
 }
 

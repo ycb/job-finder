@@ -94,6 +94,11 @@ test("computeSourceHealthStatus marks reject outcomes as failing", () => {
 
     assert.equal(status.status, "failing");
     assert.ok(status.reasons.some((reason) => reason.includes("reject")));
+    assert.equal(
+      status.updatedAt,
+      status.latest?.recordedAt,
+      "expected updatedAt to mirror latest health record timestamp"
+    );
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
@@ -174,6 +179,7 @@ test("recordSourceHealthFromCaptureEvaluation maps evaluation metrics into histo
       {
         outcome: "quarantine",
         reasons: ["volume anomaly"],
+        reasonDetails: [{ code: "baseline_volume_low", message: "volume anomaly" }],
         metrics: {
           sampleSize: 1,
           baselineCount: 40,
@@ -195,6 +201,8 @@ test("recordSourceHealthFromCaptureEvaluation maps evaluation metrics into histo
     assert.equal(rows[0].sourceType, "google_search");
     assert.equal(rows[0].outcome, "quarantine");
     assert.equal(rows[0].baselineCount, 40);
+    assert.ok(Array.isArray(rows[0].reasonDetails));
+    assert.equal(rows[0].reasonDetails[0].code, "baseline_volume_low");
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

@@ -119,3 +119,83 @@ test("writeSourceCanaryDiagnostics persists report artifacts", () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test("evaluateSourceCanaries reports field-level diffs for expected_record checks", () => {
+  const source = {
+    id: "linkedin-main",
+    type: "linkedin_capture_file",
+    name: "LinkedIn Main",
+    searchUrl: "https://www.linkedin.com/jobs/search"
+  };
+
+  const canaries = {
+    canaries: [
+      {
+        id: "linkedin-canary",
+        sourceType: "linkedin_capture_file",
+        checks: [
+          {
+            kind: "expected_record",
+            match: {
+              field: "url",
+              includes: "jobs/123"
+            },
+            expected: {
+              title: { equals: "Senior Product Manager" },
+              company: { equals: "ExpectedCo" }
+            }
+          }
+        ]
+      }
+    ],
+    bySourceType: new Map([
+      [
+        "linkedin_capture_file",
+        {
+          id: "linkedin-canary",
+          sourceType: "linkedin_capture_file",
+          checks: [
+            {
+              kind: "expected_record",
+              match: {
+                field: "url",
+                includes: "jobs/123"
+              },
+              expected: {
+                title: { equals: "Senior Product Manager" },
+                company: { equals: "ExpectedCo" }
+              }
+            }
+          ]
+        }
+      ]
+    ]),
+    bySourceId: new Map()
+  };
+
+  const result = evaluateSourceCanaries(source, {
+    canaries,
+    payload: {
+      capturedAt: "2026-03-07T20:00:00.000Z",
+      jobs: [
+        {
+          title: "Senior Product Manager",
+          company: "ActualCo",
+          url: "https://www.linkedin.com/jobs/123"
+        }
+      ]
+    }
+  });
+
+  assert.equal(result.status, "fail");
+  const expectedRecordCheck = result.checks.find(
+    (check) => check.kind === "expected_record"
+  );
+  assert.ok(expectedRecordCheck, "expected expected_record check result");
+  assert.equal(expectedRecordCheck.pass, false);
+  assert.ok(Array.isArray(expectedRecordCheck.diffs));
+  assert.ok(
+    expectedRecordCheck.diffs.some((diff) => diff.field === "company"),
+    "expected company diff"
+  );
+});

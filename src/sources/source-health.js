@@ -72,6 +72,27 @@ function normalizeRunEntry(runMetrics = {}) {
     ? runMetrics.optionalUnknownRates
     : {};
 
+  const reasonDetails = Array.isArray(runMetrics.reasonDetails)
+    ? runMetrics.reasonDetails
+        .map((item) => {
+          if (!item || typeof item !== "object") {
+            return null;
+          }
+
+          const code = normalizeText(item.code);
+          const message = normalizeText(item.message);
+          if (!code && !message) {
+            return null;
+          }
+
+          return {
+            code: code || "unknown_reason",
+            message
+          };
+        })
+        .filter(Boolean)
+    : [];
+
   return {
     capturedAt: normalizeText(runMetrics.capturedAt) || new Date().toISOString(),
     sourceType: normalizeText(runMetrics.sourceType) || "unknown",
@@ -79,6 +100,7 @@ function normalizeRunEntry(runMetrics = {}) {
     reasons: Array.isArray(runMetrics.reasons)
       ? runMetrics.reasons.map((item) => normalizeText(item)).filter(Boolean)
       : [],
+    reasonDetails,
     sampleSize: toNonNegativeInt(runMetrics.sampleSize) ?? 0,
     baselineCount: toNonNegativeInt(runMetrics.baselineCount),
     baselineRatio: toRatio(runMetrics.baselineRatio),
@@ -202,6 +224,9 @@ export function recordSourceHealthFromCaptureEvaluation(
       sourceType: normalizeText(source?.type) || "unknown",
       outcome: normalizeText(evaluation?.outcome) || "accept",
       reasons: Array.isArray(evaluation?.reasons) ? evaluation.reasons : [],
+      reasonDetails: Array.isArray(evaluation?.reasonDetails)
+        ? evaluation.reasonDetails
+        : [],
       sampleSize: toNonNegativeInt(metrics.sampleSize) ?? jobs.length,
       baselineCount: toNonNegativeInt(
         metrics.baselineCount ?? capturePayload?.expectedCount
@@ -346,6 +371,8 @@ export function computeSourceHealthStatus(sourceId, options = {}) {
       status: "unknown",
       score: null,
       reasons: ["missing source id"],
+      reasonDetails: [],
+      updatedAt: null,
       window: 0,
       samplesUsed: 0,
       latest: null,
@@ -377,6 +404,8 @@ export function computeSourceHealthStatus(sourceId, options = {}) {
       status: "unknown",
       score: null,
       reasons: ["no recent runs in source health history"],
+      reasonDetails: [],
+      updatedAt: null,
       window: windowSize,
       samplesUsed: 0,
       latest: null,
@@ -436,6 +465,8 @@ export function computeSourceHealthStatus(sourceId, options = {}) {
     status,
     score,
     reasons,
+    reasonDetails: Array.isArray(latest?.reasonDetails) ? latest.reasonDetails : [],
+    updatedAt: normalizeText(latest?.recordedAt) || null,
     window: windowSize,
     samplesUsed: entries.length,
     latest,

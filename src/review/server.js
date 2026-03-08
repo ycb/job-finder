@@ -744,9 +744,18 @@ function resolveAllowQuarantinedIngest(options = {}) {
 }
 
 function buildRejectedEvaluation(reason) {
+  const normalizedReason = String(
+    reason || "capture validation rejected source ingest"
+  );
   return {
     outcome: "reject",
-    reasons: [String(reason || "capture validation rejected source ingest")],
+    reasons: [normalizedReason],
+    reasonDetails: [
+      {
+        code: "ingest_runtime_failure",
+        message: normalizedReason
+      }
+    ],
     metrics: {
       sampleSize: 0,
       baselineCount: null,
@@ -1294,6 +1303,10 @@ function buildDashboardData(limit = 200) {
         adapterHealthScore:
           Number.isFinite(Number(health?.score)) ? Number(health.score) : null,
         adapterHealthReasons: Array.isArray(health?.reasons) ? health.reasons : [],
+        adapterHealthUpdatedAt:
+          typeof health?.updatedAt === "string" && health.updatedAt.trim()
+            ? health.updatedAt
+            : null,
         ...refreshMeta
       };
     }),
@@ -3403,6 +3416,7 @@ export function renderDashboardPage(dashboard, options = {}) {
             adapterHealthStatus: "unknown",
             adapterHealthScore: null,
             adapterHealthReason: null,
+            adapterHealthUpdatedAt: null,
             appliedCount: 0,
             skippedCount: 0,
             highSignalCount: 0,
@@ -3466,12 +3480,23 @@ export function renderDashboardPage(dashboard, options = {}) {
               : null;
             current.adapterHealthReason =
               sourceHealthReasons.length > 0 ? sourceHealthReasons[0] : null;
+            current.adapterHealthUpdatedAt =
+              typeof source.adapterHealthUpdatedAt === "string" &&
+              source.adapterHealthUpdatedAt.trim()
+                ? source.adapterHealthUpdatedAt
+                : null;
           } else if (
             current.adapterHealthStatus === sourceHealthStatus &&
             current.adapterHealthReason === null &&
             sourceHealthReasons.length > 0
           ) {
             current.adapterHealthReason = sourceHealthReasons[0];
+            if (
+              typeof source.adapterHealthUpdatedAt === "string" &&
+              source.adapterHealthUpdatedAt.trim()
+            ) {
+              current.adapterHealthUpdatedAt = source.adapterHealthUpdatedAt;
+            }
           }
 
           if (
@@ -3588,9 +3613,9 @@ export function renderDashboardPage(dashboard, options = {}) {
             );
             const statusLabel =
               healthStatus === "failing"
-                ? "adapter failing"
+                ? "needs attention"
                 : healthStatus === "degraded"
-                  ? "adapter degraded"
+                  ? "needs attention"
                   :
               statusTone === "warn"
                 ? "cache"
@@ -3601,12 +3626,19 @@ export function renderDashboardPage(dashboard, options = {}) {
               Number.isFinite(Number(source.adapterHealthScore))
                 ? Math.round(Number(source.adapterHealthScore) * 100)
                 : null;
+            const healthUpdatedAtText =
+              typeof source.adapterHealthUpdatedAt === "string" &&
+              source.adapterHealthUpdatedAt.trim()
+                ? formatTime(source.adapterHealthUpdatedAt)
+                : null;
             const statusDetail =
-              source.adapterHealthReason ||
-              source.captureFunnelError ||
-              (healthStatus === "ok" && healthScore !== null
-                ? "health score " + healthScore + "%"
-                : null);
+              healthStatus === "failing" || healthStatus === "degraded"
+                ? (source.adapterHealthReason || "adapter needs attention") +
+                  (healthUpdatedAtText ? " · last signal " + healthUpdatedAtText : "")
+                : source.captureFunnelError ||
+                  (healthStatus === "ok" && healthScore !== null
+                    ? "health score " + healthScore + "%"
+                    : null);
             const sourceLabel = source.searchUrl
               ? '<a class="search-name search-link-label search-name-link" href="' +
                 safeSearchUrl +

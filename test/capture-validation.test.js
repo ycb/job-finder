@@ -50,7 +50,9 @@ test("evaluateCaptureRun accepts healthy payloads", () => {
   assert.equal(result.outcome, "accept");
   assert.equal(result.metrics.sampleSize, 18);
   assert.ok(Array.isArray(result.reasons));
+  assert.ok(Array.isArray(result.reasonDetails));
   assert.equal(result.reasons.length, 0);
+  assert.equal(result.reasonDetails.length, 0);
 });
 
 test("evaluateCaptureRun rejects malformed payloads", () => {
@@ -64,6 +66,9 @@ test("evaluateCaptureRun rejects malformed payloads", () => {
 
   assert.equal(result.outcome, "reject");
   assert.ok(result.reasons.some((reason) => reason.includes("jobs array")));
+  assert.ok(
+    result.reasonDetails.some((reason) => reason.code === "payload_jobs_missing")
+  );
 });
 
 test("evaluateCaptureRun quarantines suspiciously low volume runs", () => {
@@ -80,6 +85,10 @@ test("evaluateCaptureRun quarantines suspiciously low volume runs", () => {
   assert.ok(
     result.reasons.some((reason) => reason.includes("baseline")),
     "expected baseline-volume quarantine reason"
+  );
+  assert.ok(
+    result.reasonDetails.some((reason) => reason.code === "baseline_volume_low"),
+    "expected baseline-volume reason code"
   );
 });
 
