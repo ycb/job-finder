@@ -2753,10 +2753,9 @@ export function renderDashboardPage(dashboard, options = {}) {
       }
 
       function onboardingSelectedSourceIdsForRender() {
-        const onboarding = onboardingData();
-        const saved = Array.isArray(onboarding.selectedSourceIds)
-          ? onboarding.selectedSourceIds.map((value) => String(value || "").trim()).filter(Boolean)
-          : [];
+        const saved = onboardingCandidateSources()
+          .filter((source) => source.enabled)
+          .map((source) => source.id);
         if (saved.length > 0) {
           return saved;
         }
@@ -2776,14 +2775,18 @@ export function renderDashboardPage(dashboard, options = {}) {
         return { label: "Pending", tone: "warn" };
       }
 
-      function failedAuthSourceIds(selectedSourceIds, checksBySourceId) {
-        const selectedSet = new Set(
-          (Array.isArray(selectedSourceIds) ? selectedSourceIds : [])
-            .map((value) => String(value || "").trim())
-            .filter(Boolean)
-        );
+      function failedAuthSourceIds(checksBySourceId, selectedSourceIds = null) {
+        const selectedSet = Array.isArray(selectedSourceIds)
+          ? new Set(
+              selectedSourceIds
+                .map((value) => String(value || "").trim())
+                .filter(Boolean)
+            )
+          : null;
         return onboardingCandidateSources()
-          .filter((source) => selectedSet.has(source.id) && sourceRequiresAuth(source))
+          .filter((source) => sourceRequiresAuth(source))
+          .filter((source) => (selectedSet ? selectedSet.has(source.id) : true))
+          .filter((source) => Boolean(checksBySourceId[source.id]))
           .filter((source) => {
             const status = checksBySourceId[source.id] && checksBySourceId[source.id].status
               ? String(checksBySourceId[source.id].status).toLowerCase()
@@ -3537,7 +3540,7 @@ export function renderDashboardPage(dashboard, options = {}) {
             return true;
           });
 
-          const failedAuth = failedAuthSourceIds(sourceIds, checksBySourceId);
+          const failedAuth = failedAuthSourceIds(checksBySourceId, sourceIds);
 
           await getJson("/api/onboarding/sources", {
             method: "POST",
@@ -3575,7 +3578,7 @@ export function renderDashboardPage(dashboard, options = {}) {
 
       async function retryFailedOnboardingAuthSources() {
         const selectedSourceIds = onboardingSelectedSourceIdsForRender();
-        const failedAuth = failedAuthSourceIds(selectedSourceIds, onboardingChecksBySourceId());
+        const failedAuth = failedAuthSourceIds(onboardingChecksBySourceId(), selectedSourceIds);
         if (failedAuth.length === 0) {
           onboardingStepStatus = "No failed auth sources to retry.";
           onboardingStepStatusError = true;
@@ -4846,10 +4849,7 @@ export function renderDashboardPage(dashboard, options = {}) {
         const onboardingSelectedSources = new Set(onboardingSelectedSourceIdsForRender());
         const onboardingChannelValue =
           onboarding.channel && onboarding.channel.value ? onboarding.channel.value : "unknown";
-        const failedAuthSourcesForRetry = failedAuthSourceIds(
-          [...onboardingSelectedSources],
-          onboardingSourceChecks
-        );
+        const failedAuthSourcesForRetry = failedAuthSourceIds(onboardingSourceChecks);
         const onboardingSourcesMarkup = onboardingSources
           .map((source) => {
             const checked = onboardingSelectedSources.has(source.id);
@@ -5314,7 +5314,7 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
           : sourceIds;
 
         setEnabledSources(enabledSourceIds);
-        updateOnboardingSources(sourceIds);
+        updateOnboardingSources(enabledSourceIds);
 
         const settings = loadUserSettings().settings;
         const effectiveChannel = getEffectiveOnboardingChannel(settings);
@@ -5322,6 +5322,8 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
           buildAnalyticsEvent(
             "onboarding_sources_updated",
             {
+              enabledCount: enabledSourceIds.length,
+              enabledSourceIds,
               selectedCount: sourceIds.length,
               sourceIds
             },

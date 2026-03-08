@@ -38,6 +38,7 @@ The observable behavior is:
 - [x] (2026-03-07 22:33Z) Added auth-aware source verification behavior: selected auth-required sources are enabled only after verification pass; failed auth sources remain disabled with retry action.
 - [x] (2026-03-07 22:36Z) Added API support for separate onboarding `sourceIds` vs `enabledSourceIds` to preserve selection intent while enforcing verification-gated enablement.
 - [x] (2026-03-07 22:39Z) Verified full repository test suite passes after onboarding UX + verification updates (`143/143`).
+- [x] (2026-03-07 22:48Z) Corrected onboarding persistence semantics: persist enabled sources only to avoid "my searches" state drift from runtime source enablement.
 
 ## Surprises & Discoveries
 
@@ -73,7 +74,10 @@ The observable behavior is:
   Rationale: Matches product direction away from manually managed static source URL lists while avoiding hard migration breakage.
   Date/Author: 2026-03-07 / Codex
 - Decision: For onboarding, persist selected sources separately from enabled sources (`sourceIds` vs `enabledSourceIds`).
-  Rationale: Auth-required sources can remain selected for retry while staying disabled until verification passes.
+  Rationale: Initial attempt supported retry UX, but user feedback showed this created confusing "my searches" persistence semantics.
+  Date/Author: 2026-03-07 / Codex
+- Decision: Persist onboarding source state as enabled-only; treat broad selection as temporary UI state.
+  Rationale: Aligns onboarding output with actual runtime ingestion behavior and removes conceptual mismatch for users.
   Date/Author: 2026-03-07 / Codex
 - Decision: Use live source run verification for auth-required sources (skip sync/score) and probe checks for non-auth sources.
   Rationale: Confirms access realistically without forcing a full pipeline run during onboarding verification.

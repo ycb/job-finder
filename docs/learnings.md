@@ -75,3 +75,9 @@ As of 2026-03-06.
 - Functional onboarding is not sufficient; onboarding is a core product surface and requires a dedicated UX/design pass.
 - Before shipping onboarding UI changes, apply the UX/design/microinteraction skill pack and verify hierarchy, CTA clarity, and auth-state affordances.
 - Include explicit first-run guidance copy and stateful success/failure feedback in-product, not only in docs.
+
+## Onboarding State Semantics
+
+- Distinguish temporary UI selection from persisted runtime enablement.
+- Persist only what drives ingestion (`enabled sources`), not a second "selected searches" model that can drift.
+- When auth verification fails, keep source disabled and communicate retry, but avoid storing it as an enabled/personalized search.
