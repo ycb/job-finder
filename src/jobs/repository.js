@@ -296,16 +296,18 @@ export function upsertEvaluations(db, evaluations) {
       bucket,
       summary,
       reasons,
+      evaluation_meta,
       confidence,
       freshness_days,
       hard_filtered,
       evaluated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(job_id) DO UPDATE SET
       score = excluded.score,
       bucket = excluded.bucket,
       summary = excluded.summary,
       reasons = excluded.reasons,
+      evaluation_meta = excluded.evaluation_meta,
       confidence = excluded.confidence,
       freshness_days = excluded.freshness_days,
       hard_filtered = excluded.hard_filtered,
@@ -319,6 +321,11 @@ export function upsertEvaluations(db, evaluations) {
       evaluation.bucket,
       evaluation.summary,
       JSON.stringify(evaluation.reasons),
+      evaluation.evaluationMeta &&
+      typeof evaluation.evaluationMeta === "object" &&
+      !Array.isArray(evaluation.evaluationMeta)
+        ? JSON.stringify(evaluation.evaluationMeta)
+        : null,
       Number.isFinite(evaluation.confidence) ? Math.round(evaluation.confidence) : null,
       Number.isFinite(evaluation.freshnessDays) ? Math.round(evaluation.freshnessDays) : null,
       evaluation.hardFiltered ? 1 : 0,

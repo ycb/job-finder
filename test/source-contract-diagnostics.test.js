@@ -83,7 +83,7 @@ test("evaluateSourceContractDrift includes field-level coverage mismatch context
     assert.ok(Array.isArray(row.coverageMismatches));
     assert.equal(row.coverageMismatches.length, 1);
     assert.equal(row.coverageMismatches[0].field, "salaryText");
-    assert.equal(row.coverageMismatches[0].threshold, 0.7);
+    assert.equal(row.coverageMismatches[0].threshold, 0.9);
     assert.equal(row.coverageMismatches[0].rollingCoverage, 0);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });

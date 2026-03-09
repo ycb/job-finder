@@ -824,8 +824,36 @@ function runSourceContractDriftCheck(options = {}) {
 
     if (typeof row.passCoverageGate === "boolean") {
       console.log(
-        `  gate(min=${Math.round(Number(row.minCoverage || report.minCoverage || 0) * 100)}%): ${row.passCoverageGate ? "pass" : "fail"}`
+        `  gate(required min=${Math.round(Number(row.minCoverage || report.minCoverage || 0) * 100)}%): ${row.passRequiredCoverageGate === false ? "fail" : "pass"}`
       );
+    }
+
+    const toRatio = (value) => {
+      if (value === null || value === undefined || value === "") {
+        return null;
+      }
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : null;
+    };
+    const latestDetailCoverage = toRatio(row.detailDescriptionCoverage);
+    const rollingDetailCoverage = toRatio(row.rollingDetailDescriptionCoverage);
+    if (latestDetailCoverage !== null || rollingDetailCoverage !== null) {
+      const latestLabel = latestDetailCoverage !== null
+        ? `${Math.round(latestDetailCoverage * 100)}%`
+        : "n/a";
+      const rollingLabel = rollingDetailCoverage !== null
+        ? `${Math.round(rollingDetailCoverage * 100)}%`
+        : "n/a";
+      console.log(
+        `  detail-description: latest=${latestLabel}, rolling=${rollingLabel}, samples=${Math.max(0, Number(row.rollingDetailDescriptionSampleSize || row.detailDescriptionSampleSize || 0))}`
+      );
+      console.log(
+        `  gate(detail min=${Math.round(Number(row.detailDescriptionMinCoverage || row.minCoverage || report.minCoverage || 0) * 100)}%): ${row.passDetailCoverageGate === false ? "fail" : "pass"}`
+      );
+    }
+
+    if (typeof row.passCoverageGate === "boolean") {
+      console.log(`  gate(overall): ${row.passCoverageGate ? "pass" : "fail"}`);
     }
 
     if (Array.isArray(row.issues) && row.issues.length > 0) {
@@ -1627,7 +1655,7 @@ SOURCE MANAGEMENT:
   jf set-source-url <id-or-label> <url>     Update source URL
   jf normalize-source-urls [--dry-run]      Normalize URLs from search criteria
   jf retention-policy                       Show retention policy path and effective config
-  jf check-source-contracts [--window n] [--min-coverage 0.7]  Run source contract drift checks
+  jf check-source-contracts [--window n] [--min-coverage 0.9]  Run source contract drift checks
   jf check-source-canaries [--include-disabled]  Run source adapter canary checks
 
 PROFILE CONFIGURATION:

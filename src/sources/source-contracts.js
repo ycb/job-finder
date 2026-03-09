@@ -256,6 +256,9 @@ function normalizeExtractionShape(rawExtraction, label) {
     `${label}.qualityThresholds.minCoverageByField`,
     requiredMetadata
   );
+  const detailDescriptionMinCoverage = normalizeCoverageRatio(
+    qualityThresholdsRaw.detailDescriptionMinCoverage
+  );
 
   return {
     requiredMetadata,
@@ -266,7 +269,8 @@ function normalizeExtractionShape(rawExtraction, label) {
     qualityThresholds: {
       rollingMinCoverage,
       minSampleSize,
-      minCoverageByField
+      minCoverageByField,
+      detailDescriptionMinCoverage
     }
   };
 }
@@ -421,6 +425,64 @@ function normalizeCoverageRatio(value) {
   return Math.round(numeric * 1000) / 1000;
 }
 
+function parseStructuredMeta(value) {
+  if (!value) {
+    return null;
+  }
+  if (typeof value === "object" && !Array.isArray(value)) {
+    return value;
+  }
+  if (typeof value !== "string") {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeDescriptionSource(value) {
+  const source = normalizeString(value).toLowerCase();
+  if (source === "detail" || source === "card" || source === "fallback_unknown") {
+    return source;
+  }
+  return "";
+}
+
+function resolveDescriptionSource(job) {
+  if (!job || typeof job !== "object") {
+    return "";
+  }
+
+  const direct = normalizeDescriptionSource(job.descriptionSource || job.description_source);
+  if (direct) {
+    return direct;
+  }
+
+  const extractorProvenance =
+    job.extractorProvenance &&
+    typeof job.extractorProvenance === "object" &&
+    !Array.isArray(job.extractorProvenance)
+      ? job.extractorProvenance
+      : null;
+  const provenanceSource = normalizeDescriptionSource(extractorProvenance?.description);
+  if (provenanceSource) {
+    return provenanceSource;
+  }
+
+  const structuredMeta = parseStructuredMeta(job.structuredMeta || job.structured_meta);
+  const structuredSource = normalizeDescriptionSource(
+    structuredMeta?.descriptionSource || structuredMeta?.extractorProvenance?.description
+  );
+  if (structuredSource) {
+    return structuredSource;
+  }
+
+  return "";
+}
+
 function sanitizeFileToken(value, fallback = "unknown") {
   const normalized = normalizeString(value)
     .replace(/[:.]/g, "-")
@@ -449,6 +511,51 @@ function computeCoverageByField(jobs, requiredFields) {
   }
 
   return coverageByField;
+}
+
+function computeDetailDescriptionCoverage(jobs) {
+  const samples = Array.isArray(jobs) ? jobs : [];
+  if (samples.length === 0) {
+    return {
+      coverage: null,
+      sampleSize: 0,
+      detailCount: 0
+    };
+  }
+
+  let sampleSize = 0;
+  let detailCount = 0;
+
+  for (const job of samples) {
+    const description = extractJobFieldValue(job, "description");
+    if (!description || description.toLowerCase() === "unknown") {
+      continue;
+    }
+
+    const descriptionSource = resolveDescriptionSource(job);
+    if (!descriptionSource) {
+      continue;
+    }
+
+    sampleSize += 1;
+    if (descriptionSource === "detail") {
+      detailCount += 1;
+    }
+  }
+
+  if (sampleSize === 0) {
+    return {
+      coverage: null,
+      sampleSize: 0,
+      detailCount: 0
+    };
+  }
+
+  return {
+    coverage: Math.round((detailCount / sampleSize) * 1000) / 1000,
+    sampleSize,
+    detailCount
+  };
 }
 
 function resolveQualityHistoryPath(historyPath, sourcesPath) {
@@ -569,6 +676,18 @@ function averageCoverageByField(entries, requiredFields) {
   return averages;
 }
 
+function averageCoverageValue(entries, key) {
+  const rows = Array.isArray(entries) ? entries : [];
+  const ratios = rows
+    .map((entry) => normalizeCoverageRatio(entry?.[key]))
+    .filter((ratio) => ratio !== null);
+  if (ratios.length === 0) {
+    return null;
+  }
+  const total = ratios.reduce((sum, ratio) => sum + ratio, 0);
+  return Math.round((total / ratios.length) * 1000) / 1000;
+}
+
 export function evaluateSourceContractDrift(options = {}) {
   const sourcesPath = options.sourcesPath || "config/sources.json";
   const contractsPath = options.contractsPath || "config/source-contracts.json";
@@ -580,7 +699,7 @@ export function evaluateSourceContractDrift(options = {}) {
   const minCoverage =
     Number.isFinite(minCoverageRaw) && minCoverageRaw >= 0 && minCoverageRaw <= 1
       ? Math.round(minCoverageRaw * 1000) / 1000
-      : 0.7;
+      : 0.9;
   const staleAfterDays =
     Number.isFinite(Number(options.staleAfterDays)) && Number(options.staleAfterDays) > 0
       ? Math.round(Number(options.staleAfterDays))
@@ -615,7 +734,16 @@ export function evaluateSourceContractDrift(options = {}) {
         rollingSamplesUsed: 0,
         rollingWindow: windowSize,
         minCoverage,
+        passRequiredCoverageGate: false,
         passCoverageGate: false,
+        detailDescriptionCoverage: null,
+        detailDescriptionSampleSize: 0,
+        detailDescriptionCount: 0,
+        rollingDetailDescriptionCoverage: null,
+        rollingDetailDescriptionSampleSize: 0,
+        detailDescriptionMinCoverage: minCoverage,
+        passDetailCoverageGate: false,
+        detailCoverageMismatch: null,
         coverageMismatches: [],
         issues: [`Missing contract for source type "${source.type}".`]
       });
@@ -623,6 +751,7 @@ export function evaluateSourceContractDrift(options = {}) {
     }
 
     const coverageByField = computeCoverageByField(jobs, contract.extraction.requiredFields);
+    const detailDescriptionCoverage = computeDetailDescriptionCoverage(jobs);
     const capturedAt = normalizeString(capture?.capturedAt || capture?.payload?.capturedAt);
     if (persistHistory && capturedAt) {
       upsertCoverageHistoryEntry(history, source.id, {
@@ -630,7 +759,9 @@ export function evaluateSourceContractDrift(options = {}) {
         sourceType: source.type,
         contractVersion: contract.contractVersion,
         sampleSize: jobs.length,
-        coverageByField
+        coverageByField,
+        detailDescriptionCoverage: detailDescriptionCoverage.coverage,
+        detailDescriptionSampleSize: detailDescriptionCoverage.sampleSize
       });
     }
 
@@ -651,6 +782,17 @@ export function evaluateSourceContractDrift(options = {}) {
       rollingEntries,
       contract.extraction.requiredFields
     );
+    const rollingDetailDescriptionCoverage = averageCoverageValue(
+      rollingEntries,
+      "detailDescriptionCoverage"
+    );
+    const rollingDetailDescriptionSampleSize = rollingEntries.reduce((sum, entry) => {
+      const sampleSize = Number(entry?.detailDescriptionSampleSize);
+      if (!Number.isFinite(sampleSize) || sampleSize < 0) {
+        return sum;
+      }
+      return sum + Math.round(sampleSize);
+    }, 0);
 
     const stale = isDateOlderThanDays(contract.lastVerified, staleAfterDays);
     const fieldThresholds =
@@ -686,7 +828,30 @@ export function evaluateSourceContractDrift(options = {}) {
     const hasRollingCoverage = Object.values(rollingCoverageByField).some(
       (ratio) => ratio !== null && Number.isFinite(Number(ratio))
     );
-    const passCoverageGate = !hasRollingCoverage || lowCoverageFields.length === 0;
+    const passRequiredCoverageGate =
+      !hasRollingCoverage || lowCoverageFields.length === 0;
+
+    const configuredDetailCoverageGateFloor = normalizeCoverageRatio(
+      contract?.extraction?.qualityThresholds?.detailDescriptionMinCoverage
+    );
+    const detailCoverageGateFloor =
+      configuredDetailCoverageGateFloor !== null
+        ? configuredDetailCoverageGateFloor
+        : coverageGateFloor;
+    const hasRollingDetailCoverage =
+      rollingDetailDescriptionCoverage !== null &&
+      Number.isFinite(Number(rollingDetailDescriptionCoverage));
+    const detailCoverageMismatch = hasRollingDetailCoverage &&
+      rollingDetailDescriptionCoverage < detailCoverageGateFloor
+      ? {
+          rollingCoverage: rollingDetailDescriptionCoverage,
+          latestCoverage: detailDescriptionCoverage.coverage,
+          threshold: detailCoverageGateFloor
+        }
+      : null;
+    const passDetailCoverageGate =
+      !hasRollingDetailCoverage || detailCoverageMismatch === null;
+    const passCoverageGate = passRequiredCoverageGate && passDetailCoverageGate;
     const issues = [];
     if (stale) {
       issues.push(
@@ -698,11 +863,18 @@ export function evaluateSourceContractDrift(options = {}) {
         `Rolling coverage below configured threshold(s) for: ${lowCoverageFields.join(", ")}.`
       );
     }
+    if (detailCoverageMismatch) {
+      issues.push(
+        `Rolling detail-description coverage below threshold (${Math.round(
+          detailCoverageMismatch.rollingCoverage * 100
+        )}% < ${Math.round(detailCoverageMismatch.threshold * 100)}%).`
+      );
+    }
 
     const status =
       issues.length === 0
         ? "ok"
-        : lowCoverageFields.length > 0
+        : lowCoverageFields.length > 0 || Boolean(detailCoverageMismatch)
           ? "error"
           : "warning";
 
@@ -719,7 +891,16 @@ export function evaluateSourceContractDrift(options = {}) {
       rollingSamplesUsed: rollingEntries.length,
       rollingWindow: windowSize,
       minCoverage,
+      passRequiredCoverageGate,
       passCoverageGate,
+      detailDescriptionCoverage: detailDescriptionCoverage.coverage,
+      detailDescriptionSampleSize: detailDescriptionCoverage.sampleSize,
+      detailDescriptionCount: detailDescriptionCoverage.detailCount,
+      rollingDetailDescriptionCoverage,
+      rollingDetailDescriptionSampleSize,
+      detailDescriptionMinCoverage: detailCoverageGateFloor,
+      passDetailCoverageGate,
+      detailCoverageMismatch,
       coverageMismatches,
       issues
     });
