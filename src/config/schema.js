@@ -1,3 +1,5 @@
+import { normalizeKeywordInput } from "../search/keywords.js";
+
 function assertObject(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${label} must be an object.`);
@@ -105,7 +107,10 @@ export function validateSearchCriteria(raw, label = "Search criteria") {
 
   const keywords = assertOptionalString(criteria.keywords, `${label}.keywords`, "");
   if (keywords) {
-    normalizedCriteria.keywords = keywords;
+    const normalizedKeywords = normalizeKeywordInput(keywords).canonical;
+    if (normalizedKeywords) {
+      normalizedCriteria.keywords = normalizedKeywords;
+    }
   }
 
   const location = assertOptionalString(criteria.location, `${label}.location`, "");

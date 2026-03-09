@@ -18,6 +18,9 @@ Higher search precision and easier setup by allowing a single criteria field to 
 - Preserve normalized keyword list in canonical criteria representation.
 - Apply normalized keywords consistently across source URL builders and query formatters.
 - Show unsupported keyword behavior in diagnostics when a source cannot represent multi-keyword logic.
+- Current boolean behavior (for now):
+  - comma-separated keywords are treated as `AND` intent in source query construction by emitting all normalized terms
+  - explicit `OR` expression support is deferred to the search-controls expansion item (`p1-core-search-hardfilter-keywords-include-exclude-cache.md`)
 
 ## Acceptance Criteria
 - Comma-separated keywords are parsed and persisted consistently.

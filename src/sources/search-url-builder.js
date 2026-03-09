@@ -1,3 +1,8 @@
+import {
+  keywordTermsToQueryText,
+  normalizeKeywordInput
+} from "../search/keywords.js";
+
 const SUPPORTED_DATE_POSTED = new Set(["any", "1d", "3d", "1w", "2w", "1m"]);
 const SUPPORTED_EXPERIENCE_LEVELS = new Set([
   "intern",
@@ -299,9 +304,10 @@ function normalizeSearchCriteria(rawCriteria) {
     normalized.title = title;
   }
 
-  const keywords = normalizeText(rawCriteria.keywords);
-  if (keywords) {
-    normalized.keywords = keywords;
+  const keywordMetadata = normalizeKeywordInput(rawCriteria.keywords);
+  if (keywordMetadata.canonical) {
+    normalized.keywords = keywordMetadata.canonical;
+    normalized.keywordTerms = keywordMetadata.terms;
   }
 
   const location = normalizeText(rawCriteria.location);
@@ -334,7 +340,7 @@ function normalizeSearchCriteria(rawCriteria) {
 
 function combineTitleAndKeywords(criteria) {
   const title = normalizeText(criteria?.title);
-  const keywords = normalizeText(criteria?.keywords);
+  const keywords = keywordTermsToQueryText(criteria?.keywordTerms || criteria?.keywords);
   return [title, keywords].filter(Boolean).join(" ").trim();
 }
 
@@ -583,8 +589,11 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
       criteriaAccountability.markAppliedInUrl("title");
     }
 
-    if (criteria.keywords) {
-      queryTerms.push(criteria.keywords);
+    const keywordTerms = Array.isArray(criteria.keywordTerms)
+      ? criteria.keywordTerms
+      : [];
+    if (keywordTerms.length > 0) {
+      queryTerms.push(...keywordTerms);
       criteriaAccountability.markAppliedInUrl("keywords");
     }
 

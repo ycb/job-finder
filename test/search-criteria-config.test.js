@@ -62,6 +62,27 @@ test("saveSearchCriteria persists normalized fields", () => {
   }
 });
 
+test("saveSearchCriteria normalizes comma-separated keywords", () => {
+  const { tempDir, configDir } = createTempConfigDir();
+  const criteriaPath = path.join(configDir, "search-criteria.json");
+
+  try {
+    const saved = saveSearchCriteria(
+      {
+        keywords: "ai, fintech, payments, fintech,  "
+      },
+      criteriaPath
+    );
+
+    assert.equal(saved.criteria.keywords, "ai, fintech, payments");
+
+    const reloaded = loadSearchCriteria(criteriaPath);
+    assert.equal(reloaded.criteria.keywords, "ai, fintech, payments");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("loadSourcesWithPath applies global search criteria and allows per-source overrides", () => {
   const { tempDir, configDir } = createTempConfigDir();
   const criteriaPath = path.join(configDir, "search-criteria.json");

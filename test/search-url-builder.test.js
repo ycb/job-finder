@@ -82,7 +82,7 @@ test("buildSearchUrlForSourceType formats ZipRecruiter criteria", () => {
 test("buildSearchUrlForSourceType formats Indeed criteria", () => {
   const result = buildSearchUrlForSourceType("indeed_search", {
     title: "senior product manager",
-    keywords: "fintech payments",
+    keywords: "fintech, payments, fintech",
     location: "San Francisco, CA",
     distanceMiles: 25,
     minSalary: 195000,
@@ -106,7 +106,7 @@ test("buildSearchUrlForSourceType formats Google jobs-style criteria", () => {
     "google_search",
     {
       title: "principal product manager",
-      keywords: "b2b saas",
+      keywords: "b2b saas, fintech, payments",
       location: "San Francisco",
       minSalary: 200000,
       datePosted: "2w"
@@ -121,6 +121,10 @@ test("buildSearchUrlForSourceType formats Google jobs-style criteria", () => {
   assert.equal(parsed.pathname, "/search");
   assert.match(String(parsed.searchParams.get("q")), /principal product manager/i);
   assert.match(String(parsed.searchParams.get("q")), /b2b saas/i);
+  assert.match(String(parsed.searchParams.get("q")), /fintech/i);
+  assert.match(String(parsed.searchParams.get("q")), /payments/i);
+  assert.equal(String(parsed.searchParams.get("q")).includes("saas,"), false);
+  assert.equal(String(parsed.searchParams.get("q")).includes("fintech,"), false);
   assert.match(String(parsed.searchParams.get("q")), /San Francisco/i);
   assert.match(String(parsed.searchParams.get("q")), /\$200,000\+/);
   assert.equal(parsed.searchParams.get("udm"), "8");

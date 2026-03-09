@@ -22,6 +22,11 @@ Provide one canonical search-criteria model and deterministic per-source mapping
 
 These fields are set globally in `config/search-criteria.json` and can be overridden per source via `sources[].searchCriteria`.
 
+Keyword normalization rule (current):
+- `keywords` accepts comma-separated values and is canonicalized as a deduped token list.
+- URL builders consume the normalized set and emit all terms (`AND`-style intent).
+- Explicit `OR` semantics are deferred to the search-controls expansion backlog item.
+
 ## Source of Truth and Drift Control
 
 To prevent divergence between search construction and extraction:
