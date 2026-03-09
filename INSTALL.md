@@ -147,10 +147,13 @@ Run these when source behavior changes or before release notes:
 
 ```bash
 # Contract drift + rolling coverage checks
-jf check-source-contracts --window 3 --min-coverage 0.7 --stale-days 30
+jf check-source-contracts --window 3 --min-coverage 0.9 --stale-days 30
 
 # Canary checks against configured source expectations
 jf check-source-canaries
+
+# Show effective retention policy and path
+jf retention-policy
 ```
 
 Quality diagnostics and evidence paths:
@@ -158,7 +161,38 @@ Quality diagnostics and evidence paths:
 - `data/quality/quarantine/<source-id>/*.json` (blocked/quarantined ingest runs)
 - `data/quality/source-health-history.json` (rolling source health metrics)
 - `data/quality/source-coverage-history.json` (contract coverage history)
+- `data/quality/contract-drift/latest.json` (latest contract drift diagnostics)
 - `data/quality/canary-checks/latest.json` (latest canary report)
+- `data/retention/cleanup-audit.jsonl` (status-aware cleanup audit log)
+
+---
+
+## Optional Retention Policy Config
+
+If `config/retention-policy.json` is missing, defaults are used:
+
+- `new`: `30` days
+- `viewed`: `45` days
+- `skip_for_now`: `21` days
+- `rejected`: `14` days
+- `applied`: never auto-delete
+
+Create `config/retention-policy.json` to override:
+
+```json
+{
+  "enabled": true,
+  "statusTtlDays": {
+    "new": 30,
+    "viewed": 45,
+    "skip_for_now": 21,
+    "rejected": 14,
+    "applied": null
+  }
+}
+```
+
+Use `jf retention-policy` to confirm the effective policy and resolved file path.
 
 ---
 
@@ -208,7 +242,7 @@ Run diagnostics first:
 
 ```bash
 jf check-source-canaries
-jf check-source-contracts --window 3 --min-coverage 0.7
+jf check-source-contracts --window 3 --min-coverage 0.9
 ```
 
 If you intentionally want to ingest quarantined runs for debugging:
@@ -260,4 +294,5 @@ rm -rf /path/to/job-finder
 
 - Read [README.md](README.md) for detailed feature documentation
 - See [CLAUDE.md](CLAUDE.md) for architecture and development guide
+- Review [PRIVACY.md](PRIVACY.md) and [TERMS.md](TERMS.md) for data/usage policies
 - Join discussions on [GitHub Issues](https://github.com/ycb/job-finder/issues)

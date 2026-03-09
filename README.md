@@ -55,8 +55,10 @@ The current implementation focuses on:
 - browser-capture intake for LinkedIn / Wellfound / Ashby / Google / Indeed / ZipRecruiter / RemoteOK
 - Built In ingestion from configured search URLs
 - job intake into SQLite
-- deterministic scoring with hard filters, freshness, confidence, and history-aware signals
+- deterministic scoring with hard filters, AND/OR keyword mode, include/exclude terms, freshness, confidence, and history-aware signals
 - capture-quality guardrails with quarantine/reject protection and source health telemetry
+- run delta tracking (`new`, `updated`, `unchanged`) across source refreshes
+- status-aware retention cleanup with per-status TTLs and audit logs
 - shortlist generation
 - de-duped review and application tracking
 
@@ -129,14 +131,18 @@ Daily workflow:
 
 Quality and diagnostics:
 
-- `node src/cli.js check-source-contracts [--window 3] [--min-coverage 0.7] [--stale-days 30]`
+- `node src/cli.js check-source-contracts [--window 3] [--min-coverage 0.9] [--stale-days 30]`
 - `node src/cli.js check-source-canaries [--include-disabled]`
+- `node src/cli.js retention-policy` (show effective retention policy + policy path)
 - `npm run sync -- --allow-quarantined` (override ingest gate for quarantine outcomes)
 - Quality artifacts:
   - quarantine runs: `data/quality/quarantine/<source-id>/*.json`
   - source health history: `data/quality/source-health-history.json`
   - contract coverage history: `data/quality/source-coverage-history.json`
+  - contract drift diagnostics: `data/quality/contract-drift/latest.json`
   - canary diagnostics: `data/quality/canary-checks/latest.json`
+  - retention cleanup audit: `data/retention/cleanup-audit.jsonl`
+  - analytics events/counters: `data/analytics/events.jsonl`, `data/analytics/counters.json`
 
 Capture/source operations:
 
@@ -183,11 +189,13 @@ The dashboard includes:
 
 - top-level tabs: `Jobs`, `Searches`
 - search input controls with a single `Find Jobs` action
+- keyword targeting controls (`AND`/`OR` mode + include/exclude terms)
 - automatically generated searches across supported sources
 - a de-duped ranked queue with selected-job detail and `Prev/Next` navigation in `Jobs`
 - job views: `All`, `New`, `Best Match`, `Applied`, `Skipped`, `Rejected`
 - source-kind job filters in `Jobs` (for example, LinkedIn/Built In/Ashby)
 - `Searches` tab grouped by source kind with funnel metrics: `Found`, `Filtered`, `Dupes`, `Imported`, `Avg Score`
+- run-delta context in search/source status (`new`, `updated`, `unchanged`) for latest refresh
 - `Found` shown as `imported/expected` when expected totals are detectable, otherwise `imported/?`
 - source refresh/capture status signals including cache/live state
 - per-source criteria-accountability metadata (URL-applied, UI-bootstrap, post-capture, unsupported)
@@ -212,15 +220,18 @@ Each job is evaluated into `high_signal`, `review_later`, or `reject` using weig
 Scoring notes:
 
 - keyword terms are split from comma/semicolon/`and`-style input
+- keyword mode defaults to `AND`; switching to `OR` treats any matched positive term as a keyword win
+- `includeTerms` are merged into positive keyword matching
+- `excludeTerms` are treated as hard filters before scoring (matched jobs are rejected)
 - AI-like tokens (`ai`, `ml`, `llm`, `genai`) map to broader AI phrase matching
 - title mismatch is strongly penalized (score cap path)
 - source hard filters still run before scoring when configured in `sources.json`
 
 Global search-construction criteria in `config/search-criteria.json`:
 
-- `title`, `keywords`, `location`, `minSalary`, `distanceMiles`, `datePosted`, `experienceLevel`
+- `title`, `keywords`, `keywordMode`, `includeTerms`, `excludeTerms`, `location`, `minSalary`, `distanceMiles`, `datePosted`, `experienceLevel`
 - these are used as the default canonical variables when constructing source URLs
-- the dashboard `Jobs` tab `Find Jobs` control provides a single editor for these fields (`Title`, `Keyword`, `Location`, `Salary`, `Posted on`)
+- the dashboard `Jobs` tab `Find Jobs` control provides a single editor for these fields (`Title`, `Keyword`, `Keyword Mode`, `Include`, `Exclude`, `Location`, `Salary`, `Posted on`)
 
 Per-source quality/caching knobs in `config/sources.json`:
 
@@ -240,7 +251,7 @@ Per-source quality/caching knobs in `config/sources.json`:
 Source contract governance:
 
 - Canonical source mapping registry: `config/source-contracts.json`
-- Drift-check command: `node src/cli.js check-source-contracts`
+- Drift-check command: `node src/cli.js check-source-contracts` (default `minCoverage` is `0.9`)
 - Governance and update workflow: `docs/analysis/source-contract-governance.md`
 
 Capture quality guardrails:
@@ -250,7 +261,16 @@ Capture quality guardrails:
 - Operator override is explicit: `sync --allow-quarantined` or `run --allow-quarantined`.
 - Quarantined/rejected runs persist diagnostic artifacts under `data/quality/quarantine/`.
 - Source health is tracked over rolling runs in `data/quality/source-health-history.json`.
+- Contract drift diagnostics are persisted under `data/quality/contract-drift/`.
 - Canary checks are configurable in `config/source-canaries.json` and run with `check-source-canaries`.
+
+Sync runtime telemetry:
+
+- Every `sync` run prints aggregate run deltas (`new`, `updated`, `unchanged`).
+- Per-source run deltas are persisted and surfaced in dashboard source status rows.
+- Sync applies retention cleanup by status (`new`, `viewed`, `skip_for_now`, `rejected`; `applied` is protected by default).
+- Retention cleanup writes audit rows to `data/retention/cleanup-audit.jsonl`.
+- CLI and dashboard paths emit local analytics events (`data/analytics/events.jsonl`) and counters (`data/analytics/counters.json`), with optional PostHog forwarding when `POSTHOG_API_KEY` is set.
 
 Refresh policy behavior:
 
@@ -281,12 +301,24 @@ Supported statuses: `new`, `viewed`, `applied`, `skip_for_now`, `rejected`.
 - rejecting a job requires a reason, which is stored as a note
 - sync pruning removes stale `new/viewed` records per source when they no longer appear in current capture results
 - newly captured jobs can inherit existing application status by `normalized_hash` (for example, previously rejected duplicates stay rejected)
+- status-aware retention cleanup runs during sync by default:
+  - `new`: 30 days
+  - `viewed`: 45 days
+  - `skip_for_now`: 21 days
+  - `rejected`: 14 days
+  - `applied`: never auto-deleted
+- override retention defaults with `config/retention-policy.json` (inspect effective policy via `jf retention-policy`)
 
 ## Live Capture Notes
 
 Browser-capture sources require a browser bridge service. `npm run run` and dashboard `Find Jobs` auto-start a local bridge when needed.
 
 `capture-source-live` now auto-starts a persistent local bridge process when one is not running, so sequential source captures can reuse one Chrome automation window/tab instead of opening a new window per source.
+
+Bridge safety boundary:
+
+- MCP v1 bridge surface is read-only (`/health`, `/capture-source`, `/capture-linkedin-source`).
+- Write-side browser actions are intentionally excluded from MCP v1 route registration.
 
 Manual bridge startup is still available:
 
@@ -338,3 +370,8 @@ Dashboard feature flags:
 
 - `JOB_FINDER_ENABLE_WELLFOUND=1`: enable Wellfound source visibility/creation in review UI
 - `JOB_FINDER_ENABLE_REMOTEOK=1`: enable RemoteOK source visibility/creation in review UI
+
+## Legal
+
+- Privacy policy: `PRIVACY.md`
+- Terms of use: `TERMS.md`

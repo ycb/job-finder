@@ -2,6 +2,19 @@
 
 As of 2026-03-08.
 
+## Execution Snapshot
+
+| Phase | Status | Done | In Progress | Planned |
+|---|---|---|---|---|
+| Phase 1 Wave 1 (Engineering) | ✓ Complete | 7/7 | — | — |
+| Phase 1.1 Closeout (Engineering) | In progress | — | 3 | 2 |
+| Launch Readiness (Product) | Planned | — | — | 4 |
+| Platform Abstraction (Epic H) | Icebox | — | — | 3 |
+
+**Phase 1.1 In Progress:** Full-JD page-level verification, Full-JD extraction gap closure, Search controls (hard filter / include-exclude / cache).
+**Phase 1.1 Planned:** Onboarding source auth readiness, Value metrics + caps + donation verification.
+**Launch Readiness Planned:** CLI design implementation, "Runs" label decision, Legal review (TERMS.md / PRIVACY.md), Monetization variable wiring into caps enforcement.
+
 
 
 ## Vision
@@ -102,6 +115,20 @@ The current backlog has strong item-level specs, but we need explicit epic-level
   - Add user-value metrics + caps + donation-based reset verification (`P1`, planned).
   - Define read-vs-write MCP/browser boundary (`P0`, completed; cross-epic dependency with Epic A).
 
+### Epic H — Platform Abstraction & Multi-Vertical (New)
+
+**Goal**: Abstract Job Finder's browser-mediated capture pipeline into a reusable multi-vertical platform so the same core powers HomeFinder, CarFinder, and beyond.
+
+- Core insight: local-first + browser-session-mediated = runs on user's machine, indistinguishable from user browsing, structurally unblockable by platforms. This is the moat.
+- Includes: clean adapter interface extraction from existing source adapters, multi-vertical npm package structure, permission/delegation config schema, and HomeFinder as proof-of-concept second vertical.
+- Success signals: two verticals run on shared core; MCP tools callable from Claude/Codex; adapter interface is clean enough for community contribution.
+- References: `docs/monetization.md`, `docs/cli-design.md`, `TERMS.md`, `PRIVACY.md`.
+- Primary linked items:
+  - Extract clean adapter interface from existing source adapters (`P1`, planned).
+  - Build HomeFinder adapter (Zillow + Redfin) as second vertical (`P2`, planned).
+  - Expand Codex MCP server to multi-vertical tool surface (`P2`, depends on MCP P1 item).
+  - Adopt licensing split: MIT core + BSL MCP/permissions layer (`P1`, icebox → promote when adapter interface is clean).
+
 
 
 ## MVP Scope (In Execution)
@@ -159,6 +186,27 @@ The current backlog has strong item-level specs, but we need explicit epic-level
   - STATUS: Planned
   - WHY: We need visible user value and enforceable usage controls to support a donation-backed early monetization model.
   - IMPACT: Clear value communication, configurable free-tier enforcement, and validated donation unlock flow.
+  - NOTE: Specific variable values and tier definitions are in `docs/monetization.md`. Implementation must wire to those values: `FREE_RUNS_PER_MONTH=10`, `FREE_JOBS_IN_DB=500`, `DONATION_MINIMUM_USD=5`, `DONATION_UNLOCK_PERIOD_DAYS=30`, `SUPPORTER_RUNS_PER_MONTH=40`, `SUBSCRIPTION_MONTHLY_USD=9`. All values must be runtime-configurable without code changes.
+
+**Theme: Launch Readiness**
+- `P1` Implement CLI design system per `docs/cli-design.md`.
+  - STATUS: Planned
+  - WHY: Current CLI output is functional but plain. Public launch requires a first-run experience that builds trust and communicates the agent-powered value proposition.
+  - IMPACT: Higher activation rate; product feels intentional rather than scripted.
+  - SCOPE: Welcome screen, step-list pipeline runner with per-source status, Y/N prompt system, completion summary, OSC 8 clickable links. Implement using Ink (React for CLIs) + `@inkjs/ui`. Gate all animation/color behind `is-interactive()`. Persistent agent icon (stretch goal).
+  - DEPENDS ON: "Runs" terminology decision (see below).
+
+- `P1` Decide user-facing label for "runs" before public launch.
+  - STATUS: Planned
+  - WHY: "Run" is an internal technical term. The free-tier cap and all UI copy must use a consistent, user-friendly term. Candidates: "refreshes", "syncs", "searches". Decision affects CLI copy, dashboard, ToS, and monetization messaging.
+  - IMPACT: Prevents terminology debt that becomes expensive to fix post-launch.
+  - SCOPE: Decision only — no implementation. Update `docs/monetization.md`, `docs/cli-design.md`, and TERMS.md once decided.
+
+- `P1` Legal review and launch readiness for TERMS.md and PRIVACY.md.
+  - STATUS: Planned
+  - WHY: ToS and Privacy Policy drafts are complete (`TERMS.md`, `PRIVACY.md`) but require review by a California-licensed attorney before public distribution, especially the limitation of liability cap ($0 aggregate) and the third-party ToS risk section.
+  - IMPACT: Reduces legal exposure at launch. Required before npm publish or public HN post.
+  - SCOPE: External legal review only. No implementation work. Flag any required changes back to backlog as follow-on items.
 
 ## Icebox (Out of MVP Scope For Now)
 
@@ -209,6 +257,19 @@ The current backlog has strong item-level specs, but we need explicit epic-level
   - STATUS: Icebox
   - WHY: Licensing boundary is currently undefined for the most defensible server-side layer.
   - IMPACT: Better open-core trust plus clearer protection against unmanaged hosted competitive reuse.
+
+**Theme: Platform Abstraction**
+- `P1` Extract clean adapter interface from existing source adapters (Epic H prerequisite).
+  - STATUS: Icebox
+  - WHY: Current adapter logic is tightly coupled to JobFinder's pipeline. A clean interface contract is required before HomeFinder or community adapters can be built.
+  - IMPACT: Unlocks multi-vertical platform play and community-contributed source adapters.
+  - SCOPE: Define and document the adapter contract (what a source adapter must implement); refactor existing adapters to conform; publish interface as part of core npm package.
+
+- `P2` Build HomeFinder adapter (Zillow + Redfin) as proof-of-concept second vertical.
+  - STATUS: Icebox
+  - WHY: Two verticals running on the same core proves the abstraction and makes the platform story fundable. Real estate has identical multi-source deduplication problem to jobs.
+  - IMPACT: Platform narrative validated with evidence; co-founder pitch and investor story strengthened.
+  - DEPENDS ON: Clean adapter interface extraction (above).
 
 ### P2
 

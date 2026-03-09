@@ -17,11 +17,14 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `PROCESS.md` | Contributors | Process conventions and standards | Team process changes |
 | `PLANS.md` | Contributors | Planning and execution meta guidance | Planning framework changes |
 | `CHANGELOG.md` | Users, contributors | Durable chronological release/change history | Any release-significant change |
+| `PRIVACY.md` | Users, contributors | Product privacy posture, data handling, and telemetry boundaries | Privacy policy or telemetry scope changes |
+| `TERMS.md` | Users, contributors | Usage terms and legal operating constraints | Terms/licensing/commercial policy changes |
 | `docs/documentation-protocol.md` | Contributors | Repeatable documentation governance protocol | Process changes to doc governance |
 | `docs/docs-registry.md` | Contributors | Canonical inventory of docs and update triggers | Added/removed/repurposed docs |
 | `docs/backlog.md` | Contributors | Prioritized work backlog and status | Backlog reprioritization |
 | `docs/how-to.md` | Contributors/users | Operational/how-to playbook | Workflow execution changes |
 | `docs/cli-design.md` | Contributors | CLI interaction and UX design principles for command/output behavior | CLI UX direction updates |
+| `docs/monetization.md` | Contributors, stakeholders | Monetization model, pricing strategy, and donation/cap policy experiments | Pricing/policy/plan changes |
 | `docs/learnings.md` | Contributors | Captured lessons and retrospectives | Postmortems and notable insights |
 | `posthog-setup-report.md` | Contributors/operators | Verification report for PostHog SDK/instrumentation baseline in repo | Telemetry setup changes or re-audit events |
 | `docs/analytics/event-schema.md` | Contributors/operators | Canonical analytics event schema and PostHog event mapping across channels | Event taxonomy, channel, identity, or telemetry transport changes |
@@ -34,8 +37,10 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/plans/2026-03-06-caching-policy-execplan.md` | Contributors | Caching policy implementation plan | Caching strategy changes |
 | `docs/plans/2026-03-06-linkedin-capture-depth-and-source-verification-execplan.md` | Contributors | LinkedIn capture depth/source verification plan | Capture-depth strategy changes |
 | `docs/plans/2026-03-06-data-quality-epic-execplan.md` | Contributors | Data-quality epic execution plan | Data-quality strategy changes |
+| `docs/plans/2026-03-07-adapter-drift-detection-and-ux-signaling-execplan.md` | Contributors/operators | Adapter drift detection and UX signaling execution plan | Drift detection/UX signaling strategy changes |
 | `docs/plans/2026-03-07-adapter-reliability-guardrails-execplan.md` | Contributors/operators | Guardrails/canaries/source-health execution plan | Adapter reliability strategy changes |
 | `docs/plans/2026-03-08-phase-1-multi-agent-orchestration-execplan.md` | Contributors/operators | Phase 1 multi-agent orchestration execution plan | Multi-agent execution process updates |
+| `docs/plans/2026-03-09-lane-b-w2-04-net-new-refresh-deltas-execplan.md` | Contributors/operators | Lane B execution plan for run-delta persistence and dashboard surfacing | Run-delta persistence/surfacing changes |
 | `docs/plans/2026-03-09-phase-1-1-closeout-execution-plan.md` | Contributors/operators | Phase 1.1 closeout implementation sequencing plan for remaining MVP items | Phase 1.1 scope or sequencing changes |
 | `docs/backlog-specs/completed-core-url-construction-rollout.md` | Contributors | Completed URL construction rollout record | Backfilled completion notes |
 | `docs/backlog-specs/p0-source-capture-verification-framework.md` | Contributors | P0 source capture verification specification | Verification framework changes |
@@ -74,10 +79,12 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/releases/2026-03-06-refresh-policy-and-state.md` | Users, contributors | Dated release note for refresh policy/state foundation | Superseded by follow-up release notes or corrections |
 | `docs/releases/2026-03-06-search-criteria-dashboard-and-ingestion.md` | Users, contributors | Dated release note for criteria-first scoring, dashboard flow, and ingestion hygiene updates | Superseded by follow-up release notes or corrections |
 | `docs/releases/2026-03-08-source-quality-guardrails-and-contract-governance.md` | Users, contributors | Dated release note for source quality guardrails, canaries, and contract governance | Superseded by follow-up release notes or corrections |
+| `docs/releases/2026-03-09-phase-1-1-search-controls-run-deltas-and-trust-gates.md` | Users, contributors | Dated release note for search-controls completion, run deltas, trust gates, retention, and telemetry baseline | Superseded by follow-up release notes or corrections |
 | `docs/announcements/ANNOUNCEMENT_TEMPLATE.md` | Contributors/marketing | Standard LinkedIn/Substack post pack structure | Announcement format updates |
 | `docs/announcements/2026-03-06-refresh-policy-and-state.md` | Marketing, founder narrative | Channel-ready launch narrative draft for 2026-03-06 release | Messaging refresh for this release |
 | `docs/announcements/2026-03-06-search-criteria-dashboard-and-ingestion.md` | Marketing, founder narrative | Channel-ready launch narrative draft for the criteria/dashboard/ingestion release | Messaging refresh for this release |
 | `docs/announcements/2026-03-08-source-quality-guardrails-and-contract-governance.md` | Marketing, founder narrative | Channel-ready narrative for source quality guardrails and contract governance release | Messaging refresh for this release |
+| `docs/announcements/2026-03-09-phase-1-1-search-controls-run-deltas-and-trust-gates.md` | Marketing, founder narrative | Channel-ready narrative for Phase 1.1 search controls, run deltas, and trust-gate release | Messaging refresh for this release |
 | `docs/roadmap/decision-log.md` | Stakeholders, contributors | Decision log with autonomous vs approval-required buckets | Any roadmap decision or approval event |
 | `docs/roadmap/kickoff/2026-03-08-mvp-phase-1-kickoff.md` | Stakeholders, contributors | Dated kickoff charter for MVP Phase 1 scope, sequencing, and accountability | Phase kickoffs or kickoff revision approvals |
 | `docs/roadmap/kickoff/2026-03-09-mvp-phase-1-1-closeout.md` | Stakeholders, contributors | Dated closeout scope charter for remaining Phase 1 MVP follow-on work | Phase closeout scope changes |
@@ -91,8 +98,11 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/roadmap/progress-merge/2026-03-08-c264403.md` | Stakeholders, contributors | Merge-to-main execution report for analytics schema/mapping completion milestone | Each merge to main for roadmap-tracked work |
 | `docs/roadmap/progress-merge/2026-03-08-34ad002.md` | Stakeholders, contributors | Merge-to-main execution report for retention-policy completion milestone | Each merge to main for roadmap-tracked work |
 | `docs/roadmap/progress-daily/README.md` | Stakeholders, contributors | Daily roadmap update artifact conventions | Daily progress process changes |
+| `docs/roadmap/progress-daily/2026-03-08.md` | Stakeholders, contributors | Daily kickoff update for Phase 1 orchestration setup | Daily roadmap update cycle |
 | `docs/roadmap/progress-daily/2026-03-09.md` | Stakeholders, contributors | Daily update covering Phase 1.1 closeout scope and verification-gate changes | Daily roadmap update cycle |
 | `docs/roadmap/progress-merge/README.md` | Stakeholders, contributors | Merge-to-main roadmap update artifact conventions | Merge update process changes |
+| `docs/roadmap/progress-merge/2026-03-09-lane-a-w2-03-playwright-smoke.md` | Stakeholders, contributors | Lane A smoke-check evidence for search-controls completion | Merge verification evidence refresh |
+| `docs/roadmap/progress-merge/2026-03-09-lane-b-w2-04.md` | Stakeholders, contributors | Lane B merge report for run-delta persistence and surfacing | Merge verification evidence refresh |
 | `docs/roadmap/retros/README.md` | Contributors | Virtual-retro artifact conventions | Retro process changes |
 | `docs/roadmap/retros/2026-03-08.md` | Stakeholders, contributors | Daily retro for kickoff + multi-agent orchestration setup | Daily retro cadence and process-learning updates |
 | `docs/roadmap/retros/2026-03-08-1b18d56.md` | Stakeholders, contributors | Merge-level retro for safety-boundary execution slice | Merge-triggered retrospective cadence |
@@ -104,3 +114,4 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/roadmap/retros/2026-03-08-34ad002.md` | Stakeholders, contributors | Merge-level retro for retention-policy completion slice | Merge-triggered retrospective cadence |
 | `docs/roadmap/task-packets/2026-03-08-phase1-wave1.md` | Contributors/operators | Copy/paste dispatch packets for Phase 1 Wave 1 tasks | Queue/scope/dependency changes for Wave 1 execution |
 | `docs/assets/dashboard-preview.svg` | Users, evaluators | Dashboard visual preview asset | Dashboard visual refresh |
+| `docs/roadmap/progress-merge/2026-03-09-lane-b-w2-04-playwright-smoke.png` | Stakeholders, contributors | Playwright screenshot evidence for lane B dashboard run-delta UX | Merge verification asset refresh |

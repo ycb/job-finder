@@ -6,6 +6,34 @@ All notable changes to this project should be documented in this file.
 
 ### Added
 
+- Search-controls expansion in canonical criteria and dashboard/API:
+  - `keywordMode` (`and`/`or`) support
+  - `includeTerms` / `excludeTerms` support
+  - include/exclude semantics propagated through URL construction and scoring
+- Source run-delta persistence and surfacing:
+  - new `source_run_deltas` table (`new`, `updated`, `unchanged`, `imported`)
+  - latest run delta counters surfaced in dashboard source/search status
+  - aggregate run-delta summary in CLI `sync` output
+- Status-aware retention policy and cleanup audit:
+  - policy loader with defaults/overrides (`config/retention-policy.json`)
+  - cleanup execution during sync flows with audit log at `data/retention/cleanup-audit.jsonl`
+  - CLI inspect command: `jf retention-policy`
+- Analytics instrumentation baseline:
+  - canonical event registry and schema mapping (`src/analytics/events.js`)
+  - local analytics persistence (`data/analytics/events.jsonl`, `data/analytics/counters.json`)
+  - optional PostHog forwarding when `POSTHOG_API_KEY` is set
+- Bridge primitive catalog and safety boundary enforcement:
+  - explicit read/write primitive classes
+  - MCP v1 surface validation that blocks write primitives
+- Source contract diagnostics artifact writer:
+  - contract drift diagnostics persisted under `data/quality/contract-drift/latest.json`
+- Full-JD evaluation evidence fields persisted in scoring output:
+  - `evaluation_meta.contentPathUsed`
+  - `evaluation_meta.detailFetchStatus`
+  - `evaluation_meta.contentPathRationale`
+- Legal/policy docs:
+  - `PRIVACY.md`
+  - `TERMS.md`
 - Source quality governance baseline:
   - source contract registry in `config/source-contracts.json`
   - contract drift and rolling coverage checks via `check-source-contracts`
@@ -41,6 +69,12 @@ All notable changes to this project should be documented in this file.
 
 ### Changed
 
+- `check-source-contracts` now supports richer per-contract quality thresholds (required-field and detail-description coverage gates) and defaults to `minCoverage=0.9`.
+- Dashboard search criteria controls now expose `AND`/`OR` keyword mode and include/exclude term fields.
+- Scoring now applies exclude terms as hard filters and respects explicit keyword mode (`AND` default, `OR` opt-in).
+- `sync` and dashboard sync-score flows now execute retention cleanup and include retention summary in outputs/events.
+- Source status copy in dashboard now includes run-delta context alongside refresh/capture state.
+- Source contract diagnostics now run during sync and emit diagnostics-path messages for operators.
 - `sync`/`run` now gate ingest on capture-quality outcomes; quarantined/rejected runs no longer silently flow into scoring.
 - `sync` and `run` support explicit quarantine override via `--allow-quarantined`.
 - `check-source-contracts` now includes source health status/score context and uses non-zero exit codes on warning/error states.
