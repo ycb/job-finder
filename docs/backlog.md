@@ -43,7 +43,7 @@ The current backlog has strong item-level specs, but we need explicit epic-level
   - Source capture verification framework (`P0`, completed).
   - Run page-level full-JD verification (`P0`, blocked on Built In salary extraction dependency).
   - Close full-JD extraction gaps per source (`P0`, in progress).
-  - Add definitive source shape contract library (`P0`, in progress).
+  - Add definitive source shape contract library (`P0`, completed).
 
 ### Epic C — Criteria Fidelity & Ranking Quality
 
@@ -124,7 +124,7 @@ The current backlog has strong item-level specs, but we need explicit epic-level
   - WHY: Once MCP can execute capture, accidental drift into write/apply automation becomes a high-risk failure mode.
   - IMPACT: Explicit safety boundary for contributors and safer MCP rollout.
 - `P0` Add definitive source shape contract library for search-parameter and extraction expectations (required + optional metadata). [Detailed spec](./backlog-specs/p0-architecture-source-shape-contracts-library.md)
-  - STATUS: In progress (schema, validation, sourceId override resolution, and threshold-aware drift gating merged in `444d199`; ingest-path diagnostics persistence hardening still pending)
+  - STATUS: Completed (`444d199`, `2dd4c6f`; schema/validation, sourceId resolution, field-level drift diagnostics, and sync-path diagnostics persistence are live)
   - WHY: Search construction and extraction expectations are not yet captured in one authoritative contract layer.
   - IMPACT: Stronger source adapter quality, simpler onboarding automation, and clearer contract governance.
 

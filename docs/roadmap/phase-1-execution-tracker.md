@@ -14,8 +14,8 @@ Dispatch board: `docs/roadmap/phase-1-dispatch-board.md`
 
 ## Active Dispatch State
 
-- current_task: `W1-04`
-- lane: `Source Contracts`
+- current_task: `W1-05`
+- lane: `Criteria Fidelity`
 - implementer_status: `ready to dispatch`
 - spec_review_status: `pending`
 - code_quality_status: `pending`

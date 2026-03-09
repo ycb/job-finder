@@ -26,6 +26,8 @@ Baseline verification command run in lane workspace:
   - `npm test` => `162` pass, `0` fail on commit `1b18d56`.
 - Latest verification after source-contracts merge:
   - `npm test` => `164` pass, `0` fail on commit `444d199`.
+- Latest verification after contract-diagnostics merge:
+  - `npm test` => `167` pass, `0` fail on commit `2dd4c6f`.
 
 ## Wave 1 Queue (Prioritized)
 
@@ -34,8 +36,8 @@ Baseline verification command run in lane workspace:
 | W1-01 | P0 | Define read vs write primitive taxonomy in browser bridge + MCP surface restrictions | Safety Boundary | Completed (`1b18d56`) | None |
 | W1-02 | P0 | Add hard enforcement that write primitives are not exposed in MCP v1 tool list | Safety Boundary | Completed (`1b18d56`) | W1-01 [hard] |
 | W1-03 | P0 | Introduce source shape contract schema (`required`/`optional`, search parameter expectations) | Source Contracts | Completed (`444d199`) | None |
-| W1-04 | P0 | Add contract loader/validator and drift diagnostics path for contract violations | Source Contracts | In progress (active dispatch) | W1-03 [hard] |
-| W1-05 | P1 | Complete dashboard surfacing for persisted formatter diagnostics | Criteria Fidelity | Ready | None |
+| W1-04 | P0 | Add contract loader/validator and drift diagnostics path for contract violations | Source Contracts | Completed (`2dd4c6f`) | W1-03 [hard] |
+| W1-05 | P1 | Complete dashboard surfacing for persisted formatter diagnostics | Criteria Fidelity | In progress (active dispatch) | None |
 | W1-06 | P1 | Finalize multi-keyword flow through URL/search criteria (comma and boolean mode prep) | Criteria Fidelity | Ready | Search controls model [soft] |
 | W1-07 | P1 | Define canonical event schema + channel tags + PostHog mapping for all surfaces | Operations Metrics | In progress (SDK installed) | None |
 | W1-08 | P1 | Implement status-aware retention defaults and policy persistence wiring | Operations Metrics | Ready | W1-07 [soft] |

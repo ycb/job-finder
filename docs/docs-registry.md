@@ -82,11 +82,13 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/roadmap/phase-1-execution-tracker.md` | Stakeholders, contributors | Live Phase 1 status/dependency tracker for MVP execution | Any status/dependency/milestone change in Phase 1 |
 | `docs/roadmap/progress-merge/2026-03-08-1b18d56.md` | Stakeholders, contributors | Merge-to-main execution report for safety-boundary milestone | Each merge to main for roadmap-tracked work |
 | `docs/roadmap/progress-merge/2026-03-08-444d199.md` | Stakeholders, contributors | Merge-to-main execution report for source-contracts schema milestone | Each merge to main for roadmap-tracked work |
+| `docs/roadmap/progress-merge/2026-03-08-2dd4c6f.md` | Stakeholders, contributors | Merge-to-main execution report for source-contract diagnostics milestone | Each merge to main for roadmap-tracked work |
 | `docs/roadmap/progress-daily/README.md` | Stakeholders, contributors | Daily roadmap update artifact conventions | Daily progress process changes |
 | `docs/roadmap/progress-merge/README.md` | Stakeholders, contributors | Merge-to-main roadmap update artifact conventions | Merge update process changes |
 | `docs/roadmap/retros/README.md` | Contributors | Virtual-retro artifact conventions | Retro process changes |
 | `docs/roadmap/retros/2026-03-08.md` | Stakeholders, contributors | Daily retro for kickoff + multi-agent orchestration setup | Daily retro cadence and process-learning updates |
 | `docs/roadmap/retros/2026-03-08-1b18d56.md` | Stakeholders, contributors | Merge-level retro for safety-boundary execution slice | Merge-triggered retrospective cadence |
 | `docs/roadmap/retros/2026-03-08-444d199.md` | Stakeholders, contributors | Merge-level retro for source-contracts schema execution slice | Merge-triggered retrospective cadence |
+| `docs/roadmap/retros/2026-03-08-2dd4c6f.md` | Stakeholders, contributors | Merge-level retro for source-contract diagnostics execution slice | Merge-triggered retrospective cadence |
 | `docs/roadmap/task-packets/2026-03-08-phase1-wave1.md` | Contributors/operators | Copy/paste dispatch packets for Phase 1 Wave 1 tasks | Queue/scope/dependency changes for Wave 1 execution |
 | `docs/assets/dashboard-preview.svg` | Users, evaluators | Dashboard visual preview asset | Dashboard visual refresh |
