@@ -21,7 +21,9 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/docs-registry.md` | Contributors | Canonical inventory of docs and update triggers | Added/removed/repurposed docs |
 | `docs/backlog.md` | Contributors | Prioritized work backlog and status | Backlog reprioritization |
 | `docs/how-to.md` | Contributors/users | Operational/how-to playbook | Workflow execution changes |
+| `docs/cli-design.md` | Contributors | CLI interaction and UX design principles for command/output behavior | CLI UX direction updates |
 | `docs/learnings.md` | Contributors | Captured lessons and retrospectives | Postmortems and notable insights |
+| `posthog-setup-report.md` | Contributors/operators | Verification report for PostHog SDK/instrumentation baseline in repo | Telemetry setup changes or re-audit events |
 | `docs/analysis/backlog-review.md` | Contributors | Analysis of backlog state and gaps | Backlog review refresh |
 | `docs/analysis/product-analysis.md` | Contributors | Product-level analysis and recommendations | Product analysis refresh |
 | `docs/analysis/2026-03-06-source-field-coverage-analysis.md` | Contributors | Baseline field-coverage analysis across sources | Coverage measurement refresh |
@@ -32,22 +34,32 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/plans/2026-03-06-linkedin-capture-depth-and-source-verification-execplan.md` | Contributors | LinkedIn capture depth/source verification plan | Capture-depth strategy changes |
 | `docs/plans/2026-03-06-data-quality-epic-execplan.md` | Contributors | Data-quality epic execution plan | Data-quality strategy changes |
 | `docs/plans/2026-03-07-adapter-reliability-guardrails-execplan.md` | Contributors/operators | Guardrails/canaries/source-health execution plan | Adapter reliability strategy changes |
+| `docs/plans/2026-03-08-phase-1-multi-agent-orchestration-execplan.md` | Contributors/operators | Phase 1 multi-agent orchestration execution plan | Multi-agent execution process updates |
 | `docs/backlog-specs/completed-core-url-construction-rollout.md` | Contributors | Completed URL construction rollout record | Backfilled completion notes |
 | `docs/backlog-specs/p0-source-capture-verification-framework.md` | Contributors | P0 source capture verification specification | Verification framework changes |
 | `docs/backlog-specs/p0-source-full-jd-gap-closure.md` | Contributors | P0 source full-JD gap closure specification | Source extraction quality roadmap changes |
+| `docs/backlog-specs/p0-integrations-read-write-boundary.md` | Contributors/operators | P0 read-vs-write MCP/browser boundary specification | MCP/browser safety boundary changes |
+| `docs/backlog-specs/p0-architecture-source-shape-contracts-library.md` | Contributors | P0 source shape contracts library specification | Source contract architecture changes |
 | `docs/backlog-specs/p1-core-formatter-diagnostics.md` | Contributors | Formatter diagnostics specification | Diagnostics feature changes |
 | `docs/backlog-specs/p1-core-full-jd-pass.md` | Contributors | Full JD verification pass specification | JD verification scope changes |
 | `docs/backlog-specs/p1-core-multi-keyword-comma.md` | Contributors | Multi-keyword parsing specification | Keyword parsing changes |
+| `docs/backlog-specs/p1-core-multi-search-ranking-blend.md` | Contributors | Multi-search ranking blend specification | Cross-search scoring/ranking changes |
 | `docs/backlog-specs/p1-core-net-new-refresh.md` | Contributors | Net-new + refresh incremental run behavior specification | Refresh UX/data lifecycle changes |
 | `docs/backlog-specs/p1-core-search-hardfilter-keywords-include-exclude-cache.md` | Contributors | Search controls and hard-filter enhancement specification | Search UX/filter model changes |
 | `docs/backlog-specs/p1-core-worktype-field.md` | Contributors | Work type field specification | Work type model changes |
 | `docs/backlog-specs/p1-distribution-homebrew.md` | Contributors | Homebrew distribution specification | Packaging/distribution changes |
 | `docs/backlog-specs/p1-distribution-npm-publish.md` | Contributors | NPM publish specification | Packaging/distribution changes |
+| `docs/backlog-specs/p1-governance-licensing-split.md` | Contributors, operators | Licensing split specification for core vs MCP layer | Licensing/governance policy changes |
 | `docs/backlog-specs/p1-integrations-claude-skill.md` | Contributors | Claude skill integration specification | Skill integration changes |
 | `docs/backlog-specs/p1-integrations-codex-mcp.md` | Contributors | Codex MCP integration specification | MCP integration changes |
 | `docs/backlog-specs/p1-integrations-narrata.md` | Contributors | Narrata integration specification | Narrata integration changes |
+| `docs/backlog-specs/p1-onboarding-add-source-skill.md` | Contributors | Add-source skill workflow specification | Source onboarding workflow changes |
 | `docs/backlog-specs/p1-onboarding-jf-init.md` | Contributors | `jf init` onboarding specification | Onboarding/init behavior changes |
 | `docs/backlog-specs/p1-onboarding-source-auth.md` | Contributors | Source auth onboarding specification | Source auth workflow changes |
+| `docs/backlog-specs/p1-architecture-source-type-pattern-library.md` | Contributors | Source-type pattern library specification | Source abstraction architecture changes |
+| `docs/backlog-specs/p1-operations-tooling-ownership-metering.md` | Contributors/operators | Internal-vs-external tooling ownership and metering specification | Operational tooling and telemetry model changes |
+| `docs/backlog-specs/p1-operations-value-metrics-caps-donations.md` | Contributors/operators | User-value metrics, usage caps, and donation reset verification specification | Monetization/usage-control model changes |
+| `docs/backlog-specs/p1-operations-local-storage-retention.md` | Contributors/operators | Local storage management and automatic deletion specification | Storage retention and cleanup workflow changes |
 | `docs/backlog-specs/p1-source-expansion-greenhouse.md` | Contributors | Greenhouse source expansion specification | Greenhouse roadmap changes |
 | `docs/backlog-specs/p1-ux-multi-search-tabs.md` | Contributors | Multi-search tabs UX specification | Multi-context search UX changes |
 | `docs/backlog-specs/p2-brand-styles.md` | Contributors | Brand style roadmap specification | Brand roadmap changes |
@@ -64,4 +76,17 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/announcements/2026-03-06-refresh-policy-and-state.md` | Marketing, founder narrative | Channel-ready launch narrative draft for 2026-03-06 release | Messaging refresh for this release |
 | `docs/announcements/2026-03-06-search-criteria-dashboard-and-ingestion.md` | Marketing, founder narrative | Channel-ready launch narrative draft for the criteria/dashboard/ingestion release | Messaging refresh for this release |
 | `docs/announcements/2026-03-08-source-quality-guardrails-and-contract-governance.md` | Marketing, founder narrative | Channel-ready narrative for source quality guardrails and contract governance release | Messaging refresh for this release |
+| `docs/roadmap/decision-log.md` | Stakeholders, contributors | Decision log with autonomous vs approval-required buckets | Any roadmap decision or approval event |
+| `docs/roadmap/kickoff/2026-03-08-mvp-phase-1-kickoff.md` | Stakeholders, contributors | Dated kickoff charter for MVP Phase 1 scope, sequencing, and accountability | Phase kickoffs or kickoff revision approvals |
+| `docs/roadmap/phase-1-dispatch-board.md` | Stakeholders, contributors | Active dispatch control board for lane/worktree/task gate tracking | Any active queue, lane, or gate-state change |
+| `docs/roadmap/phase-1-execution-tracker.md` | Stakeholders, contributors | Live Phase 1 status/dependency tracker for MVP execution | Any status/dependency/milestone change in Phase 1 |
+| `docs/roadmap/progress-merge/2026-03-08-1b18d56.md` | Stakeholders, contributors | Merge-to-main execution report for safety-boundary milestone | Each merge to main for roadmap-tracked work |
+| `docs/roadmap/progress-merge/2026-03-08-444d199.md` | Stakeholders, contributors | Merge-to-main execution report for source-contracts schema milestone | Each merge to main for roadmap-tracked work |
+| `docs/roadmap/progress-daily/README.md` | Stakeholders, contributors | Daily roadmap update artifact conventions | Daily progress process changes |
+| `docs/roadmap/progress-merge/README.md` | Stakeholders, contributors | Merge-to-main roadmap update artifact conventions | Merge update process changes |
+| `docs/roadmap/retros/README.md` | Contributors | Virtual-retro artifact conventions | Retro process changes |
+| `docs/roadmap/retros/2026-03-08.md` | Stakeholders, contributors | Daily retro for kickoff + multi-agent orchestration setup | Daily retro cadence and process-learning updates |
+| `docs/roadmap/retros/2026-03-08-1b18d56.md` | Stakeholders, contributors | Merge-level retro for safety-boundary execution slice | Merge-triggered retrospective cadence |
+| `docs/roadmap/retros/2026-03-08-444d199.md` | Stakeholders, contributors | Merge-level retro for source-contracts schema execution slice | Merge-triggered retrospective cadence |
+| `docs/roadmap/task-packets/2026-03-08-phase1-wave1.md` | Contributors/operators | Copy/paste dispatch packets for Phase 1 Wave 1 tasks | Queue/scope/dependency changes for Wave 1 execution |
 | `docs/assets/dashboard-preview.svg` | Users, evaluators | Dashboard visual preview asset | Dashboard visual refresh |

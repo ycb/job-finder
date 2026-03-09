@@ -1,0 +1,28 @@
+# Roadmap Decision Log
+
+As of 2026-03-08.
+
+## Purpose
+
+Track roadmap decisions with explicit governance boundaries so stakeholder and agent responsibilities remain clear.
+
+## Autonomous Decisions
+
+| Date | Decision | Rationale/Evidence | Affected Artifacts | Status |
+| --- | --- | --- | --- | --- |
+| 2026-03-08 | Created `roadmapping` and `virtual-retro` skills plus roadmap artifact scaffolding (`decision-log`, daily/merge/retro folders). | Needed recurring process infrastructure for merge/daily updates and learning loop execution. | `.codex/skills/roadmapping/*`, `.codex/skills/virtual-retro/*`, `docs/roadmap/*` | applied |
+| 2026-03-08 | Started Phase 1 execution tracking with a dated kickoff doc and live tracker artifact. | Stakeholder requested immediate kickoff and execution visibility; change is artifact/process-only and within autonomous bucket. | `docs/roadmap/kickoff/2026-03-08-mvp-phase-1-kickoff.md`, `docs/roadmap/phase-1-execution-tracker.md`, `docs/roadmap/progress-daily/2026-03-08.md` | applied |
+| 2026-03-08 | Organized Phase 1 for subagent-driven execution with lane-isolated worktrees, dispatch board, Wave 1 task packets, and retro loop wiring. | Stakeholder requested immediate multi-agent execution setup using worktrees, verification gates, and retro process. | `docs/roadmap/phase-1-dispatch-board.md`, `docs/roadmap/task-packets/2026-03-08-phase1-wave1.md`, `docs/roadmap/phase-1-execution-tracker.md`, `docs/roadmap/retros/2026-03-08.md` | applied |
+| 2026-03-08 | Marked PostHog install as non-blocking and shifted metering work to schema/channel contract completion. | Stakeholder confirmed PostHog setup is installed; execution should no longer treat SDK installation as a dependency blocker. | `docs/backlog.md`, `docs/roadmap/phase-1-dispatch-board.md`, `docs/roadmap/phase-1-execution-tracker.md`, `docs/roadmap/task-packets/2026-03-08-phase1-wave1.md` | applied |
+| 2026-03-08 | Completed Safety Boundary Wave 1 tasks (`W1-01`, `W1-02`) and advanced active dispatch to `W1-03`. | Implemented primitive classification + mcp_v1 read-only registration enforcement with tests; merged to `main` in `1b18d56` and verified via `npm test` (`162` pass, `0` fail). | `src/browser-bridge/primitives.js`, `src/browser-bridge/server.js`, `test/browser-bridge-primitives.test.js`, `CLAUDE.md`, `docs/roadmap/phase-1-dispatch-board.md`, `docs/roadmap/phase-1-execution-tracker.md` | applied |
+| 2026-03-08 | Completed Source Contracts schema task (`W1-03`) and advanced active dispatch to `W1-04`. | Added contract schema normalization/validation (search parameter shape + extraction metadata), sourceId-specific contract resolution, and threshold-aware drift gating; merged to `main` in `444d199` and verified via `npm test` (`164` pass, `0` fail). | `src/sources/source-contracts.js`, `test/source-contracts.test.js`, `test/source-contract-drift-check.test.js`, `docs/roadmap/phase-1-dispatch-board.md`, `docs/roadmap/phase-1-execution-tracker.md`, `docs/backlog.md` | applied |
+
+## Approval-Required Decisions
+
+| Date | Proposed Change | Rationale/Evidence | Stakeholder Decision | Status |
+| --- | --- | --- | --- | --- |
+| 2026-03-08 | Priority and scope governance rule: priority changes require stakeholder approval; agent drives execution within approved MVP scope. | Stakeholder directive to keep MVP tight while maintaining rapid execution cadence and regular progress updates. | `docs/roadmap/decision-log.md`, `.codex/skills/roadmapping/references/authority-policy.md` | approved |
+| 2026-03-08 | Reorganized backlog into explicit `MVP Scope` and `Icebox`; added P1 value metrics + caps + donation verification item into MVP. | Needed explicit market-first sequencing and monetization/value visibility alignment. | `docs/backlog.md`, `docs/backlog-specs/p1-operations-value-metrics-caps-donations.md` | approved |
+| 2026-03-08 | Donations path uses GitHub Sponsors with identity-linked verification (signed webhook + linked GitHub account) and experiment-driven thresholds. | Stakeholder set Sponsors as donation rail; requires reliable user-level entitlement reset and measurable threshold experiments. | `docs/backlog-specs/p1-operations-value-metrics-caps-donations.md`, `docs/monetization.md` | approved |
+| 2026-03-08 | Local storage retention defaults to `auto-delete ON` with status-aware TTLs; `applied` jobs are never auto-deleted. | Stakeholder policy decision to prevent stale listing bloat while preserving application history. | `docs/backlog-specs/p1-operations-local-storage-retention.md`, `docs/monetization.md` | approved |
+| 2026-03-08 | Product telemetry stack standardizes on PostHog as canonical analytics across terminal/dashboard/Codex/Claude channels. | Need one source of truth spanning CLI + agent + UI usage; replay tools remain optional and non-canonical. | `docs/backlog-specs/p1-operations-tooling-ownership-metering.md` | approved |
