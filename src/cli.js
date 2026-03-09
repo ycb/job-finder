@@ -64,7 +64,7 @@ import {
   loadSourceCanaries,
   writeSourceCanaryDiagnostics
 } from "./sources/source-canaries.js";
-import { evaluateSourceContractDrift } from "./sources/source-contracts.js";
+import { runSourceContractDiagnostics } from "./sources/source-contracts.js";
 import {
   collectJobsFromSource,
   importLinkedInSnapshot
@@ -311,6 +311,28 @@ function runSync(options = {}) {
   }
 
   db.close();
+
+  try {
+    const contractDiagnostics = runSourceContractDiagnostics();
+    const contractErrors = contractDiagnostics.rows.filter(
+      (row) => row.status === "error"
+    ).length;
+    const contractWarnings = contractDiagnostics.rows.filter(
+      (row) => row.status === "warning"
+    ).length;
+    if (contractErrors > 0 || contractWarnings > 0) {
+      qualityMessages.push(
+        `contract drift: errors=${contractErrors}, warnings=${contractWarnings} diagnostics=${contractDiagnostics.diagnostics.latestPath}`
+      );
+    } else {
+      qualityMessages.push(
+        `contract drift: ok diagnostics=${contractDiagnostics.diagnostics.latestPath}`
+      );
+    }
+  } catch (error) {
+    qualityMessages.push(`contract drift check failed: ${error.message}`);
+  }
+
   console.log(
     `Collected ${totalCollected} job(s). Upserted ${totalUpserted} record(s). Pruned ${totalPruned} stale record(s).`
   );
@@ -634,13 +656,14 @@ function runNormalizeSourceUrls(options = {}) {
 }
 
 function runSourceContractDriftCheck(options = {}) {
-  const report = evaluateSourceContractDrift({
+  const report = runSourceContractDiagnostics({
     sourcesPath: options.sourcesPath,
     contractsPath: options.contractsPath,
     staleAfterDays: options.staleAfterDays,
     window: options.window,
     minCoverage: options.minCoverage,
-    historyPath: options.historyPath
+    historyPath: options.historyPath,
+    rootDir: options.rootDir
   });
 
   let hasError = false;
@@ -736,6 +759,10 @@ function runSourceContractDriftCheck(options = {}) {
 
   if (hasWarning) {
     process.exitCode = 2;
+  }
+
+  if (report?.diagnostics?.latestPath) {
+    console.log(`Contract diagnostics: ${report.diagnostics.latestPath}`);
   }
 }
 

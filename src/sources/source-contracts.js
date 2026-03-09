@@ -421,6 +421,13 @@ function normalizeCoverageRatio(value) {
   return Math.round(numeric * 1000) / 1000;
 }
 
+function sanitizeFileToken(value, fallback = "unknown") {
+  const normalized = normalizeString(value)
+    .replace(/[:.]/g, "-")
+    .replace(/[^a-zA-Z0-9_-]/g, "_");
+  return normalized || fallback;
+}
+
 function computeCoverageByField(jobs, requiredFields) {
   const coverageByField = {};
   const samples = Array.isArray(jobs) ? jobs : [];
@@ -609,6 +616,7 @@ export function evaluateSourceContractDrift(options = {}) {
         rollingWindow: windowSize,
         minCoverage,
         passCoverageGate: false,
+        coverageMismatches: [],
         issues: [`Missing contract for source type "${source.type}".`]
       });
       continue;
@@ -655,17 +663,26 @@ export function evaluateSourceContractDrift(options = {}) {
     );
     const coverageGateFloor =
       configuredCoverageGateFloor !== null ? configuredCoverageGateFloor : minCoverage;
-    const lowCoverageFields = Object.entries(rollingCoverageByField)
-      .filter(([field, ratio]) => {
-        if (ratio === null || !Number.isFinite(Number(ratio))) {
-          return false;
-        }
-        const configuredFieldThreshold = normalizeCoverageRatio(fieldThresholds[field]);
-        const threshold =
-          configuredFieldThreshold !== null ? configuredFieldThreshold : coverageGateFloor;
-        return Number(ratio) < threshold;
-      })
-      .map(([field]) => field);
+    const coverageMismatches = [];
+    for (const field of contract.extraction.requiredFields) {
+      const rollingCoverage = normalizeCoverageRatio(rollingCoverageByField[field]);
+      if (rollingCoverage === null) {
+        continue;
+      }
+      const configuredFieldThreshold = normalizeCoverageRatio(fieldThresholds[field]);
+      const threshold =
+        configuredFieldThreshold !== null ? configuredFieldThreshold : coverageGateFloor;
+      if (rollingCoverage < threshold) {
+        coverageMismatches.push({
+          field,
+          rollingCoverage,
+          latestCoverage: normalizeCoverageRatio(coverageByField[field]),
+          threshold,
+          thresholdSource: configuredFieldThreshold !== null ? "field" : "default"
+        });
+      }
+    }
+    const lowCoverageFields = coverageMismatches.map((mismatch) => mismatch.field);
     const hasRollingCoverage = Object.values(rollingCoverageByField).some(
       (ratio) => ratio !== null && Number.isFinite(Number(ratio))
     );
@@ -703,6 +720,7 @@ export function evaluateSourceContractDrift(options = {}) {
       rollingWindow: windowSize,
       minCoverage,
       passCoverageGate,
+      coverageMismatches,
       issues
     });
   }
@@ -720,5 +738,69 @@ export function evaluateSourceContractDrift(options = {}) {
     includeDisabled,
     staleAfterDays,
     rows
+  };
+}
+
+function resolveContractDiagnosticsRootDir(rootDir, sourcesPath) {
+  const explicit = normalizeString(rootDir);
+  if (explicit) {
+    return path.resolve(explicit);
+  }
+
+  const resolvedSourcesPath = path.resolve(String(sourcesPath || "config/sources.json"));
+  return path.resolve(path.dirname(path.dirname(resolvedSourcesPath)), "data", "quality", "contract-drift");
+}
+
+export function writeSourceContractDiagnostics(report, options = {}) {
+  const rootDir = resolveContractDiagnosticsRootDir(options.rootDir, report?.sourcesPath);
+  fs.mkdirSync(rootDir, { recursive: true });
+
+  const generatedAt = normalizeString(report?.generatedAt) || new Date().toISOString();
+  const token = sanitizeFileToken(generatedAt, new Date().toISOString());
+  const timestampedPath = path.join(rootDir, `${token}.json`);
+  const latestPath = path.join(rootDir, "latest.json");
+
+  const payload = {
+    generatedAt,
+    contractsPath: normalizeString(report?.contractsPath),
+    sourcesPath: normalizeString(report?.sourcesPath),
+    historyPath: normalizeString(report?.historyPath),
+    window:
+      Number.isInteger(Number(report?.window)) && Number(report.window) > 0
+        ? Math.round(Number(report.window))
+        : null,
+    minCoverage: normalizeCoverageRatio(report?.minCoverage),
+    staleAfterDays:
+      Number.isInteger(Number(report?.staleAfterDays)) && Number(report.staleAfterDays) > 0
+        ? Math.round(Number(report.staleAfterDays))
+        : null,
+    rows: Array.isArray(report?.rows) ? report.rows : []
+  };
+
+  fs.writeFileSync(timestampedPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  fs.writeFileSync(latestPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+
+  return {
+    rootDir,
+    timestampedPath,
+    latestPath
+  };
+}
+
+export function runSourceContractDiagnostics(options = {}) {
+  const report = evaluateSourceContractDrift(options);
+  const diagnostics = writeSourceContractDiagnostics(
+    {
+      ...report,
+      generatedAt: new Date().toISOString()
+    },
+    {
+      rootDir: options.rootDir
+    }
+  );
+
+  return {
+    ...report,
+    diagnostics
   };
 }
