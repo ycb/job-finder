@@ -2,6 +2,8 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
+import { createAnalyticsClient } from "./analytics/client.js";
+
 import {
   captureSourceViaBridge,
   resolveBrowserBridgeBaseUrl
@@ -69,6 +71,16 @@ import {
   collectJobsFromSource,
   importLinkedInSnapshot
 } from "./sources/linkedin-saved-search.js";
+
+const terminalAnalytics = createAnalyticsClient({ channel: "terminal" });
+
+function trackTerminalEvent(eventName, properties = {}) {
+  try {
+    void terminalAnalytics.track(eventName, properties);
+  } catch {
+    // Never block CLI flow on analytics.
+  }
+}
 
 function withDatabase() {
   const { db, dbPath } = openDatabase();
@@ -344,6 +356,19 @@ function runSync(options = {}) {
   for (const message of qualityMessages) {
     console.log(`  quality: ${message}`);
   }
+
+  trackTerminalEvent("jobs_synced", {
+    total_collected: totalCollected,
+    total_upserted: totalUpserted,
+    total_pruned: totalPruned,
+    skipped_by_quality: skippedByQuality,
+    enabled_sources: sources.sources.filter((item) => item.enabled).length
+  });
+  if (skippedByQuality > 0) {
+    trackTerminalEvent("capture_quality_rejected", {
+      rejected_count: skippedByQuality
+    });
+  }
 }
 
 function runScore() {
@@ -358,6 +383,13 @@ function runScore() {
   console.log(
     `Scored ${evaluations.length} job(s). high_signal=${bucketCounts.high_signal}, review_later=${bucketCounts.review_later}, reject=${bucketCounts.reject}`
   );
+
+  trackTerminalEvent("jobs_scored", {
+    total_scored: evaluations.length,
+    high_signal: bucketCounts.high_signal,
+    review_later: bucketCounts.review_later,
+    rejected: bucketCounts.reject
+  });
 }
 
 function runShortlist() {
@@ -366,6 +398,10 @@ function runShortlist() {
   const outputPath = writeShortlistFile(rows);
   db.close();
   console.log(`Shortlist written to ${outputPath}`);
+
+  trackTerminalEvent("shortlist_generated", {
+    total_jobs: rows.length
+  });
 }
 
 function runList(limitArg) {
@@ -485,6 +521,10 @@ function runAddSource(label, searchUrl) {
   console.log(
     `Added source "${source.name}" with id=${source.id} and capturePath=${source.capturePath}`
   );
+  trackTerminalEvent("source_added", {
+    source_id: source.id,
+    source_type: source.type
+  });
 }
 
 function runAddBuiltinSource(label, searchUrl) {
@@ -494,6 +534,10 @@ function runAddBuiltinSource(label, searchUrl) {
 
   const source = addBuiltinSearchSource(label, searchUrl);
   console.log(`Added Built In source "${source.name}" with id=${source.id}`);
+  trackTerminalEvent("source_added", {
+    source_id: source.id,
+    source_type: source.type
+  });
 }
 
 function runAddGoogleSource(label, searchUrl, recencyWindowArg) {
@@ -512,6 +556,10 @@ function runAddGoogleSource(label, searchUrl, recencyWindowArg) {
   console.log(
     `Added Google source "${source.name}" with id=${source.id} (recencyWindow=${source.recencyWindow || "n/a"})`
   );
+  trackTerminalEvent("source_added", {
+    source_id: source.id,
+    source_type: source.type
+  });
 }
 
 function runAddWellfoundSource(label, searchUrl) {
@@ -521,6 +569,10 @@ function runAddWellfoundSource(label, searchUrl) {
 
   const source = addWellfoundSearchSource(label, searchUrl);
   console.log(`Added Wellfound source "${source.name}" with id=${source.id}`);
+  trackTerminalEvent("source_added", {
+    source_id: source.id,
+    source_type: source.type
+  });
 }
 
 function runAddAshbySource(label, searchUrl, recencyWindowArg) {
@@ -539,6 +591,10 @@ function runAddAshbySource(label, searchUrl, recencyWindowArg) {
   console.log(
     `Added Ashby source "${source.name}" with id=${source.id} (recencyWindow=${source.recencyWindow || "n/a"})`
   );
+  trackTerminalEvent("source_added", {
+    source_id: source.id,
+    source_type: source.type
+  });
 }
 
 function runAddIndeedSource(label, searchUrl) {
@@ -548,6 +604,10 @@ function runAddIndeedSource(label, searchUrl) {
 
   const source = addIndeedSearchSource(label, searchUrl);
   console.log(`Added Indeed source "${source.name}" with id=${source.id}`);
+  trackTerminalEvent("source_added", {
+    source_id: source.id,
+    source_type: source.type
+  });
 }
 
 function runAddZipRecruiterSource(label, searchUrl) {
@@ -557,6 +617,10 @@ function runAddZipRecruiterSource(label, searchUrl) {
 
   const source = addZipRecruiterSearchSource(label, searchUrl);
   console.log(`Added ZipRecruiter source "${source.name}" with id=${source.id}`);
+  trackTerminalEvent("source_added", {
+    source_id: source.id,
+    source_type: source.type
+  });
 }
 
 function runAddRemoteOkSource(label, searchUrl) {
@@ -566,6 +630,10 @@ function runAddRemoteOkSource(label, searchUrl) {
 
   const source = addRemoteOkSearchSource(label, searchUrl);
   console.log(`Added RemoteOK source "${source.name}" with id=${source.id}`);
+  trackTerminalEvent("source_added", {
+    source_id: source.id,
+    source_type: source.type
+  });
 }
 
 function runSetSourceUrl(sourceIdOrName, searchUrl) {
@@ -1302,6 +1370,12 @@ async function runCaptureSourceLive(sourceIdOrName, snapshotPathArg, options = {
   console.log(
     `Live-captured ${result.jobsImported} job(s) for "${source.name}" via ${result.provider || "bridge"}`
   );
+  trackTerminalEvent("source_captured_live", {
+    source_id: source.id,
+    source_type: source.type,
+    jobs_imported: result.jobsImported,
+    provider: result.provider || "bridge"
+  });
 }
 
 async function runCaptureAllLive(snapshotDirArg, options = {}) {
@@ -1473,6 +1547,12 @@ async function runPipeline(options = {}) {
   runShortlist();
   runList(10);
   console.log("Pipeline complete. Start the dashboard with: npm run review");
+
+  trackTerminalEvent("pipeline_run_completed", {
+    force_refresh: Boolean(options.forceRefresh),
+    allow_quarantined: Boolean(options.allowQuarantined),
+    had_browser_capture: hasBrowserCapture
+  });
 }
 
 async function runLivePipeline(options = {}) {

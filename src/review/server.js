@@ -2,6 +2,8 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 
+import { createAnalyticsClient } from "../analytics/client.js";
+
 import {
   captureSourceViaBridge,
   resolveBrowserBridgeBaseUrl
@@ -55,6 +57,16 @@ import {
   recordSourceHealthFromCaptureEvaluation
 } from "../sources/source-health.js";
 import { collectJobsFromSource } from "../sources/linkedin-saved-search.js";
+
+const dashboardAnalytics = createAnalyticsClient({ channel: "dashboard" });
+
+function trackDashboardEvent(eventName, properties = {}) {
+  try {
+    void dashboardAnalytics.track(eventName, properties);
+  } catch {
+    // Never block dashboard API flow on analytics.
+  }
+}
 
 function escapeHtml(value) {
   return String(value)
@@ -4330,6 +4342,9 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
         }
 
         const dashboard = buildDashboardData(limit);
+        trackDashboardEvent("profile_source_changed", {
+          action
+        });
         response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
         response.end(JSON.stringify({ ok: true, profile: dashboard.profile }));
         return;
@@ -4353,6 +4368,13 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
         const saved = saveSearchCriteria(payload);
         const normalized = normalizeAllSourceSearchUrls();
         const dashboard = buildDashboardData(limit);
+        trackDashboardEvent("search_criteria_updated", {
+          has_title: Boolean(saved.criteria.title),
+          has_keywords: Boolean(saved.criteria.keywords),
+          has_location: Boolean(saved.criteria.location),
+          has_min_salary: Number.isFinite(Number(saved.criteria.minSalary)),
+          date_posted: saved.criteria.datePosted || ""
+        });
 
         response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
         response.end(
@@ -4425,6 +4447,13 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
                 ? addAshbySearchSource(name, searchUrl, "config/sources.json", recencyWindow)
                 : addLinkedInCaptureSource(name, searchUrl);
 
+        if (!sourceId) {
+          trackDashboardEvent("source_added", {
+            source_id: source.id,
+            source_type: source.type
+          });
+        }
+
         response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
         response.end(JSON.stringify({ ok: true, source }));
         return;
@@ -4449,6 +4478,13 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
 
       if (request.method === "POST" && url.pathname === "/api/sync-score") {
         const sync = runSyncAndScore();
+        trackDashboardEvent("sync_score_completed", {
+          collected: sync.collected,
+          upserted: sync.upserted,
+          pruned: sync.pruned,
+          skipped_by_quality: sync.skippedByQuality,
+          evaluated: sync.evaluated
+        });
         response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
         response.end(JSON.stringify({ ok: true, sync }));
         return;
@@ -4470,6 +4506,19 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
               ? parsedBody.refreshProfile
               : undefined,
           forceRefresh: parsedBody.forceRefresh === true
+        });
+        trackDashboardEvent("source_run_completed", {
+          source_id: decodeURIComponent(match[1]),
+          capture_status: result?.capture?.status || "unknown",
+          capture_provider: result?.capture?.provider || "",
+          jobs_imported:
+            Number.isFinite(Number(result?.capture?.jobsImported))
+              ? Number(result.capture.jobsImported)
+              : null,
+          sync_evaluated:
+            Number.isFinite(Number(result?.sync?.evaluated))
+              ? Number(result.sync.evaluated)
+              : null
         });
         response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
         response.end(JSON.stringify({ ok: true, ...result }));
@@ -4520,6 +4569,10 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
         }
 
         updateStatus(decodeURIComponent(match[1]), status, reason);
+        trackDashboardEvent("job_status_changed", {
+          status,
+          has_reason: Boolean(reason)
+        });
         response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
         response.end(JSON.stringify({ ok: true }));
         return;

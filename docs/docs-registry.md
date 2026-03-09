@@ -24,6 +24,7 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/cli-design.md` | Contributors | CLI interaction and UX design principles for command/output behavior | CLI UX direction updates |
 | `docs/learnings.md` | Contributors | Captured lessons and retrospectives | Postmortems and notable insights |
 | `posthog-setup-report.md` | Contributors/operators | Verification report for PostHog SDK/instrumentation baseline in repo | Telemetry setup changes or re-audit events |
+| `docs/analytics/event-schema.md` | Contributors/operators | Canonical analytics event schema and PostHog event mapping across channels | Event taxonomy, channel, identity, or telemetry transport changes |
 | `docs/analysis/backlog-review.md` | Contributors | Analysis of backlog state and gaps | Backlog review refresh |
 | `docs/analysis/product-analysis.md` | Contributors | Product-level analysis and recommendations | Product analysis refresh |
 | `docs/analysis/2026-03-06-source-field-coverage-analysis.md` | Contributors | Baseline field-coverage analysis across sources | Coverage measurement refresh |
@@ -83,6 +84,8 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/roadmap/progress-merge/2026-03-08-1b18d56.md` | Stakeholders, contributors | Merge-to-main execution report for safety-boundary milestone | Each merge to main for roadmap-tracked work |
 | `docs/roadmap/progress-merge/2026-03-08-444d199.md` | Stakeholders, contributors | Merge-to-main execution report for source-contracts schema milestone | Each merge to main for roadmap-tracked work |
 | `docs/roadmap/progress-merge/2026-03-08-2dd4c6f.md` | Stakeholders, contributors | Merge-to-main execution report for source-contract diagnostics milestone | Each merge to main for roadmap-tracked work |
+| `docs/roadmap/progress-merge/2026-03-08-d552f35.md` | Stakeholders, contributors | Merge-to-main execution report for formatter diagnostics completion milestone | Each merge to main for roadmap-tracked work |
+| `docs/roadmap/progress-merge/2026-03-08-44d227c.md` | Stakeholders, contributors | Merge-to-main execution report for multi-keyword criteria completion milestone | Each merge to main for roadmap-tracked work |
 | `docs/roadmap/progress-daily/README.md` | Stakeholders, contributors | Daily roadmap update artifact conventions | Daily progress process changes |
 | `docs/roadmap/progress-merge/README.md` | Stakeholders, contributors | Merge-to-main roadmap update artifact conventions | Merge update process changes |
 | `docs/roadmap/retros/README.md` | Contributors | Virtual-retro artifact conventions | Retro process changes |
@@ -90,5 +93,7 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/roadmap/retros/2026-03-08-1b18d56.md` | Stakeholders, contributors | Merge-level retro for safety-boundary execution slice | Merge-triggered retrospective cadence |
 | `docs/roadmap/retros/2026-03-08-444d199.md` | Stakeholders, contributors | Merge-level retro for source-contracts schema execution slice | Merge-triggered retrospective cadence |
 | `docs/roadmap/retros/2026-03-08-2dd4c6f.md` | Stakeholders, contributors | Merge-level retro for source-contract diagnostics execution slice | Merge-triggered retrospective cadence |
+| `docs/roadmap/retros/2026-03-08-d552f35.md` | Stakeholders, contributors | Merge-level retro for formatter diagnostics completion slice | Merge-triggered retrospective cadence |
+| `docs/roadmap/retros/2026-03-08-44d227c.md` | Stakeholders, contributors | Merge-level retro for multi-keyword criteria completion slice | Merge-triggered retrospective cadence |
 | `docs/roadmap/task-packets/2026-03-08-phase1-wave1.md` | Contributors/operators | Copy/paste dispatch packets for Phase 1 Wave 1 tasks | Queue/scope/dependency changes for Wave 1 execution |
 | `docs/assets/dashboard-preview.svg` | Users, evaluators | Dashboard visual preview asset | Dashboard visual refresh |
