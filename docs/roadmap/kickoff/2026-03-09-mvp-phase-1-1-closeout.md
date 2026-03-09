@@ -42,18 +42,10 @@ These are the last execution-tracker items still preventing a clean MVP Phase 1 
 1. Built In salary extraction is no longer a hard blocker for `W2-01`; latest contract checks show Built In salary coverage above gate threshold.
 2. `W2-02` depends on having stable provenance and delta reporting from `W2-01` and `W2-04`.
 
-## Stakeholder Input Requested
+## Stakeholder Decisions
 
-Only two decisions are needed to avoid later rework:
-
-1. Detail coverage enforcement policy:
-   - Option A (recommended): keep `>=90% detail-description` target with explicit per-source exception docs.
-   - Option B: temporary lower threshold for MVP closeout with dated follow-up commitment.
-2. Search keyword default semantics:
-   - Option A (recommended): default `AND`, user-selectable `OR`.
-   - Option B: default `OR`, user-selectable `AND`.
-
-If no response by next dispatch, default to Option A for both.
+1. Search keyword default semantics: approved as default `AND` with user-selectable `OR` (2026-03-09).
+2. Detail coverage enforcement policy: pending stakeholder confirmation (`>=90% detail-description` target vs temporary lower MVP threshold).
 
 ## Verification Gate
 

@@ -16,6 +16,7 @@ Higher search precision, clearer filtering behavior, and more confidence in resu
 - Expand keyword logic:
   - support multiple keywords
   - support explicit `AND` / `OR` semantics
+  - default mode is `AND`; user can opt into `OR`
 - Add include/exclude controls:
   - include terms list
   - exclude terms list
