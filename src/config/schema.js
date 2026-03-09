@@ -1,4 +1,4 @@
-import { normalizeKeywordInput } from "../search/keywords.js";
+import { normalizeKeywordInput, parseKeywordTerms } from "../search/keywords.js";
 
 function assertObject(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -86,15 +86,44 @@ const SEARCH_CRITERIA_EXPERIENCE_VALUES = new Set([
   "director",
   "executive"
 ]);
+const SEARCH_CRITERIA_KEYWORD_MODE_VALUES = new Set(["and", "or"]);
 const SEARCH_CRITERIA_FIELD_NAMES = new Set([
   "title",
   "keywords",
+  "keywordMode",
+  "includeTerms",
+  "excludeTerms",
   "location",
   "distanceMiles",
   "datePosted",
   "experienceLevel",
   "minSalary"
 ]);
+
+function normalizeCriteriaTermList(value, label) {
+  if (value === undefined || value === null) {
+    return [];
+  }
+
+  let terms = [];
+  if (typeof value === "string") {
+    terms = parseKeywordTerms(value);
+  } else if (Array.isArray(value)) {
+    terms = value.map((item, index) => assertString(item, `${label}[${index}]`));
+  } else {
+    throw new Error(`${label} must be an array of strings or comma-separated string.`);
+  }
+
+  const deduped = [];
+  for (const term of terms) {
+    const normalized = term.toLowerCase();
+    if (!deduped.includes(normalized)) {
+      deduped.push(normalized);
+    }
+  }
+
+  return deduped;
+}
 
 export function validateSearchCriteria(raw, label = "Search criteria") {
   const criteria = assertOptionalObject(raw, label, {});
@@ -111,6 +140,34 @@ export function validateSearchCriteria(raw, label = "Search criteria") {
     if (normalizedKeywords) {
       normalizedCriteria.keywords = normalizedKeywords;
     }
+  }
+
+  const keywordMode = assertOptionalString(
+    criteria.keywordMode,
+    `${label}.keywordMode`,
+    ""
+  ).toLowerCase();
+  if (keywordMode) {
+    if (!SEARCH_CRITERIA_KEYWORD_MODE_VALUES.has(keywordMode)) {
+      throw new Error(`${label}.keywordMode must be one of: and, or.`);
+    }
+    normalizedCriteria.keywordMode = keywordMode;
+  }
+
+  const includeTerms = normalizeCriteriaTermList(
+    criteria.includeTerms,
+    `${label}.includeTerms`
+  );
+  if (includeTerms.length > 0) {
+    normalizedCriteria.includeTerms = includeTerms;
+  }
+
+  const excludeTerms = normalizeCriteriaTermList(
+    criteria.excludeTerms,
+    `${label}.excludeTerms`
+  );
+  if (excludeTerms.length > 0) {
+    normalizedCriteria.excludeTerms = excludeTerms;
   }
 
   const location = assertOptionalString(criteria.location, `${label}.location`, "");

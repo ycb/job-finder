@@ -83,6 +83,32 @@ test("saveSearchCriteria normalizes comma-separated keywords", () => {
   }
 });
 
+test("saveSearchCriteria persists keyword mode and include/exclude terms", () => {
+  const { tempDir, configDir } = createTempConfigDir();
+  const criteriaPath = path.join(configDir, "search-criteria.json");
+
+  try {
+    const saved = saveSearchCriteria(
+      {
+        keywords: "ai, fintech",
+        keywordMode: "OR",
+        includeTerms: ["payments", "growth", "payments"],
+        excludeTerms: ["intern", "contract", "intern"]
+      },
+      criteriaPath
+    );
+
+    assert.equal(saved.criteria.keywordMode, "or");
+    assert.deepEqual(saved.criteria.includeTerms, ["payments", "growth"]);
+    assert.deepEqual(saved.criteria.excludeTerms, ["intern", "contract"]);
+
+    const reloaded = loadSearchCriteria(criteriaPath);
+    assert.deepEqual(reloaded.criteria, saved.criteria);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("loadSourcesWithPath applies global search criteria and allows per-source overrides", () => {
   const { tempDir, configDir } = createTempConfigDir();
   const criteriaPath = path.join(configDir, "search-criteria.json");

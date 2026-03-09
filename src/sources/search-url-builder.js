@@ -1,6 +1,7 @@
 import {
   keywordTermsToQueryText,
-  normalizeKeywordInput
+  normalizeKeywordInput,
+  parseKeywordTerms
 } from "../search/keywords.js";
 
 const SUPPORTED_DATE_POSTED = new Set(["any", "1d", "3d", "1w", "2w", "1m"]);
@@ -86,12 +87,41 @@ function dedupe(values) {
 const CRITERIA_FIELDS = [
   "title",
   "keywords",
+  "keywordMode",
+  "includeTerms",
+  "excludeTerms",
   "location",
   "distanceMiles",
   "datePosted",
   "experienceLevel",
   "minSalary"
 ];
+
+function normalizeCriteriaTermList(rawValue) {
+  if (rawValue === undefined || rawValue === null) {
+    return [];
+  }
+
+  const rawTerms = Array.isArray(rawValue)
+    ? rawValue.map((item) => normalizeText(item).toLowerCase())
+    : parseKeywordTerms(rawValue).map((item) => normalizeText(item).toLowerCase());
+
+  return dedupe(rawTerms.filter(Boolean));
+}
+
+function normalizeKeywordMode(rawMode) {
+  const normalized = normalizeText(rawMode).toLowerCase();
+  return normalized === "or" ? "or" : "and";
+}
+
+function formatQueryTerm(term) {
+  const normalized = normalizeText(term);
+  if (!normalized) {
+    return "";
+  }
+
+  return /\s/.test(normalized) ? `"${normalized}"` : normalized;
+}
 
 function emptyCriteriaAccountability() {
   return {
@@ -310,6 +340,21 @@ function normalizeSearchCriteria(rawCriteria) {
     normalized.keywordTerms = keywordMetadata.terms;
   }
 
+  const keywordMode = normalizeText(rawCriteria.keywordMode).toLowerCase();
+  if (keywordMode === "and" || keywordMode === "or") {
+    normalized.keywordMode = keywordMode;
+  }
+
+  const includeTerms = normalizeCriteriaTermList(rawCriteria.includeTerms);
+  if (includeTerms.length > 0) {
+    normalized.includeTerms = includeTerms;
+  }
+
+  const excludeTerms = normalizeCriteriaTermList(rawCriteria.excludeTerms);
+  if (excludeTerms.length > 0) {
+    normalized.excludeTerms = excludeTerms;
+  }
+
   const location = normalizeText(rawCriteria.location);
   if (location) {
     normalized.location = location;
@@ -340,8 +385,25 @@ function normalizeSearchCriteria(rawCriteria) {
 
 function combineTitleAndKeywords(criteria) {
   const title = normalizeText(criteria?.title);
-  const keywords = keywordTermsToQueryText(criteria?.keywordTerms || criteria?.keywords);
-  return [title, keywords].filter(Boolean).join(" ").trim();
+  const keywordMode = normalizeKeywordMode(criteria?.keywordMode);
+  const keywordTerms = Array.isArray(criteria?.keywordTerms)
+    ? criteria.keywordTerms.map((term) => normalizeText(term).toLowerCase()).filter(Boolean)
+    : normalizeCriteriaTermList(criteria?.keywords);
+  const includeTerms = normalizeCriteriaTermList(criteria?.includeTerms);
+  const excludeTerms = normalizeCriteriaTermList(criteria?.excludeTerms);
+  const positiveTerms = dedupe([...keywordTerms, ...includeTerms]).filter(Boolean);
+
+  let positiveQuery = "";
+  if (positiveTerms.length > 0) {
+    if (keywordMode === "or" && positiveTerms.length > 1) {
+      positiveQuery = `(${positiveTerms.map(formatQueryTerm).join(" OR ")})`;
+    } else {
+      positiveQuery = keywordTermsToQueryText(positiveTerms);
+    }
+  }
+
+  const excludeQuery = excludeTerms.map((term) => `-${formatQueryTerm(term)}`).join(" ").trim();
+  return [title, positiveQuery, excludeQuery].filter(Boolean).join(" ").trim();
 }
 
 function toLinkedInSalaryBucket(minSalary) {
@@ -403,6 +465,7 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
 
   if (sourceType === "linkedin_capture_file") {
     const nextParams = new URLSearchParams();
+    if (criteria.keywordMode) criteriaAccountability.markAppliedInUrl("keywordMode");
     for (const [key, value] of parsed.searchParams.entries()) {
       if (
         key === "keywords" ||
@@ -424,6 +487,9 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
       nextParams.set("keywords", titleKeywords);
       if (criteria.title) criteriaAccountability.markAppliedInUrl("title");
       if (criteria.keywords) criteriaAccountability.markAppliedInUrl("keywords");
+      if (criteria.includeTerms) criteriaAccountability.markAppliedInUrl("includeTerms");
+      if (criteria.excludeTerms) criteriaAccountability.markAppliedInUrl("excludeTerms");
+      if (criteria.keywordMode) criteriaAccountability.markAppliedInUrl("keywordMode");
     }
 
     if (criteria.location) {
@@ -485,6 +551,7 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
 
   if (sourceType === "builtin_search") {
     const nextParams = new URLSearchParams();
+    if (criteria.keywordMode) criteriaAccountability.markAppliedInUrl("keywordMode");
     for (const [key, value] of parsed.searchParams.entries()) {
       if (
         key === "search" ||
@@ -503,6 +570,9 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
       nextParams.set("search", titleKeywords);
       if (criteria.title) criteriaAccountability.markAppliedInUrl("title");
       if (criteria.keywords) criteriaAccountability.markAppliedInUrl("keywords");
+      if (criteria.includeTerms) criteriaAccountability.markAppliedInUrl("includeTerms");
+      if (criteria.excludeTerms) criteriaAccountability.markAppliedInUrl("excludeTerms");
+      if (criteria.keywordMode) criteriaAccountability.markAppliedInUrl("keywordMode");
     }
 
     if (criteria.location) {
@@ -554,6 +624,9 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
   if (sourceType === "wellfound_search") {
     if (criteria.title) criteriaAccountability.markUnsupported("title");
     if (criteria.keywords) criteriaAccountability.markUnsupported("keywords");
+    if (criteria.keywordMode) criteriaAccountability.markUnsupported("keywordMode");
+    if (criteria.includeTerms) criteriaAccountability.markUnsupported("includeTerms");
+    if (criteria.excludeTerms) criteriaAccountability.markUnsupported("excludeTerms");
     if (criteria.location) criteriaAccountability.markUnsupported("location");
     if (criteria.minSalary) criteriaAccountability.markUnsupported("minSalary");
     if (criteria.distanceMiles) criteriaAccountability.markUnsupported("distanceMiles");
@@ -579,22 +652,20 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
   if (sourceType === "ashby_search" || sourceType === "google_search") {
     const nextParams = new URLSearchParams();
     const queryTerms = [];
+    if (criteria.keywordMode) criteriaAccountability.markAppliedInUrl("keywordMode");
 
     if (sourceType === "ashby_search") {
       queryTerms.push("site:ashbyhq.com");
     }
 
-    if (criteria.title) {
-      queryTerms.push(criteria.title);
-      criteriaAccountability.markAppliedInUrl("title");
-    }
-
-    const keywordTerms = Array.isArray(criteria.keywordTerms)
-      ? criteria.keywordTerms
-      : [];
-    if (keywordTerms.length > 0) {
-      queryTerms.push(...keywordTerms);
-      criteriaAccountability.markAppliedInUrl("keywords");
+    const titleKeywords = combineTitleAndKeywords(criteria);
+    if (titleKeywords) {
+      queryTerms.push(titleKeywords);
+      if (criteria.title) criteriaAccountability.markAppliedInUrl("title");
+      if (criteria.keywords) criteriaAccountability.markAppliedInUrl("keywords");
+      if (criteria.includeTerms) criteriaAccountability.markAppliedInUrl("includeTerms");
+      if (criteria.excludeTerms) criteriaAccountability.markAppliedInUrl("excludeTerms");
+      if (criteria.keywordMode) criteriaAccountability.markAppliedInUrl("keywordMode");
     }
 
     if (criteria.location) {
@@ -658,12 +729,16 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
 
   if (sourceType === "indeed_search") {
     const nextParams = new URLSearchParams();
+    if (criteria.keywordMode) criteriaAccountability.markAppliedInUrl("keywordMode");
     const titleKeywords = combineTitleAndKeywords(criteria);
 
     if (titleKeywords) {
       nextParams.set("q", titleKeywords);
       if (criteria.title) criteriaAccountability.markAppliedInUrl("title");
       if (criteria.keywords) criteriaAccountability.markAppliedInUrl("keywords");
+      if (criteria.includeTerms) criteriaAccountability.markAppliedInUrl("includeTerms");
+      if (criteria.excludeTerms) criteriaAccountability.markAppliedInUrl("excludeTerms");
+      if (criteria.keywordMode) criteriaAccountability.markAppliedInUrl("keywordMode");
     } else {
       const existingQuery = normalizeText(parsed.searchParams.get("q"));
       if (existingQuery) {
@@ -735,12 +810,16 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
 
   if (sourceType === "ziprecruiter_search") {
     const nextParams = new URLSearchParams();
+    if (criteria.keywordMode) criteriaAccountability.markAppliedInUrl("keywordMode");
     const titleKeywords = combineTitleAndKeywords(criteria);
 
     if (titleKeywords) {
       nextParams.set("search", titleKeywords);
       if (criteria.title) criteriaAccountability.markAppliedInUrl("title");
       if (criteria.keywords) criteriaAccountability.markAppliedInUrl("keywords");
+      if (criteria.includeTerms) criteriaAccountability.markAppliedInUrl("includeTerms");
+      if (criteria.excludeTerms) criteriaAccountability.markAppliedInUrl("excludeTerms");
+      if (criteria.keywordMode) criteriaAccountability.markAppliedInUrl("keywordMode");
     } else {
       const existingQuery = normalizeText(parsed.searchParams.get("search"));
       if (existingQuery) {
@@ -811,7 +890,14 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
   }
 
   if (sourceType === "remoteok_search") {
-    const keywordSlug = slugifyKeywords(combineTitleAndKeywords(criteria));
+    const keywordSlug = slugifyKeywords(
+      combineTitleAndKeywords({
+        ...criteria,
+        keywordMode: "and",
+        includeTerms: [],
+        excludeTerms: []
+      })
+    );
     if (keywordSlug) {
       parsed.pathname = `/remote-${keywordSlug}-jobs`;
       if (criteria.title) criteriaAccountability.markAppliedInUrl("title");
@@ -821,6 +907,9 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
     parsed.hash = "";
 
     if (criteria.location) criteriaAccountability.markUnsupported("location");
+    if (criteria.keywordMode) criteriaAccountability.markUnsupported("keywordMode");
+    if (criteria.includeTerms) criteriaAccountability.markUnsupported("includeTerms");
+    if (criteria.excludeTerms) criteriaAccountability.markUnsupported("excludeTerms");
     if (criteria.distanceMiles) criteriaAccountability.markUnsupported("distanceMiles");
     if (criteria.minSalary) criteriaAccountability.markUnsupported("minSalary");
     if (criteria.datePosted) criteriaAccountability.markUnsupported("datePosted");

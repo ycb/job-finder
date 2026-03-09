@@ -115,3 +115,63 @@ test("evaluateJobsFromSearchCriteria falls back to baseline scoring when criteri
   assert.ok(evaluations[0].score > evaluations[1].score);
   assert.equal(evaluations[0].bucket, "review_later");
 });
+
+test("evaluateJobsFromSearchCriteria supports keyword OR mode", () => {
+  const baseJob = {
+    id: "job-partial-keyword-hit",
+    title: "Senior Product Manager",
+    company: "Acme",
+    location: "San Francisco, CA",
+    description: "Own AI platform roadmap",
+    salaryText: "$220,000 - $260,000",
+    source: "indeed_search",
+    postedAt: new Date().toISOString()
+  };
+
+  const andEvaluation = evaluateJobsFromSearchCriteria(
+    {
+      keywords: "ai, fintech",
+      keywordMode: "and"
+    },
+    [baseJob]
+  )[0];
+
+  const orEvaluation = evaluateJobsFromSearchCriteria(
+    {
+      keywords: "ai, fintech",
+      keywordMode: "or"
+    },
+    [baseJob]
+  )[0];
+
+  assert.ok(orEvaluation.score > andEvaluation.score);
+  assert.equal(orEvaluation.bucket, "high_signal");
+});
+
+test("evaluateJobsFromSearchCriteria applies exclude terms as hard filters", () => {
+  const evaluations = evaluateJobsFromSearchCriteria(
+    {
+      title: "product manager",
+      includeTerms: ["platform"],
+      excludeTerms: ["contract"]
+    },
+    [
+      {
+        id: "job-blocked",
+        title: "Product Manager (Contract)",
+        company: "Acme",
+        location: "San Francisco, CA",
+        description: "AI platform contract role",
+        salaryText: "$220,000 - $260,000",
+        source: "indeed_search",
+        postedAt: new Date().toISOString()
+      }
+    ]
+  );
+
+  assert.equal(evaluations.length, 1);
+  assert.equal(evaluations[0].bucket, "reject");
+  assert.equal(evaluations[0].score, 0);
+  assert.equal(evaluations[0].hardFiltered, true);
+  assert.match(evaluations[0].summary, /hard filter hit/i);
+});

@@ -1579,7 +1579,7 @@ export function renderDashboardPage(dashboard, options = {}) {
 
       .search-criteria-form {
         display: grid;
-        grid-template-columns: repeat(5, minmax(160px, 1fr));
+        grid-template-columns: repeat(7, minmax(140px, 1fr));
         gap: 10px;
         align-items: end;
       }
@@ -2588,6 +2588,22 @@ export function renderDashboardPage(dashboard, options = {}) {
         return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : null;
       }
 
+      function parseTermList(value) {
+        const seen = new Set();
+        const terms = [];
+
+        for (const rawSegment of String(value || "").split(",")) {
+          const term = rawSegment.trim().toLowerCase();
+          if (!term || seen.has(term)) {
+            continue;
+          }
+          seen.add(term);
+          terms.push(term);
+        }
+
+        return terms;
+      }
+
       function formatProfileProvider(provider, mode) {
         if (provider === "legacy_profile") {
           return "Standalone (profile.json)";
@@ -2920,6 +2936,9 @@ export function renderDashboardPage(dashboard, options = {}) {
       async function saveSearchCriteriaConfig() {
         const titleInput = document.getElementById("criteria-title");
         const keywordsInput = document.getElementById("criteria-keywords");
+        const keywordModeInput = document.getElementById("criteria-keyword-mode");
+        const includeTermsInput = document.getElementById("criteria-include-terms");
+        const excludeTermsInput = document.getElementById("criteria-exclude-terms");
         const locationInput = document.getElementById("criteria-location");
         const salaryInput = document.getElementById("criteria-min-salary");
         const datePostedInput = document.getElementById("criteria-date-posted");
@@ -2927,6 +2946,9 @@ export function renderDashboardPage(dashboard, options = {}) {
         const body = {
           title: titleInput ? titleInput.value : "",
           keywords: keywordsInput ? keywordsInput.value : "",
+          keywordMode: keywordModeInput ? keywordModeInput.value : "and",
+          includeTerms: parseTermList(includeTermsInput ? includeTermsInput.value : ""),
+          excludeTerms: parseTermList(excludeTermsInput ? excludeTermsInput.value : ""),
           location: locationInput ? locationInput.value : "",
           minSalary: parseCurrencyToNumber(salaryInput ? salaryInput.value : ""),
           datePosted: datePostedInput ? datePostedInput.value : ""
@@ -3354,6 +3376,17 @@ export function renderDashboardPage(dashboard, options = {}) {
           !Array.isArray(dashboard.searchCriteria)
             ? dashboard.searchCriteria
             : {};
+        const keywordModeValue =
+          String(currentSearchCriteria.keywordMode || "").toLowerCase() === "or" ? "or" : "and";
+        const includeTermsValue = Array.isArray(currentSearchCriteria.includeTerms)
+          ? currentSearchCriteria.includeTerms.join(", ")
+          : "";
+        const excludeTermsValue = Array.isArray(currentSearchCriteria.excludeTerms)
+          ? currentSearchCriteria.excludeTerms.join(", ")
+          : "";
+        const hardFilterSummary = excludeTermsValue
+          ? "Hard filters exclude: " + excludeTermsValue + "."
+          : "Hard filters exclude: none.";
         const sourcesForDisplay = visibleSources();
         const sourceKindBySourceId = new Map(
           sourcesForDisplay.map((source) => [source.id, sourceKindFromType(source.type)])
@@ -4036,6 +4069,12 @@ export function renderDashboardPage(dashboard, options = {}) {
           '  <div class="search-criteria-form" style="margin-top: 10px;">',
           '      <label>Title<input id="criteria-title" type="text" value="' + escapeHtml(currentSearchCriteria.title || "") + '" placeholder="senior product manager"></label>',
           '      <label>Keyword<input id="criteria-keywords" type="text" value="' + escapeHtml(currentSearchCriteria.keywords || "") + '" placeholder="fintech payments"></label>',
+          '      <label>Keyword Mode<select id="criteria-keyword-mode">' +
+            '<option value="and"' + (keywordModeValue === "and" ? " selected" : "") + ">AND</option>" +
+            '<option value="or"' + (keywordModeValue === "or" ? " selected" : "") + ">OR</option>" +
+          "</select></label>",
+          '      <label>Include<input id="criteria-include-terms" type="text" value="' + escapeHtml(includeTermsValue) + '" placeholder="payments, growth"></label>',
+          '      <label>Exclude<input id="criteria-exclude-terms" type="text" value="' + escapeHtml(excludeTermsValue) + '" placeholder="intern, contract"></label>',
           '      <label>Location<input id="criteria-location" type="text" value="' + escapeHtml(currentSearchCriteria.location || "") + '" placeholder="San Francisco, CA"></label>',
           '      <label>Salary<input id="criteria-min-salary" type="text" value="' + escapeHtml(currentSearchCriteria.minSalary ? String(currentSearchCriteria.minSalary) : "") + '" placeholder="195000"></label>',
           '      <label>Posted on<select id="criteria-date-posted">' +
@@ -4048,6 +4087,7 @@ export function renderDashboardPage(dashboard, options = {}) {
             '<option value="1m"' + (currentSearchCriteria.datePosted === "1m" ? " selected" : "") + ">Past month</option>" +
           "</select></label>",
           "    </div>",
+          '  <p class="muted" style="margin-top: 10px;">Keyword mode: <strong>' + escapeHtml(keywordModeValue.toUpperCase()) + '</strong>. ' + escapeHtml(hardFilterSummary) + "</p>",
           '    <div class="search-criteria-actions">' +
             '      <span class="criteria-status' + (criteriaFeedbackError ? " error" : "") + (criteriaStatusMessage ? "" : " is-hidden") + '">' + escapeHtml(criteriaStatusMessage || "idle") + "</span>" +
             '      <button class="primary cta-find-jobs' + (criteriaBusy ? " is-loading" : "") + '" id="save-search-criteria" type="button"' + (busy ? " disabled" : "") + ">" +
@@ -4364,10 +4404,25 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
       if (request.method === "POST" && url.pathname === "/api/search-criteria") {
         const rawBody = await readRequestBody(request);
         const parsedBody = rawBody ? JSON.parse(rawBody) : {};
+        const parseTerms = (value) => {
+          if (Array.isArray(value)) {
+            return value;
+          }
+          if (typeof value === "string") {
+            return value
+              .split(",")
+              .map((segment) => segment.trim())
+              .filter(Boolean);
+          }
+          return [];
+        };
 
         const payload = {
           title: typeof parsedBody.title === "string" ? parsedBody.title : "",
           keywords: typeof parsedBody.keywords === "string" ? parsedBody.keywords : "",
+          keywordMode: typeof parsedBody.keywordMode === "string" ? parsedBody.keywordMode : "",
+          includeTerms: parseTerms(parsedBody.includeTerms),
+          excludeTerms: parseTerms(parsedBody.excludeTerms),
           location: typeof parsedBody.location === "string" ? parsedBody.location : "",
           minSalary:
             Number.isFinite(Number(parsedBody.minSalary)) && Number(parsedBody.minSalary) > 0
@@ -4382,6 +4437,9 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
         trackDashboardEvent("search_criteria_updated", {
           has_title: Boolean(saved.criteria.title),
           has_keywords: Boolean(saved.criteria.keywords),
+          keyword_mode: saved.criteria.keywordMode || "and",
+          has_include_terms: Array.isArray(saved.criteria.includeTerms) && saved.criteria.includeTerms.length > 0,
+          has_exclude_terms: Array.isArray(saved.criteria.excludeTerms) && saved.criteria.excludeTerms.length > 0,
           has_location: Boolean(saved.criteria.location),
           has_min_salary: Number.isFinite(Number(saved.criteria.minSalary)),
           date_posted: saved.criteria.datePosted || ""
