@@ -92,6 +92,10 @@ test("loadSourcesWithPath clears stale criteriaAccountability when no criteria a
         appliedInUiBootstrap: [],
         appliedPostCapture: [],
         unsupported: ["experienceLevel"]
+      },
+      formatterDiagnostics: {
+        unsupported: ["experienceLevel"],
+        notes: ["legacy stale formatter note"]
       }
     }
   ]);
@@ -104,6 +108,10 @@ test("loadSourcesWithPath clears stale criteriaAccountability when no criteria a
       appliedPostCapture: [],
       unsupported: []
     });
+    assert.deepEqual(loaded.sources[0].formatterDiagnostics, {
+      unsupported: [],
+      notes: []
+    });
 
     const persisted = JSON.parse(fs.readFileSync(sourcesPath, "utf8"));
     assert.deepEqual(persisted.sources[0].criteriaAccountability, {
@@ -111,6 +119,10 @@ test("loadSourcesWithPath clears stale criteriaAccountability when no criteria a
       appliedInUiBootstrap: [],
       appliedPostCapture: [],
       unsupported: []
+    });
+    assert.deepEqual(persisted.sources[0].formatterDiagnostics, {
+      unsupported: [],
+      notes: []
     });
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });

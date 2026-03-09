@@ -77,6 +77,10 @@ test("validateSources accepts wellfound and ashby source types", () => {
           appliedInUiBootstrap: [],
           appliedPostCapture: [],
           unsupported: ["experienceLevel"]
+        },
+        formatterDiagnostics: {
+          unsupported: ["experienceLevel"],
+          notes: ["experienceLevel criteria is unsupported for indeed_search"]
         }
       },
       {
@@ -130,6 +134,10 @@ test("validateSources accepts wellfound and ashby source types", () => {
     appliedInUiBootstrap: [],
     appliedPostCapture: [],
     unsupported: ["experienceLevel"]
+  });
+  assert.deepEqual(parsed.sources[4].formatterDiagnostics, {
+    unsupported: ["experienceLevel"],
+    notes: ["experienceLevel criteria is unsupported for indeed_search"]
   });
   assert.equal(parsed.sources[5].type, "ziprecruiter_search");
   assert.equal(parsed.sources[6].type, "remoteok_search");
@@ -234,6 +242,26 @@ test("validateSources rejects invalid hardFilter values", () => {
           hardFilter: {
             requiredAny: "ai",
             enforceContentOnSnippets: "no"
+          }
+        }
+      ]
+    })
+  );
+});
+
+test("validateSources rejects invalid formatterDiagnostics values", () => {
+  assert.throws(() =>
+    validateSources({
+      sources: [
+        {
+          id: "indeed-ai",
+          name: "Indeed AI PM",
+          type: "indeed_search",
+          enabled: true,
+          searchUrl: "https://www.indeed.com/jobs?q=product+manager+ai",
+          formatterDiagnostics: {
+            unsupported: ["minSalary"],
+            notes: "not-an-array"
           }
         }
       ]

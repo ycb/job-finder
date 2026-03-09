@@ -224,6 +224,29 @@ function validateSourceCriteriaAccountability(raw, label) {
   return normalized;
 }
 
+function validateFormatterDiagnostics(raw, label) {
+  const diagnostics = assertOptionalObject(raw, label, {});
+  const unsupported = validateCriteriaAccountabilityBucket(
+    diagnostics.unsupported,
+    `${label}.unsupported`
+  );
+
+  let notes = [];
+  if (diagnostics.notes !== undefined) {
+    if (!Array.isArray(diagnostics.notes)) {
+      throw new Error(`${label}.notes must be an array when provided.`);
+    }
+    notes = diagnostics.notes.map((note, index) =>
+      assertString(note, `${label}.notes[${index}]`)
+    );
+  }
+
+  return {
+    unsupported,
+    notes
+  };
+}
+
 export function validateProfile(raw) {
   assertObject(raw, "Profile");
 
@@ -482,6 +505,13 @@ export function validateSources(raw) {
         normalizedSource.criteriaAccountability = validateSourceCriteriaAccountability(
           source.criteriaAccountability,
           `Sources.sources[${index}].criteriaAccountability`
+        );
+      }
+
+      if (source.formatterDiagnostics !== undefined) {
+        normalizedSource.formatterDiagnostics = validateFormatterDiagnostics(
+          source.formatterDiagnostics,
+          `Sources.sources[${index}].formatterDiagnostics`
         );
       }
 

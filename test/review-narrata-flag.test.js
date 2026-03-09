@@ -264,3 +264,39 @@ test("renderDashboardPage marks jobs viewed from active queue payload", () => {
   );
   assert.equal(html.includes("Array.isArray(dashboard?.jobs) ? dashboard.jobs : []"), false);
 });
+
+test("renderDashboardPage surfaces formatter diagnostics in searches status detail", () => {
+  const html = renderDashboardPage({
+    sources: [
+      {
+        id: "builtin-ai",
+        name: "Built In AI",
+        type: "builtin_search",
+        searchUrl: "https://www.builtinsf.com/jobs",
+        enabled: true,
+        capturedAt: "2026-03-08T00:00:00.000Z",
+        captureStatus: "ready",
+        captureJobCount: 10,
+        droppedByHardFilterCount: 2,
+        droppedByDedupeCount: 1,
+        importedCount: 7,
+        formatterDiagnostics: {
+          unsupported: ["minSalary"],
+          notes: ["distance filter not supported"]
+        },
+        criteriaAccountability: {
+          appliedInUrl: ["title", "keywords", "location", "datePosted"],
+          appliedInUiBootstrap: [],
+          appliedPostCapture: [],
+          unsupported: ["minSalary"]
+        }
+      }
+    ]
+  });
+
+  assert.equal(html.includes("source.formatterDiagnostics"), true);
+  assert.equal(html.includes("formatterUnsupported"), true);
+  assert.equal(html.includes("formatterNotes"), true);
+  assert.equal(html.includes("formatter:"), true);
+  assert.equal(html.includes("distance filter not supported"), true);
+});

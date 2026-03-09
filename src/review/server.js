@@ -1275,6 +1275,7 @@ function buildDashboardData(limit = 200) {
         name: source.name,
         searchUrl: source.searchUrl,
         criteriaAccountability: source.criteriaAccountability || null,
+        formatterDiagnostics: source.formatterDiagnostics || null,
         recencyWindow: source.recencyWindow || null,
         enabled: source.enabled,
         type: source.type,
@@ -3417,6 +3418,8 @@ export function renderDashboardPage(dashboard, options = {}) {
             adapterHealthScore: null,
             adapterHealthReason: null,
             adapterHealthUpdatedAt: null,
+            formatterUnsupported: [],
+            formatterNotes: [],
             appliedCount: 0,
             skippedCount: 0,
             highSignalCount: 0,
@@ -3460,6 +3463,41 @@ export function renderDashboardPage(dashboard, options = {}) {
 
           if (source.captureFunnelError && !current.captureFunnelError) {
             current.captureFunnelError = source.captureFunnelError;
+          }
+
+          const sourceFormatterDiagnostics =
+            source.formatterDiagnostics &&
+            typeof source.formatterDiagnostics === "object" &&
+            !Array.isArray(source.formatterDiagnostics)
+              ? source.formatterDiagnostics
+              : {};
+          const sourceFormatterUnsupported = Array.isArray(
+            sourceFormatterDiagnostics.unsupported
+          )
+            ? sourceFormatterDiagnostics.unsupported
+            : Array.isArray(source.criteriaAccountability?.unsupported)
+              ? source.criteriaAccountability.unsupported
+              : [];
+          for (const unsupportedField of sourceFormatterUnsupported) {
+            const normalizedUnsupportedField = String(unsupportedField || "").trim();
+            if (
+              normalizedUnsupportedField &&
+              !current.formatterUnsupported.includes(normalizedUnsupportedField)
+            ) {
+              current.formatterUnsupported.push(normalizedUnsupportedField);
+            }
+          }
+          const sourceFormatterNotes = Array.isArray(sourceFormatterDiagnostics.notes)
+            ? sourceFormatterDiagnostics.notes
+            : [];
+          for (const formatterNote of sourceFormatterNotes) {
+            const normalizedFormatterNote = String(formatterNote || "").trim();
+            if (
+              normalizedFormatterNote &&
+              !current.formatterNotes.includes(normalizedFormatterNote)
+            ) {
+              current.formatterNotes.push(normalizedFormatterNote);
+            }
           }
 
           const sourceHealthStatus =
@@ -3639,6 +3677,20 @@ export function renderDashboardPage(dashboard, options = {}) {
                   (healthStatus === "ok" && healthScore !== null
                     ? "health score " + healthScore + "%"
                     : null);
+            const formatterUnsupported = Array.isArray(source.formatterUnsupported)
+              ? source.formatterUnsupported
+              : [];
+            const formatterNotes = Array.isArray(source.formatterNotes)
+              ? source.formatterNotes
+              : [];
+            const formatterDetailParts = [];
+            if (formatterUnsupported.length > 0) {
+              formatterDetailParts.push("unsupported " + formatterUnsupported.join(", "));
+            }
+            if (formatterNotes.length > 0) {
+              formatterDetailParts.push(...formatterNotes);
+            }
+            const formatterDetail = formatterDetailParts.join(" · ");
             const sourceLabel = source.searchUrl
               ? '<a class="search-name search-link-label search-name-link" href="' +
                 safeSearchUrl +
@@ -3665,6 +3717,9 @@ export function renderDashboardPage(dashboard, options = {}) {
                 "</span></span>" +
                 (statusDetail
                   ? '<div class="subhead">' + escapeHtml(statusDetail) + "</div>"
+                  : "") +
+                (formatterDetail
+                  ? '<div class="subhead">formatter: ' + escapeHtml(formatterDetail) + "</div>"
                   : "") +
                 "</td>",
               "  <td>" + escapeHtml(foundLabel) + "</td>",

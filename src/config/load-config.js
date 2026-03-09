@@ -547,6 +547,48 @@ function emptyCriteriaAccountability() {
   };
 }
 
+function emptyFormatterDiagnostics() {
+  return {
+    unsupported: [],
+    notes: []
+  };
+}
+
+function normalizeFormatterDiagnostics(rawDiagnostics, fallbackUnsupported = [], fallbackNotes = []) {
+  const safeDiagnostics =
+    rawDiagnostics && typeof rawDiagnostics === "object" ? rawDiagnostics : {};
+  const normalized = {
+    unsupported: [],
+    notes: []
+  };
+
+  const unsupportedRows = Array.isArray(safeDiagnostics.unsupported)
+    ? safeDiagnostics.unsupported
+    : Array.isArray(fallbackUnsupported)
+      ? fallbackUnsupported
+      : [];
+  for (const field of unsupportedRows) {
+    const normalizedField = String(field || "").trim();
+    if (normalizedField && !normalized.unsupported.includes(normalizedField)) {
+      normalized.unsupported.push(normalizedField);
+    }
+  }
+
+  const noteRows = Array.isArray(safeDiagnostics.notes)
+    ? safeDiagnostics.notes
+    : Array.isArray(fallbackNotes)
+      ? fallbackNotes
+      : [];
+  for (const note of noteRows) {
+    const normalizedNote = String(note || "").trim();
+    if (normalizedNote && !normalized.notes.includes(normalizedNote)) {
+      normalized.notes.push(normalizedNote);
+    }
+  }
+
+  return normalized;
+}
+
 function normalizeCriteriaAccountability(rawAccountability, fallbackUnsupported = []) {
   const safeAccountability =
     rawAccountability && typeof rawAccountability === "object"
@@ -574,6 +616,10 @@ function normalizeCriteriaAccountability(rawAccountability, fallbackUnsupported 
 }
 
 function criteriaAccountabilityEquals(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function formatterDiagnosticsEquals(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
@@ -638,6 +684,7 @@ function ensureDerivedSourceMetadata(raw, resolvedPath, globalSearchCriteria = n
       globalSearchCriteria
     );
     let nextCriteriaAccountability = emptyCriteriaAccountability();
+    let nextFormatterDiagnostics = emptyFormatterDiagnostics();
 
     if (effectiveCriteria) {
       const criteriaRecencyWindow =
@@ -662,6 +709,11 @@ function ensureDerivedSourceMetadata(raw, resolvedPath, globalSearchCriteria = n
         built.criteriaAccountability,
         built.unsupported
       );
+      nextFormatterDiagnostics = normalizeFormatterDiagnostics(
+        built.formatterDiagnostics,
+        built.unsupported,
+        built.notes
+      );
       if (
         built.url &&
         built.url !== String(source.searchUrl || "").trim()
@@ -681,6 +733,20 @@ function ensureDerivedSourceMetadata(raw, resolvedPath, globalSearchCriteria = n
       )
     ) {
       source.criteriaAccountability = nextCriteriaAccountability;
+      changed = true;
+    }
+
+    const currentFormatterDiagnostics = normalizeFormatterDiagnostics(
+      source.formatterDiagnostics
+    );
+    if (
+      source.formatterDiagnostics === undefined ||
+      !formatterDiagnosticsEquals(
+        currentFormatterDiagnostics,
+        nextFormatterDiagnostics
+      )
+    ) {
+      source.formatterDiagnostics = nextFormatterDiagnostics;
       changed = true;
     }
 
@@ -1273,7 +1339,12 @@ function deriveNextSearchMetadata(source, globalSearchCriteria = null) {
     nextRecencyWindow,
     unsupported,
     notes,
-    criteriaAccountability
+    criteriaAccountability,
+    formatterDiagnostics: normalizeFormatterDiagnostics(
+      null,
+      unsupported,
+      notes
+    )
   };
 }
 
@@ -1327,7 +1398,8 @@ export function previewNormalizedSourceSearchUrls(
           : null,
       unsupported: derived.unsupported,
       notes: derived.notes,
-      criteriaAccountability: derived.criteriaAccountability
+      criteriaAccountability: derived.criteriaAccountability,
+      formatterDiagnostics: derived.formatterDiagnostics
     });
   }
 
@@ -1381,6 +1453,20 @@ export function normalizeAllSourceSearchUrls(
       )
     ) {
       source.criteriaAccountability = derived.criteriaAccountability;
+      changed += 1;
+    }
+
+    const currentFormatterDiagnostics = normalizeFormatterDiagnostics(
+      source.formatterDiagnostics
+    );
+    if (
+      source.formatterDiagnostics === undefined ||
+      !formatterDiagnosticsEquals(
+        currentFormatterDiagnostics,
+        derived.formatterDiagnostics
+      )
+    ) {
+      source.formatterDiagnostics = derived.formatterDiagnostics;
       changed += 1;
     }
 

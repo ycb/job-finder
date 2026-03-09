@@ -66,6 +66,10 @@ test("loadSourcesWithPath derives URL for Indeed source with searchCriteria", ()
       appliedPostCapture: [],
       unsupported: []
     });
+    assert.deepEqual(source.formatterDiagnostics, {
+      unsupported: [],
+      notes: []
+    });
 
     const persisted = JSON.parse(fs.readFileSync(sourcesPath, "utf8"));
     assert.deepEqual(persisted.sources[0].criteriaAccountability, {
@@ -80,6 +84,10 @@ test("loadSourcesWithPath derives URL for Indeed source with searchCriteria", ()
       appliedInUiBootstrap: [],
       appliedPostCapture: [],
       unsupported: []
+    });
+    assert.deepEqual(persisted.sources[0].formatterDiagnostics, {
+      unsupported: [],
+      notes: []
     });
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
