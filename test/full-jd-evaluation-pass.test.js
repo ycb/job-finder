@@ -47,7 +47,9 @@ test("evaluateJobsFromSearchCriteria uses detail description path when provenanc
   assert.equal(evaluations.length, 1);
   assert.equal(evaluations[0].bucket, "high_signal");
   assert.ok(
-    evaluations[0].reasons.some((reason) => reason.includes("keywords matched 1/1")),
+    evaluations[0].reasons.some(
+      (reason) => reason.includes("keywords matched") && reason.includes("(1/1)")
+    ),
     "expected keyword match to use detail description content"
   );
   assert.equal(evaluations[0].evaluationMeta.contentPathUsed, "detail_description");
