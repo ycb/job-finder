@@ -42,3 +42,7 @@ As of 2026-03-06.
   - lane/worktree mapping
   - required review gate order (`implementer -> spec -> quality`)
 - Task packets that are copy/paste-ready reduce controller overhead and keep subagent runs spec-anchored without extra context fetches.
+
+## Worktree Handoff Discipline
+
+- When the user switches execution to a new worktree/lane mid-thread, immediately re-read that worktree’s `AGENTS.md`, confirm branch/worktree context with `git status`, and re-anchor plan/docs in the active workspace before continuing implementation.

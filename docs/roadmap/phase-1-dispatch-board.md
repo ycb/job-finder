@@ -84,7 +84,7 @@ Wave 1 status:
 | W2-01 | P0 | Run evaluation-stage page-level full-JD verification pass with snippet fallback evidence | Source Trust | In progress | Full-JD extraction gap closure [soft] |
 | W2-02 | P0 | Close full-JD extraction gaps with per-source detail coverage metrics + gating | Source Trust | In progress | Source-shape contracts [soft] |
 | W2-03 | P1 | Complete search controls (`AND`/`OR`, include/exclude, hard-filter explainability) | Criteria Fidelity | In progress | None |
-| W2-04 | P1 | Ship net-new/refresh deltas (`new`, `updated`, `unchanged`) with UI surfacing | Criteria Fidelity | In progress | None |
+| W2-04 | P1 | Ship net-new/refresh deltas (`new`, `updated`, `unchanged`) with UI surfacing | Criteria Fidelity | Completed (`Lane-B-W2-04`) | None |
 
 ## Verification Evidence Gates (Phase 1.1)
 

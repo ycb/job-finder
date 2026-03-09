@@ -102,3 +102,10 @@ test("buildSourceRefreshMeta reports cooldown with next eligible time", () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test("renderDashboardPage includes run delta and refresh context status copy", async () => {
+  const { renderDashboardPage } = await import("../src/review/server.js");
+  const html = renderDashboardPage({});
+  assert.equal(html.includes("run delta: new"), true);
+  assert.equal(html.includes("refresh: "), true);
+});

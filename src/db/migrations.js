@@ -118,6 +118,28 @@ export function runMigrations(db) {
         submitted_at TEXT,
         FOREIGN KEY (job_id) REFERENCES jobs (id) ON DELETE CASCADE
       );
+
+      CREATE TABLE IF NOT EXISTS source_run_deltas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        new_count INTEGER NOT NULL DEFAULT 0,
+        updated_count INTEGER NOT NULL DEFAULT 0,
+        unchanged_count INTEGER NOT NULL DEFAULT 0,
+        imported_count INTEGER NOT NULL DEFAULT 0,
+        refresh_mode TEXT,
+        served_from TEXT,
+        status_reason TEXT,
+        status_label TEXT,
+        captured_at TEXT,
+        recorded_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_source_run_deltas_source_recorded
+        ON source_run_deltas (source_id, recorded_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_source_run_deltas_run_id
+        ON source_run_deltas (run_id);
     `
   );
 
@@ -128,5 +150,10 @@ export function runMigrations(db) {
   addColumnIfMissing(db, "jobs", "structured_meta", "TEXT");
   addColumnIfMissing(db, "jobs", "metadata_quality_score", "INTEGER");
   addColumnIfMissing(db, "jobs", "missing_required_fields", "TEXT");
+  addColumnIfMissing(db, "source_run_deltas", "refresh_mode", "TEXT");
+  addColumnIfMissing(db, "source_run_deltas", "served_from", "TEXT");
+  addColumnIfMissing(db, "source_run_deltas", "status_reason", "TEXT");
+  addColumnIfMissing(db, "source_run_deltas", "status_label", "TEXT");
+  addColumnIfMissing(db, "source_run_deltas", "captured_at", "TEXT");
   backfillJobNormalization(db);
 }

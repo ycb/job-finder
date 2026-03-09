@@ -25,6 +25,45 @@
   - `node src/cli.js check-source-contracts --window 3 --min-coverage 0.9` -> pass.
   - `npm test` -> pass (`184` pass, `0` fail).
 
+## Lane B W2-04 Net-New/Refresh Delta Completion (2026-03-09)
+
+- [x] Review handoff packet + existing sync/dashboard code paths.
+- [x] Create Lane B ExecPlan (`docs/plans/2026-03-09-lane-b-w2-04-net-new-refresh-deltas-execplan.md`).
+- [x] Add failing tests for run delta classification and dashboard refresh delta visibility.
+- [x] Implement run delta model + persistence (`src/jobs/run-deltas.js`, migrations, repository IO).
+- [x] Wire CLI sync output and dashboard sync payloads to include run delta counters.
+- [x] Update dashboard row copy to show delta counters with refresh context.
+- [x] Run required verification:
+  - `node --test test/run-deltas.test.js`
+  - `node --test test/dashboard-refresh-status.test.js`
+  - `npm test`
+- [x] Save dashboard smoke artifact under `docs/roadmap/progress-merge/`.
+- [x] Update roadmap tracker/dispatch/progress docs for Lane B completion evidence.
+
+## Review (Lane B W2-04)
+
+- Added run-delta classification module:
+  - `src/jobs/run-deltas.js`
+- Added run-delta persistence schema + repository APIs:
+  - `src/db/migrations.js` (`source_run_deltas` table + indexes)
+  - `src/jobs/repository.js` (`listSourceJobsForDelta`, `recordSourceRunDeltas`, `listLatestSourceRunDeltas`)
+- Wired sync paths to compute/persist/report run deltas:
+  - `src/cli.js` (`runSync` now prints `Run deltas: new/updated/unchanged`)
+  - `src/review/server.js` (`runSyncAndScore` now returns/stores run delta totals)
+- Dashboard surfacing updates:
+  - `src/review/server.js` source rows now include:
+    - `refresh: <reason> (<servedFrom>)`
+    - `run delta: new X · updated Y · unchanged Z`
+- Test coverage:
+  - Added `test/run-deltas.test.js`
+  - Extended `test/dashboard-refresh-status.test.js`
+- Verification:
+  - `node --test test/run-deltas.test.js test/dashboard-refresh-status.test.js` -> pass
+  - `node src/cli.js sync` -> includes `Run deltas: new=0, updated=0, unchanged=0.`
+  - `npm test` -> `182 passed, 0 failed`
+  - Playwright smoke screenshot:
+    - `docs/roadmap/progress-merge/2026-03-09-lane-b-w2-04-playwright-smoke.png`
+
 ## Plan
 
 - [x] Complete Track A criteria accountability implementation + tests.

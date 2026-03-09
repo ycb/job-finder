@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 
 import { createAnalyticsClient } from "../analytics/client.js";
 
@@ -36,12 +37,16 @@ import { applyRetentionPolicyCleanup, writeRetentionCleanupAudit } from "../jobs
 import {
   listAllJobs,
   listAllJobsWithStatus,
+  listLatestSourceRunDeltas,
+  listSourceJobsForDelta,
   listReviewQueue,
   markApplicationStatusByNormalizedHash,
   pruneSourceJobs,
+  recordSourceRunDeltas,
   upsertEvaluations,
   upsertJobs
 } from "../jobs/repository.js";
+import { classifyRunDeltas } from "../jobs/run-deltas.js";
 import { evaluateJobsFromSearchCriteria } from "../jobs/score.js";
 import {
   getSourceRefreshDecision,
@@ -797,13 +802,19 @@ function runSyncAndScore() {
   const sources = loadSources().sources.filter((source) => source.enabled);
   const allowQuarantined = resolveAllowQuarantinedIngest();
   const retentionPolicy = loadRetentionPolicy();
+  const runId = randomUUID();
+  const runRecordedAt = new Date().toISOString();
 
   return withDatabase((db) => {
     let totalCollected = 0;
     let totalUpserted = 0;
     let totalPruned = 0;
+    let totalNew = 0;
+    let totalUpdated = 0;
+    let totalUnchanged = 0;
     let skippedByQuality = 0;
     const qualityMessages = [];
+    const sourceDeltaRows = [];
 
     for (const source of sources) {
       const captureSummary = readSourceCaptureSummary(source);
@@ -887,6 +898,13 @@ function runSyncAndScore() {
         continue;
       }
 
+      const existingRows = listSourceJobsForDelta(db, source.id);
+      const deltas = classifyRunDeltas({
+        existingRows,
+        incomingJobs: normalizedJobs
+      });
+      const refreshMeta = buildSourceRefreshMeta(source);
+
       totalCollected += normalizedJobs.length;
       totalUpserted += upsertJobs(db, normalizedJobs);
       totalPruned += pruneSourceJobs(
@@ -894,7 +912,26 @@ function runSyncAndScore() {
         source.id,
         normalizedJobs.map((job) => job.id)
       );
+      totalNew += deltas.newCount;
+      totalUpdated += deltas.updatedCount;
+      totalUnchanged += deltas.unchangedCount;
+      sourceDeltaRows.push({
+        runId,
+        sourceId: source.id,
+        newCount: deltas.newCount,
+        updatedCount: deltas.updatedCount,
+        unchangedCount: deltas.unchangedCount,
+        importedCount: normalizedJobs.length,
+        refreshMode: refreshMeta.refreshMode,
+        servedFrom: refreshMeta.servedFrom,
+        statusReason: refreshMeta.statusReason,
+        statusLabel: refreshMeta.statusLabel,
+        capturedAt: capturePayload.capturedAt,
+        recordedAt: runRecordedAt
+      });
     }
+
+    recordSourceRunDeltas(db, sourceDeltaRows);
 
     const retentionCleanup = applyRetentionPolicyCleanup(
       db,
@@ -907,9 +944,13 @@ function runSyncAndScore() {
     upsertEvaluations(db, evaluations);
 
     return {
+      runId,
       collected: totalCollected,
       upserted: totalUpserted,
       pruned: totalPruned,
+      newCount: totalNew,
+      updatedCount: totalUpdated,
+      unchangedCount: totalUnchanged,
       skippedByQuality,
       qualityMessages,
       retentionCleanup,
@@ -1163,6 +1204,10 @@ function buildDashboardData(limit = 200) {
   const sourceHealthBySourceId = new Map(
     sourceHealthRows.map((row) => [row.sourceId, row])
   );
+  const latestSourceRunDeltas = withDatabase((db) => listLatestSourceRunDeltas(db));
+  const latestSourceRunDeltaBySourceId = new Map(
+    latestSourceRunDeltas.map((row) => [row.sourceId, row])
+  );
   const queue = statsQueue
     .filter((job) => job.status === "new" || job.status === "viewed")
     .slice(0, limit);
@@ -1239,6 +1284,7 @@ function buildDashboardData(limit = 200) {
       const captureFunnel = buildSourceCaptureFunnel(source, capture);
       const refreshMeta = buildSourceRefreshMeta(source);
       const health = sourceHealthBySourceId.get(source.id) || null;
+      const latestRunDelta = latestSourceRunDeltaBySourceId.get(source.id) || null;
       const counts = countsBySourceId.get(source.id) || {
         totalCount: 0,
         activeCount: 0,
@@ -1330,6 +1376,33 @@ function buildDashboardData(limit = 200) {
         adapterHealthUpdatedAt:
           typeof health?.updatedAt === "string" && health.updatedAt.trim()
             ? health.updatedAt
+            : null,
+        runId: latestRunDelta?.runId || null,
+        runNewCount:
+          Number.isFinite(Number(latestRunDelta?.newCount))
+            ? Math.max(0, Math.round(Number(latestRunDelta.newCount)))
+            : null,
+        runUpdatedCount:
+          Number.isFinite(Number(latestRunDelta?.updatedCount))
+            ? Math.max(0, Math.round(Number(latestRunDelta.updatedCount)))
+            : null,
+        runUnchangedCount:
+          Number.isFinite(Number(latestRunDelta?.unchangedCount))
+            ? Math.max(0, Math.round(Number(latestRunDelta.unchangedCount)))
+            : null,
+        runImportedCount:
+          Number.isFinite(Number(latestRunDelta?.importedCount))
+            ? Math.max(0, Math.round(Number(latestRunDelta.importedCount)))
+            : null,
+        runRecordedAt:
+          typeof latestRunDelta?.recordedAt === "string" &&
+          latestRunDelta.recordedAt.trim()
+            ? latestRunDelta.recordedAt
+            : null,
+        runCapturedAt:
+          typeof latestRunDelta?.capturedAt === "string" &&
+          latestRunDelta.capturedAt.trim()
+            ? latestRunDelta.capturedAt
             : null,
         ...refreshMeta
       };
@@ -2988,6 +3061,19 @@ export function renderDashboardPage(dashboard, options = {}) {
               capture?.cached === true ||
               capture?.provider === "cache"
           ).length;
+          const runDeltaText =
+            runAllPayload?.sync &&
+            Number.isFinite(Number(runAllPayload.sync.newCount)) &&
+            Number.isFinite(Number(runAllPayload.sync.updatedCount)) &&
+            Number.isFinite(Number(runAllPayload.sync.unchangedCount))
+              ? " Run delta: new " +
+                String(Number(runAllPayload.sync.newCount)) +
+                ", updated " +
+                String(Number(runAllPayload.sync.updatedCount)) +
+                ", unchanged " +
+                String(Number(runAllPayload.sync.unchangedCount)) +
+                "."
+              : "";
           const activeRankedCount = Number(dashboard?.profile?.activeCount || 0);
           setCriteriaFeedback(
             "Done. Ran " +
@@ -3000,7 +3086,8 @@ export function renderDashboardPage(dashboard, options = {}) {
               String(cachedCaptures) +
               " cached source(s)). " +
               String(activeRankedCount) +
-              " active ranked jobs."
+              " active ranked jobs." +
+              runDeltaText
           );
         } catch (error) {
           setCriteriaFeedback(error.message, true);
@@ -3463,11 +3550,23 @@ export function renderDashboardPage(dashboard, options = {}) {
             captureStatus: "never_run",
             captureFunnelError: null,
             hasCacheState: false,
+            refreshMode: null,
+            refreshServedFrom: null,
+            refreshStatusReason: null,
+            refreshStatusLabel: null,
+            refreshContextAtMs: null,
             jobCount: 0,
             capturedCount: 0,
             filteredCount: 0,
             dedupedCount: 0,
             importedCount: 0,
+            runNewCount: 0,
+            runUpdatedCount: 0,
+            runUnchangedCount: 0,
+            runImportedCount: 0,
+            hasRunDelta: false,
+            runDeltaRecordedAt: null,
+            runDeltaCapturedAt: null,
             expectedFoundCount: 0,
             hasUnknownExpectedCount: false,
             adapterHealthStatus: "unknown",
@@ -3604,6 +3703,23 @@ export function renderDashboardPage(dashboard, options = {}) {
             current.hasCacheState = true;
           }
 
+          const sourceContextTimestampMs = Number.isFinite(capturedAtMs)
+            ? capturedAtMs
+            : Date.parse(source.runRecordedAt || source.runCapturedAt || "");
+          if (
+            !Number.isFinite(current.refreshContextAtMs) ||
+            (Number.isFinite(sourceContextTimestampMs) &&
+              sourceContextTimestampMs > current.refreshContextAtMs)
+          ) {
+            current.refreshContextAtMs = Number.isFinite(sourceContextTimestampMs)
+              ? sourceContextTimestampMs
+              : null;
+            current.refreshMode = source.refreshMode || null;
+            current.refreshServedFrom = source.servedFrom || null;
+            current.refreshStatusReason = source.statusReason || null;
+            current.refreshStatusLabel = source.statusLabel || null;
+          }
+
           const sourceJobCount = Number(source.jobCount || 0);
           const sourceCapturedCount = Number(source.captureJobCount || 0);
           const sourceFilteredCount = Number(source.droppedByHardFilterCount || 0);
@@ -3619,6 +3735,18 @@ export function renderDashboardPage(dashboard, options = {}) {
             source.avgScore === null || source.avgScore === undefined
               ? null
               : Number(source.avgScore);
+          const sourceRunNewCount = Number.isFinite(Number(source.runNewCount))
+            ? Math.max(0, Math.round(Number(source.runNewCount)))
+            : null;
+          const sourceRunUpdatedCount = Number.isFinite(Number(source.runUpdatedCount))
+            ? Math.max(0, Math.round(Number(source.runUpdatedCount)))
+            : null;
+          const sourceRunUnchangedCount = Number.isFinite(Number(source.runUnchangedCount))
+            ? Math.max(0, Math.round(Number(source.runUnchangedCount)))
+            : null;
+          const sourceRunImportedCount = Number.isFinite(Number(source.runImportedCount))
+            ? Math.max(0, Math.round(Number(source.runImportedCount)))
+            : null;
 
           current.jobCount += sourceJobCount;
           current.capturedCount += sourceCapturedCount;
@@ -3633,6 +3761,37 @@ export function renderDashboardPage(dashboard, options = {}) {
           current.highSignalCount += sourceHighSignalCount;
           current.appliedCount += sourceAppliedCount;
           current.skippedCount += sourceSkippedCount;
+          if (
+            sourceRunNewCount !== null ||
+            sourceRunUpdatedCount !== null ||
+            sourceRunUnchangedCount !== null
+          ) {
+            current.hasRunDelta = true;
+            current.runNewCount += sourceRunNewCount || 0;
+            current.runUpdatedCount += sourceRunUpdatedCount || 0;
+            current.runUnchangedCount += sourceRunUnchangedCount || 0;
+            current.runImportedCount += sourceRunImportedCount || 0;
+          }
+
+          const sourceRunRecordedAtMs = Date.parse(source.runRecordedAt || "");
+          const currentRunRecordedAtMs = Date.parse(current.runDeltaRecordedAt || "");
+          if (
+            Number.isFinite(sourceRunRecordedAtMs) &&
+            (!Number.isFinite(currentRunRecordedAtMs) ||
+              sourceRunRecordedAtMs > currentRunRecordedAtMs)
+          ) {
+            current.runDeltaRecordedAt = source.runRecordedAt;
+          }
+
+          const sourceRunCapturedAtMs = Date.parse(source.runCapturedAt || "");
+          const currentRunCapturedAtMs = Date.parse(current.runDeltaCapturedAt || "");
+          if (
+            Number.isFinite(sourceRunCapturedAtMs) &&
+            (!Number.isFinite(currentRunCapturedAtMs) ||
+              sourceRunCapturedAtMs > currentRunCapturedAtMs)
+          ) {
+            current.runDeltaCapturedAt = source.runCapturedAt;
+          }
 
           if (
             sourceAvgScore !== null &&
@@ -3733,6 +3892,26 @@ export function renderDashboardPage(dashboard, options = {}) {
                   (healthStatus === "ok" && healthScore !== null
                     ? "health score " + healthScore + "%"
                     : null);
+            const refreshStatusReason =
+              typeof source.refreshStatusReason === "string" &&
+              source.refreshStatusReason.trim()
+                ? source.refreshStatusReason.replaceAll("_", " ")
+                : "unknown";
+            const refreshServedFrom =
+              typeof source.refreshServedFrom === "string" &&
+              source.refreshServedFrom.trim()
+                ? source.refreshServedFrom
+                : "unknown";
+            const refreshContextDetail =
+              "refresh: " + refreshStatusReason + " (" + refreshServedFrom + ")";
+            const runDeltaDetail = source.hasRunDelta
+              ? "run delta: new " +
+                String(source.runNewCount) +
+                " · updated " +
+                String(source.runUpdatedCount) +
+                " · unchanged " +
+                String(source.runUnchangedCount)
+              : "run delta: unavailable";
             const formatterUnsupported = Array.isArray(source.formatterUnsupported)
               ? source.formatterUnsupported
               : [];
@@ -3771,6 +3950,8 @@ export function renderDashboardPage(dashboard, options = {}) {
                 '" aria-hidden="true"></span><span>' +
                 escapeHtml(statusLabel) +
                 "</span></span>" +
+                '<div class="subhead">' + escapeHtml(refreshContextDetail) + "</div>" +
+                '<div class="subhead">' + escapeHtml(runDeltaDetail) + "</div>" +
                 (statusDetail
                   ? '<div class="subhead">' + escapeHtml(statusDetail) + "</div>"
                   : "") +
@@ -4551,6 +4732,9 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
           collected: sync.collected,
           upserted: sync.upserted,
           pruned: sync.pruned,
+          new_count: sync.newCount,
+          updated_count: sync.updatedCount,
+          unchanged_count: sync.unchangedCount,
           skipped_by_quality: sync.skippedByQuality,
           evaluated: sync.evaluated,
           retention_deleted: Number(sync?.retentionCleanup?.totalDeleted || 0)
@@ -4588,6 +4772,18 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
           sync_evaluated:
             Number.isFinite(Number(result?.sync?.evaluated))
               ? Number(result.sync.evaluated)
+              : null,
+          sync_new_count:
+            Number.isFinite(Number(result?.sync?.newCount))
+              ? Number(result.sync.newCount)
+              : null,
+          sync_updated_count:
+            Number.isFinite(Number(result?.sync?.updatedCount))
+              ? Number(result.sync.updatedCount)
+              : null,
+          sync_unchanged_count:
+            Number.isFinite(Number(result?.sync?.unchangedCount))
+              ? Number(result.sync.unchangedCount)
               : null,
           retention_deleted:
             Number.isFinite(Number(result?.sync?.retentionCleanup?.totalDeleted))
