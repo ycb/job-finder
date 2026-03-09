@@ -112,7 +112,7 @@ The current backlog has strong item-level specs, but we need explicit epic-level
   - WHY: Automation fails when source auth/readiness is unresolved at setup.
   - IMPACT: Fewer failed scheduled runs and less manual intervention.
 - `P0` Run page-level full-JD verification for keyword/required-term checks. [Detailed spec](./backlog-specs/p1-core-full-jd-pass.md)
-  - STATUS: Blocked (dependency: Built In salary extraction for matching jobs)
+  - STATUS: In progress (Built In salary dependency no longer hard-blocking; evaluation-stage full-JD rerun and fallback evidence persistence remain)
   - WHY: Snippet-only text can miss key terms and skew decisions.
   - IMPACT: Higher precision for hard-filter and fit classification.
 - `P0` Close full-JD extraction gaps per source before re-enable/scale. [Detailed spec](./backlog-specs/p0-source-full-jd-gap-closure.md)

@@ -1,6 +1,6 @@
 # Documentation Registry
 
-As of 2026-03-08.
+As of 2026-03-09.
 
 ## Purpose
 
@@ -36,6 +36,7 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/plans/2026-03-06-data-quality-epic-execplan.md` | Contributors | Data-quality epic execution plan | Data-quality strategy changes |
 | `docs/plans/2026-03-07-adapter-reliability-guardrails-execplan.md` | Contributors/operators | Guardrails/canaries/source-health execution plan | Adapter reliability strategy changes |
 | `docs/plans/2026-03-08-phase-1-multi-agent-orchestration-execplan.md` | Contributors/operators | Phase 1 multi-agent orchestration execution plan | Multi-agent execution process updates |
+| `docs/plans/2026-03-09-phase-1-1-closeout-execution-plan.md` | Contributors/operators | Phase 1.1 closeout implementation sequencing plan for remaining MVP items | Phase 1.1 scope or sequencing changes |
 | `docs/backlog-specs/completed-core-url-construction-rollout.md` | Contributors | Completed URL construction rollout record | Backfilled completion notes |
 | `docs/backlog-specs/p0-source-capture-verification-framework.md` | Contributors | P0 source capture verification specification | Verification framework changes |
 | `docs/backlog-specs/p0-source-full-jd-gap-closure.md` | Contributors | P0 source full-JD gap closure specification | Source extraction quality roadmap changes |
@@ -79,6 +80,7 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/announcements/2026-03-08-source-quality-guardrails-and-contract-governance.md` | Marketing, founder narrative | Channel-ready narrative for source quality guardrails and contract governance release | Messaging refresh for this release |
 | `docs/roadmap/decision-log.md` | Stakeholders, contributors | Decision log with autonomous vs approval-required buckets | Any roadmap decision or approval event |
 | `docs/roadmap/kickoff/2026-03-08-mvp-phase-1-kickoff.md` | Stakeholders, contributors | Dated kickoff charter for MVP Phase 1 scope, sequencing, and accountability | Phase kickoffs or kickoff revision approvals |
+| `docs/roadmap/kickoff/2026-03-09-mvp-phase-1-1-closeout.md` | Stakeholders, contributors | Dated closeout scope charter for remaining Phase 1 MVP follow-on work | Phase closeout scope changes |
 | `docs/roadmap/phase-1-dispatch-board.md` | Stakeholders, contributors | Active dispatch control board for lane/worktree/task gate tracking | Any active queue, lane, or gate-state change |
 | `docs/roadmap/phase-1-execution-tracker.md` | Stakeholders, contributors | Live Phase 1 status/dependency tracker for MVP execution | Any status/dependency/milestone change in Phase 1 |
 | `docs/roadmap/progress-merge/2026-03-08-1b18d56.md` | Stakeholders, contributors | Merge-to-main execution report for safety-boundary milestone | Each merge to main for roadmap-tracked work |
@@ -89,6 +91,7 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/roadmap/progress-merge/2026-03-08-c264403.md` | Stakeholders, contributors | Merge-to-main execution report for analytics schema/mapping completion milestone | Each merge to main for roadmap-tracked work |
 | `docs/roadmap/progress-merge/2026-03-08-34ad002.md` | Stakeholders, contributors | Merge-to-main execution report for retention-policy completion milestone | Each merge to main for roadmap-tracked work |
 | `docs/roadmap/progress-daily/README.md` | Stakeholders, contributors | Daily roadmap update artifact conventions | Daily progress process changes |
+| `docs/roadmap/progress-daily/2026-03-09.md` | Stakeholders, contributors | Daily update covering Phase 1.1 closeout scope and verification-gate changes | Daily roadmap update cycle |
 | `docs/roadmap/progress-merge/README.md` | Stakeholders, contributors | Merge-to-main roadmap update artifact conventions | Merge update process changes |
 | `docs/roadmap/retros/README.md` | Contributors | Virtual-retro artifact conventions | Retro process changes |
 | `docs/roadmap/retros/2026-03-08.md` | Stakeholders, contributors | Daily retro for kickoff + multi-agent orchestration setup | Daily retro cadence and process-learning updates |

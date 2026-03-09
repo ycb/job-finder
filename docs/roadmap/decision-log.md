@@ -1,6 +1,6 @@
 # Roadmap Decision Log
 
-As of 2026-03-08.
+As of 2026-03-09.
 
 ## Purpose
 
@@ -21,6 +21,8 @@ Track roadmap decisions with explicit governance boundaries so stakeholder and a
 | 2026-03-08 | Completed Criteria Fidelity multi-keyword criteria task (`W1-06`) and advanced active dispatch to `W1-07`. | Added shared keyword normalization (comma-split, trim, dedupe) for criteria persistence and URL builder consumption, plus behavior docs for current `AND` semantics and future `OR`; merged to `main` in `44d227c` and verified in-lane via `npm test` (`170` pass, `0` fail). | `src/search/keywords.js`, `src/config/schema.js`, `src/sources/search-url-builder.js`, `test/search-url-builder.test.js`, `test/search-criteria-config.test.js`, `docs/backlog-specs/p1-core-multi-keyword-comma.md`, `docs/plans/2026-03-06-search-construction-design.md`, `docs/roadmap/phase-1-dispatch-board.md`, `docs/roadmap/phase-1-execution-tracker.md`, `docs/backlog.md` | applied |
 | 2026-03-08 | Completed Operations Metrics event-schema/mapping task (`W1-07`) and advanced active dispatch to `W1-08`. | Added canonical analytics envelope schema + channel tags + identity modes, wired PostHog event mapping and local counters persistence, instrumented terminal/dashboard event producers, and added serialization/counter tests; merged to `main` in `c264403` and verified via `npm test` (`175` pass, `0` fail). | `src/analytics/events.js`, `src/analytics/client.js`, `src/cli.js`, `src/review/server.js`, `test/analytics-events.test.js`, `test/analytics-client.test.js`, `docs/analytics/event-schema.md`, `docs/roadmap/phase-1-dispatch-board.md`, `docs/roadmap/phase-1-execution-tracker.md`, `docs/backlog.md` | applied |
 | 2026-03-08 | Completed Operations Metrics retention-policy task (`W1-08`) and closed Phase 1 Wave 1 queue. | Added status-aware retention defaults (`new=30`, `viewed=45`, `skip_for_now=21`, `rejected=14`, `applied=never`), policy loading/inspection path, sync-path cleanup wiring, and persisted cleanup audits with deleted/protected counts; merged to `main` in `34ad002` and verified via `npm test` (`179` pass, `0` fail). | `src/config/retention-policy.js`, `src/jobs/retention.js`, `src/cli.js`, `src/review/server.js`, `test/retention-policy-config.test.js`, `test/retention-cleanup.test.js`, `docs/roadmap/phase-1-dispatch-board.md`, `docs/roadmap/phase-1-execution-tracker.md`, `docs/backlog.md` | applied |
+| 2026-03-09 | Reclassified full-JD page-level pass from `Blocked` to `In progress` and launched Phase 1.1 closeout scope. | Latest contract check shows Built In salary coverage above configured gate, so blocker status shifted from dependency-driven to implementation-driven closeout. | `docs/backlog.md`, `docs/roadmap/phase-1-execution-tracker.md`, `docs/roadmap/kickoff/2026-03-09-mvp-phase-1-1-closeout.md`, `docs/roadmap/progress-daily/2026-03-09.md` | applied |
+| 2026-03-09 | Added explicit Playwright verification gate for UI-affecting roadmap items. | Stakeholder concern identified missing browser-level proof in prior completion reports; gate now requires Playwright smoke artifacts before UI tasks can be marked complete. | `docs/roadmap/phase-1-dispatch-board.md`, `docs/roadmap/kickoff/2026-03-09-mvp-phase-1-1-closeout.md` | applied |
 
 ## Approval-Required Decisions
 

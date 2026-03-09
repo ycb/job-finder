@@ -9,17 +9,17 @@ Dispatch board: `docs/roadmap/phase-1-dispatch-board.md`
 - Scope note: this tracker covers the current Phase 1 MVP execution set (`12` items), not the full backlog inventory.
 - Total tracked items: `12`
 - Done: `6`
-- In progress: `3`
-- Blocked: `1`
+- In progress: `4`
+- Blocked: `0`
 - Planned: `2`
 
 ## Active Dispatch State
 
-- current_task: `Wave 1 complete; next dispatch packet pending`
+- current_task: `Phase 1.1 closeout queue scoping`
 - lane: `Cross-lane`
-- implementer_status: `ready to dispatch next packet`
-- spec_review_status: `n/a (no active task)`
-- code_quality_status: `n/a (no active task)`
+- implementer_status: `ready to dispatch W2-01`
+- spec_review_status: `ready`
+- code_quality_status: `ready`
 - gate_order: `implementer -> spec compliance -> code quality`
 
 ## Item Tracker
@@ -27,7 +27,7 @@ Dispatch board: `docs/roadmap/phase-1-dispatch-board.md`
 | Item | Priority | Theme | Status | Complexity | Dependencies |
 | --- | --- | --- | --- | --- | --- |
 | Onboarding source auth readiness | P0 | Onboarding | Planned | M | - |
-| Full-JD page-level verification pass | P0 | Core | Blocked | M | Built In salary extraction [hard] |
+| Full-JD page-level verification pass | P0 | Core | In progress | M | Full-JD extraction gap closure [soft] |
 | Full-JD extraction gap closure | P0 | Source Trust | In progress | L | Source-shape contracts [soft] |
 | Read-vs-write MCP/browser boundary | P0 | Integrations | Done (`1b18d56`) | L | - |
 | Source-shape contracts library | P0 | Architecture | Done (`444d199`) | L | - |

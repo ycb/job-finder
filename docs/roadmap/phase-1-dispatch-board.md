@@ -1,6 +1,6 @@
 # Phase 1 Dispatch Board
 
-As of 2026-03-08.
+As of 2026-03-09.
 
 ## Execution Mode
 
@@ -77,6 +77,32 @@ Baseline verification command run in lane workspace:
 Wave 1 status:
 - ✅ Completed on `2026-03-08` with `W1-08` merge (`34ad002`).
 
+## Phase 1.1 Closeout Queue (Prioritized)
+
+| Queue ID | Priority | Item | Lane | Status | Dependency |
+| --- | --- | --- | --- | --- | --- |
+| W2-01 | P0 | Run evaluation-stage page-level full-JD verification pass with snippet fallback evidence | Source Trust | In progress | Full-JD extraction gap closure [soft] |
+| W2-02 | P0 | Close full-JD extraction gaps with per-source detail coverage metrics + gating | Source Trust | In progress | Source-shape contracts [soft] |
+| W2-03 | P1 | Complete search controls (`AND`/`OR`, include/exclude, hard-filter explainability) | Criteria Fidelity | In progress | None |
+| W2-04 | P1 | Ship net-new/refresh deltas (`new`, `updated`, `unchanged`) with UI surfacing | Criteria Fidelity | In progress | None |
+
+## Verification Evidence Gates (Phase 1.1)
+
+Every task needs fresh evidence before completion claims.
+
+1. Required for every task:
+   - run targeted tests for changed modules
+   - run full suite `npm test`
+   - include command output summary and exit code in merge update
+2. Required for UI-affecting changes (dashboard HTML/API payload consumed by UI states):
+   - run Playwright smoke verification against local dashboard
+   - capture evidence artifact (snapshot/screenshot + short result note) under `docs/roadmap/progress-merge/`
+   - no UI task is marked complete without this artifact
+3. Required for source-quality changes:
+   - run `node src/cli.js check-source-contracts --window 3 --min-coverage 0.7`
+   - include source-level status deltas in merge update
+
 ## Notes
 
-- PostHog mapping contract and channel-tag schema are now in-repo (`docs/analytics/event-schema.md` + analytics modules). Active operations focus is now `W1-08` retention policy wiring.
+- PostHog mapping contract and channel-tag schema are now in-repo (`docs/analytics/event-schema.md` + analytics modules).
+- Active Phase 1 focus is now Phase 1.1 closeout (`W2-01` through `W2-04`).
