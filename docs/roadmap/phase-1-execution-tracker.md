@@ -7,15 +7,15 @@ Dispatch board: `docs/roadmap/phase-1-dispatch-board.md`
 ## Snapshot
 
 - Total tracked items: `12`
-- Done: `2`
-- In progress: `6`
+- Done: `4`
+- In progress: `4`
 - Blocked: `1`
 - Planned: `3`
 
 ## Active Dispatch State
 
-- current_task: `W1-05`
-- lane: `Criteria Fidelity`
+- current_task: `W1-07`
+- lane: `Operations Metrics`
 - implementer_status: `ready to dispatch`
 - spec_review_status: `pending`
 - code_quality_status: `pending`
@@ -30,8 +30,8 @@ Dispatch board: `docs/roadmap/phase-1-dispatch-board.md`
 | Full-JD extraction gap closure | P0 | Source Trust | In progress | L | Source-shape contracts [soft] |
 | Read-vs-write MCP/browser boundary | P0 | Integrations | Done (`1b18d56`) | L | - |
 | Source-shape contracts library | P0 | Architecture | Done (`444d199`) | L | - |
-| Persist formatter diagnostics | P1 | Core | In progress | M | - |
-| Multi-keyword criteria support | P1 | Core | In progress | M | Search-controls cleanup [soft] |
+| Persist formatter diagnostics | P1 | Core | Done (`d552f35`) | M | - |
+| Multi-keyword criteria support | P1 | Core | Done (`44d227c`) | M | Search-controls cleanup [soft] |
 | Search controls (hard filter, include/exclude, cache) | P1 | Core | In progress | L | - |
 | Net-new + refresh behavior | P1 | Core | In progress | M | - |
 | Tooling ownership/metering baseline | P1 | Operations | In progress | L | PostHog SDK installed; channel taxonomy/reporting contract pending |

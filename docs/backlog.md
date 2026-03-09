@@ -52,9 +52,9 @@ The current backlog has strong item-level specs, but we need explicit epic-level
 - Includes: work type support, multi-keyword support, clear hard-filter controls, freshness/net-new behavior, and cross-search ranking blend behavior.
 - Success signals: fewer false positives/negatives and clearer explanation of why jobs were ranked or filtered.
 - Primary linked items:
-  - Persist formatter diagnostics (`P1`, in progress).
+  - Persist formatter diagnostics (`P1`, completed).
   - Add shared `workType` criteria (`P1`, planned).
-  - Support comma-separated multiple keywords (`P1`, in progress).
+  - Support comma-separated multiple keywords (`P1`, completed).
   - Improve search controls (hard filter, AND/OR, include/exclude, cache status) (`P1`, in progress).
   - Add net-new + refresh incremental behavior (`P1`, in progress).
   - Add multi-search ranking model with interleaving/weights (`P1`, planned).
@@ -132,7 +132,7 @@ The current backlog has strong item-level specs, but we need explicit epic-level
 
 **Theme: Core Functionality**
 - `P1` Persist formatter diagnostics in CLI/dashboard. [Detailed spec](./backlog-specs/p1-core-formatter-diagnostics.md)
-  - STATUS: In progress (persisted + CLI surfaced; dashboard surfacing still incomplete)
+  - STATUS: Completed (`d552f35`; persisted source formatter diagnostics now surface in dashboard status details and remain durable in source metadata)
   - WHY: Unsupported criteria diagnostics are currently easy to lose after a run.
   - IMPACT: Better transparency on why filters did or did not apply per source.
 - `P1` Add shared `workType` criteria (`remote`/`hybrid`/`in_person`/`all`) across source URL builders. [Detailed spec](./backlog-specs/p1-core-worktype-field.md)
@@ -140,7 +140,7 @@ The current backlog has strong item-level specs, but we need explicit epic-level
   - WHY: Users need one consistent work-mode preference across all sources.
   - IMPACT: Better match quality and less per-source setup overhead.
 - `P1` Support comma-separated multiple keywords in search criteria. [Detailed spec](./backlog-specs/p1-core-multi-keyword-comma.md)
-  - STATUS: In progress (scoring parser supports comma-split; URL/search-criteria flow still pending)
+  - STATUS: Completed (`44d227c`; criteria persistence and URL query builders now consume normalized comma-delimited keyword sets)
   - WHY: Users need one field to express multiple distinct keyword intents.
   - IMPACT: Better query quality with less manual criteria editing.
 - `P1` Improve search controls: clear hard filter, AND/OR keywords, include/exclude terms, and cache status visualization. [Detailed spec](./backlog-specs/p1-core-search-hardfilter-keywords-include-exclude-cache.md)
