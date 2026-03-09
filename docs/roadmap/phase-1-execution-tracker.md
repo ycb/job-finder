@@ -8,18 +8,18 @@ Dispatch board: `docs/roadmap/phase-1-dispatch-board.md`
 
 - Scope note: this tracker covers the current Phase 1 MVP execution set (`12` items), not the full backlog inventory.
 - Total tracked items: `12`
-- Done: `6`
-- In progress: `4`
+- Done: `7`
+- In progress: `3`
 - Blocked: `0`
 - Planned: `2`
 
 ## Active Dispatch State
 
-- current_task: `Phase 1.1 closeout queue scoping`
-- lane: `Cross-lane`
-- implementer_status: `ready to dispatch W2-01`
-- spec_review_status: `ready`
-- code_quality_status: `ready`
+- current_task: `W2-04 net-new/refresh delta completion`
+- lane: `Criteria Fidelity`
+- implementer_status: `completed (verification attached)`
+- spec_review_status: `ready for merge review`
+- code_quality_status: `ready for merge review`
 - gate_order: `implementer -> spec compliance -> code quality`
 
 ## Item Tracker
@@ -34,7 +34,7 @@ Dispatch board: `docs/roadmap/phase-1-dispatch-board.md`
 | Persist formatter diagnostics | P1 | Core | Done (`d552f35`) | M | - |
 | Multi-keyword criteria support | P1 | Core | Done (`44d227c`) | M | Search-controls cleanup [soft] |
 | Search controls (hard filter, include/exclude, cache) | P1 | Core | In progress | L | - |
-| Net-new + refresh behavior | P1 | Core | In progress | M | - |
+| Net-new + refresh behavior | P1 | Core | Done (`Lane-B-W2-04`) | M | - |
 | Tooling ownership/metering baseline | P1 | Operations | Done (`c264403`) | L | - |
 | Value metrics + caps + donation verification | P1 | Operations | Planned | L | Tooling ownership/metering [hard] |
 | Local storage retention controls | P1 | Operations | Done (`34ad002`) | M | Tooling ownership/metering [soft] |

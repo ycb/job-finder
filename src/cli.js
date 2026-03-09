@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -38,13 +39,16 @@ import { normalizeJobRecord } from "./jobs/normalize.js";
 import { applyRetentionPolicyCleanup, writeRetentionCleanupAudit } from "./jobs/retention.js";
 import {
   listAllJobs,
+  listSourceJobsForDelta,
   listReviewQueue,
   listTopJobs,
   markApplicationStatus,
+  recordSourceRunDeltas,
   upsertEvaluations,
   upsertJobs,
   pruneSourceJobs
 } from "./jobs/repository.js";
+import { classifyRunDeltas } from "./jobs/run-deltas.js";
 import { evaluateJobsFromSearchCriteria } from "./jobs/score.js";
 import { writeShortlistFile } from "./shortlist/render.js";
 import { startReviewServer } from "./review/server.js";
@@ -231,17 +235,62 @@ function buildRejectedEvaluation(reason) {
   };
 }
 
+function buildSourceRefreshContext(source, options = {}) {
+  const refreshProfile = normalizeRefreshProfile(
+    options.refreshProfile || process.env.JOB_FINDER_REFRESH_PROFILE || "safe"
+  );
+
+  if (!isBrowserCaptureSource(source)) {
+    return {
+      refreshMode: refreshProfile,
+      servedFrom: "live",
+      statusReason: "fetched_during_sync",
+      statusLabel: "direct_fetch"
+    };
+  }
+
+  const decision = getSourceRefreshDecision(source, {
+    profile: refreshProfile,
+    forceRefresh: Boolean(options.forceRefresh),
+    statePath: options.refreshStatePath,
+    nowMs: options.nowMs
+  });
+  const statusReason = decision.reason || "eligible";
+  const statusLabelMap = {
+    eligible: "ready_live",
+    force_refresh: "ready_live",
+    cache_fresh: "cache_fresh",
+    cooldown: "cooldown",
+    min_interval: "throttled",
+    daily_cap: "daily_cap",
+    mock_profile: "cache_only"
+  };
+
+  return {
+    refreshMode: refreshProfile,
+    servedFrom: decision.servedFrom || "cache",
+    statusReason,
+    statusLabel: statusLabelMap[statusReason] || "cache_only"
+  };
+}
+
 function runSync(options = {}) {
   const sources = loadSources();
   const { db } = withDatabase();
   const allowQuarantined = resolveAllowQuarantinedIngest(options);
+  const runId = randomUUID();
+  const runRecordedAt = new Date().toISOString();
   let retentionRun = null;
 
   let totalCollected = 0;
   let totalUpserted = 0;
   let totalPruned = 0;
+  let totalNew = 0;
+  let totalUpdated = 0;
+  let totalUnchanged = 0;
   let skippedByQuality = 0;
   const qualityMessages = [];
+  const sourceDeltaRows = [];
 
   for (const source of sources.sources.filter((item) => item.enabled)) {
     const captureSummary = readSourceCaptureSummary(source);
@@ -331,6 +380,13 @@ function runSync(options = {}) {
       continue;
     }
 
+    const existingRows = listSourceJobsForDelta(db, source.id);
+    const deltas = classifyRunDeltas({
+      existingRows,
+      incomingJobs: normalizedJobs
+    });
+    const refreshContext = buildSourceRefreshContext(source, options);
+
     totalCollected += normalizedJobs.length;
     totalUpserted += upsertJobs(db, normalizedJobs);
     totalPruned += pruneSourceJobs(
@@ -338,7 +394,26 @@ function runSync(options = {}) {
       source.id,
       normalizedJobs.map((job) => job.id)
     );
+    totalNew += deltas.newCount;
+    totalUpdated += deltas.updatedCount;
+    totalUnchanged += deltas.unchangedCount;
+    sourceDeltaRows.push({
+      runId,
+      sourceId: source.id,
+      newCount: deltas.newCount,
+      updatedCount: deltas.updatedCount,
+      unchangedCount: deltas.unchangedCount,
+      importedCount: normalizedJobs.length,
+      refreshMode: refreshContext.refreshMode,
+      servedFrom: refreshContext.servedFrom,
+      statusReason: refreshContext.statusReason,
+      statusLabel: refreshContext.statusLabel,
+      capturedAt: capturePayload.capturedAt,
+      recordedAt: runRecordedAt
+    });
   }
+
+  recordSourceRunDeltas(db, sourceDeltaRows);
 
   retentionRun = runRetentionCleanupWithAudit(db, options);
 
@@ -368,6 +443,9 @@ function runSync(options = {}) {
   console.log(
     `Collected ${totalCollected} job(s). Upserted ${totalUpserted} record(s). Pruned ${totalPruned} stale record(s).`
   );
+  console.log(
+    `Run deltas: new=${totalNew}, updated=${totalUpdated}, unchanged=${totalUnchanged}.`
+  );
   if (skippedByQuality > 0) {
     console.log(
       `Skipped ${skippedByQuality} source(s) due capture quality guardrails.`
@@ -387,6 +465,9 @@ function runSync(options = {}) {
     total_collected: totalCollected,
     total_upserted: totalUpserted,
     total_pruned: totalPruned,
+    total_new: totalNew,
+    total_updated: totalUpdated,
+    total_unchanged: totalUnchanged,
     skipped_by_quality: skippedByQuality,
     retention_deleted: retentionRun?.cleanup?.totalDeleted || 0,
     enabled_sources: sources.sources.filter((item) => item.enabled).length

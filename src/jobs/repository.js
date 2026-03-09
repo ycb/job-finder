@@ -152,6 +152,116 @@ export function pruneSourceJobs(db, sourceId, keepJobIds = []) {
   return Number(result?.changes || 0);
 }
 
+export function listSourceJobsForDelta(db, sourceId) {
+  return db
+    .prepare(
+      `
+      SELECT
+        id,
+        source_id,
+        source_url,
+        external_id,
+        title,
+        company,
+        location,
+        posted_at,
+        employment_type,
+        easy_apply,
+        salary_text,
+        description,
+        normalized_hash,
+        structured_meta,
+        metadata_quality_score,
+        missing_required_fields
+      FROM jobs
+      WHERE source_id = ?;
+    `
+    )
+    .all(String(sourceId || "").trim());
+}
+
+export function recordSourceRunDeltas(db, rows = []) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return 0;
+  }
+
+  const statement = db.prepare(`
+    INSERT INTO source_run_deltas (
+      run_id,
+      source_id,
+      new_count,
+      updated_count,
+      unchanged_count,
+      imported_count,
+      refresh_mode,
+      served_from,
+      status_reason,
+      status_label,
+      captured_at,
+      recorded_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+  `);
+
+  let inserted = 0;
+
+  for (const row of rows) {
+    const runId = String(row?.runId || "").trim();
+    const sourceId = String(row?.sourceId || "").trim();
+    if (!runId || !sourceId) {
+      continue;
+    }
+
+    statement.run(
+      runId,
+      sourceId,
+      Math.max(0, Math.round(Number(row?.newCount) || 0)),
+      Math.max(0, Math.round(Number(row?.updatedCount) || 0)),
+      Math.max(0, Math.round(Number(row?.unchangedCount) || 0)),
+      Math.max(0, Math.round(Number(row?.importedCount) || 0)),
+      row?.refreshMode ? String(row.refreshMode) : null,
+      row?.servedFrom ? String(row.servedFrom) : null,
+      row?.statusReason ? String(row.statusReason) : null,
+      row?.statusLabel ? String(row.statusLabel) : null,
+      row?.capturedAt ? String(row.capturedAt) : null,
+      row?.recordedAt ? String(row.recordedAt) : new Date().toISOString()
+    );
+    inserted += 1;
+  }
+
+  return inserted;
+}
+
+export function listLatestSourceRunDeltas(db) {
+  return db
+    .prepare(
+      `
+      SELECT
+        latest.run_id AS runId,
+        latest.source_id AS sourceId,
+        latest.new_count AS newCount,
+        latest.updated_count AS updatedCount,
+        latest.unchanged_count AS unchangedCount,
+        latest.imported_count AS importedCount,
+        latest.refresh_mode AS refreshMode,
+        latest.served_from AS servedFrom,
+        latest.status_reason AS statusReason,
+        latest.status_label AS statusLabel,
+        latest.captured_at AS capturedAt,
+        latest.recorded_at AS recordedAt
+      FROM source_run_deltas latest
+      WHERE latest.id = (
+        SELECT candidate.id
+        FROM source_run_deltas candidate
+        WHERE candidate.source_id = latest.source_id
+        ORDER BY candidate.recorded_at DESC, candidate.id DESC
+        LIMIT 1
+      )
+      ORDER BY latest.source_id ASC;
+    `
+    )
+    .all();
+}
+
 export function listAllJobs(db) {
   return db
     .prepare(
