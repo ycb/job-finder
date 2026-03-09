@@ -1,6 +1,6 @@
-# P1 Integrations: Connect Narrata
+# P2 Integrations: Connect Narrata
 
-- Priority: P1
+- Priority: P2
 - Theme: Integrations
 
 ## Why

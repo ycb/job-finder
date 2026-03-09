@@ -87,6 +87,7 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/roadmap/progress-merge/2026-03-08-d552f35.md` | Stakeholders, contributors | Merge-to-main execution report for formatter diagnostics completion milestone | Each merge to main for roadmap-tracked work |
 | `docs/roadmap/progress-merge/2026-03-08-44d227c.md` | Stakeholders, contributors | Merge-to-main execution report for multi-keyword criteria completion milestone | Each merge to main for roadmap-tracked work |
 | `docs/roadmap/progress-merge/2026-03-08-c264403.md` | Stakeholders, contributors | Merge-to-main execution report for analytics schema/mapping completion milestone | Each merge to main for roadmap-tracked work |
+| `docs/roadmap/progress-merge/2026-03-08-34ad002.md` | Stakeholders, contributors | Merge-to-main execution report for retention-policy completion milestone | Each merge to main for roadmap-tracked work |
 | `docs/roadmap/progress-daily/README.md` | Stakeholders, contributors | Daily roadmap update artifact conventions | Daily progress process changes |
 | `docs/roadmap/progress-merge/README.md` | Stakeholders, contributors | Merge-to-main roadmap update artifact conventions | Merge update process changes |
 | `docs/roadmap/retros/README.md` | Contributors | Virtual-retro artifact conventions | Retro process changes |
@@ -97,5 +98,6 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/roadmap/retros/2026-03-08-d552f35.md` | Stakeholders, contributors | Merge-level retro for formatter diagnostics completion slice | Merge-triggered retrospective cadence |
 | `docs/roadmap/retros/2026-03-08-44d227c.md` | Stakeholders, contributors | Merge-level retro for multi-keyword criteria completion slice | Merge-triggered retrospective cadence |
 | `docs/roadmap/retros/2026-03-08-c264403.md` | Stakeholders, contributors | Merge-level retro for analytics schema/mapping completion slice | Merge-triggered retrospective cadence |
+| `docs/roadmap/retros/2026-03-08-34ad002.md` | Stakeholders, contributors | Merge-level retro for retention-policy completion slice | Merge-triggered retrospective cadence |
 | `docs/roadmap/task-packets/2026-03-08-phase1-wave1.md` | Contributors/operators | Copy/paste dispatch packets for Phase 1 Wave 1 tasks | Queue/scope/dependency changes for Wave 1 execution |
 | `docs/assets/dashboard-preview.svg` | Users, evaluators | Dashboard visual preview asset | Dashboard visual refresh |

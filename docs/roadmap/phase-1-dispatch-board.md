@@ -34,6 +34,8 @@ Baseline verification command run in lane workspace:
   - `npm test` => `170` pass, `0` fail on commit `44d227c` (lane full suite).
 - Latest verification after analytics-schema merge:
   - `npm test` => `175` pass, `0` fail on commit `c264403`.
+- Latest verification after retention-policy merge:
+  - `npm test` => `179` pass, `0` fail on commit `34ad002`.
 
 ## Wave 1 Queue (Prioritized)
 
@@ -46,7 +48,7 @@ Baseline verification command run in lane workspace:
 | W1-05 | P1 | Complete dashboard surfacing for persisted formatter diagnostics | Criteria Fidelity | Completed (`d552f35`) | None |
 | W1-06 | P1 | Finalize multi-keyword flow through URL/search criteria (comma and boolean mode prep) | Criteria Fidelity | Completed (`44d227c`) | Search controls model [soft] |
 | W1-07 | P1 | Define canonical event schema + channel tags + PostHog mapping for all surfaces | Operations Metrics | Completed (`c264403`) | None |
-| W1-08 | P1 | Implement status-aware retention defaults and policy persistence wiring | Operations Metrics | In progress (active dispatch) | W1-07 [soft] |
+| W1-08 | P1 | Implement status-aware retention defaults and policy persistence wiring | Operations Metrics | Completed (`34ad002`) | W1-07 [soft] |
 
 ## Controller Checklist Per Task
 
@@ -71,6 +73,9 @@ Baseline verification command run in lane workspace:
 - All Wave 1 tasks are reviewed and merged.
 - No task is marked done without spec + quality approvals.
 - Dependencies and blockers are reflected in the phase tracker within the same day.
+
+Wave 1 status:
+- ✅ Completed on `2026-03-08` with `W1-08` merge (`34ad002`).
 
 ## Notes
 

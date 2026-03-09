@@ -180,7 +180,7 @@ The current backlog has strong item-level specs, but we need explicit epic-level
   - WHY: We need visible user value and enforceable usage controls to support a donation-backed early monetization model.
   - IMPACT: Clear value communication, configurable free-tier enforcement, and validated donation unlock flow.
 - `P1` Add local storage controls with status-aware auto-delete ON by default (`new`/`viewed`/`skip_for_now`/`rejected`; keep `applied`). [Detailed spec](./backlog-specs/p1-operations-local-storage-retention.md)
-  - STATUS: Planned
+  - STATUS: Completed (`34ad002`; status-aware retention policy defaults, cleanup audit logging, sync-path wiring, and policy inspection path are live)
   - WHY: Users need predictable control over local disk usage and data retention behavior.
   - IMPACT: Better trust, lower storage bloat, and cleaner long-term operation.
 

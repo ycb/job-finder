@@ -7,18 +7,18 @@ Dispatch board: `docs/roadmap/phase-1-dispatch-board.md`
 ## Snapshot
 
 - Total tracked items: `12`
-- Done: `5`
+- Done: `6`
 - In progress: `3`
 - Blocked: `1`
-- Planned: `3`
+- Planned: `2`
 
 ## Active Dispatch State
 
-- current_task: `W1-08`
-- lane: `Operations Metrics`
-- implementer_status: `ready to dispatch`
-- spec_review_status: `pending`
-- code_quality_status: `pending`
+- current_task: `Wave 1 complete; next dispatch packet pending`
+- lane: `Cross-lane`
+- implementer_status: `ready to dispatch next packet`
+- spec_review_status: `n/a (no active task)`
+- code_quality_status: `n/a (no active task)`
 - gate_order: `implementer -> spec compliance -> code quality`
 
 ## Item Tracker
@@ -36,7 +36,7 @@ Dispatch board: `docs/roadmap/phase-1-dispatch-board.md`
 | Net-new + refresh behavior | P1 | Core | In progress | M | - |
 | Tooling ownership/metering baseline | P1 | Operations | Done (`c264403`) | L | - |
 | Value metrics + caps + donation verification | P1 | Operations | Planned | L | Tooling ownership/metering [hard] |
-| Local storage retention controls | P1 | Operations | Planned | M | Tooling ownership/metering [soft] |
+| Local storage retention controls | P1 | Operations | Done (`34ad002`) | M | Tooling ownership/metering [soft] |
 
 ## Milestone Targets (Initial)
 

@@ -33,3 +33,12 @@ As of 2026-03-06.
 - When proposing cross-source data contracts, include user-critical fields (`salary`, `location`) immediately with explicit placeholder semantics (for example `unknown`) instead of downgrading them out of the required set.
 - Do not include disabled sources in “current-state” quality analysis unless the user asks for projected analysis; label them as out-of-scope for the snapshot.
 - Sequence planning as parser-hardening first, then final schema/threshold commitments. Data-structure decisions should be based on measured parser output, not inferred capability.
+
+## Multi-Agent Phase Execution
+
+- When organizing lane-based work with `git worktree`, this environment may require escalated permissions for branch/ref lock writes. First failure should trigger immediate escalation request instead of repeated local retries.
+- A phase tracker alone is insufficient for multi-agent control. Add a dispatch board with:
+  - active task state
+  - lane/worktree mapping
+  - required review gate order (`implementer -> spec -> quality`)
+- Task packets that are copy/paste-ready reduce controller overhead and keep subagent runs spec-anchored without extra context fetches.
