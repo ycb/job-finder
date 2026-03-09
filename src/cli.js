@@ -334,6 +334,7 @@ function printInstallConsentNotice() {
   console.log("Review these documents before accepting:");
   console.log("- TERMS.md");
   console.log("- PRIVACY.md");
+  console.log("Open them in your editor and review before continuing.");
   console.log(
     "By continuing, you confirm you have read and accept both documents."
   );
@@ -365,9 +366,9 @@ async function promptInstallConsent() {
 
   try {
     const first = await rl.question(
-      "I have read and accept TERMS.md [y/N]: "
+      "Type 'accept' to confirm you have read TERMS.md (or press Enter to exit): "
     );
-    const termsAccepted = parseAnalyticsInput(first) === true;
+    const termsAccepted = String(first || "").trim().toLowerCase() === "accept";
     if (!termsAccepted) {
       return {
         termsAccepted: false,
@@ -377,9 +378,9 @@ async function promptInstallConsent() {
     }
 
     const second = await rl.question(
-      "I have read and accept PRIVACY.md [y/N]: "
+      "Type 'accept' to confirm you have read PRIVACY.md (or press Enter to exit): "
     );
-    const privacyAccepted = parseAnalyticsInput(second) === true;
+    const privacyAccepted = String(second || "").trim().toLowerCase() === "accept";
     if (!privacyAccepted) {
       return {
         termsAccepted,
@@ -389,9 +390,9 @@ async function promptInstallConsent() {
     }
 
     const third = await rl.question(
-      "I understand the ToS risk and accept responsibility for my accounts [y/N]: "
+      "Type 'accept' to confirm ToS/account risk responsibility (or press Enter to exit): "
     );
-    const tosRiskAccepted = parseAnalyticsInput(third) === true;
+    const tosRiskAccepted = String(third || "").trim().toLowerCase() === "accept";
     if (!tosRiskAccepted) {
       return {
         termsAccepted,
@@ -401,9 +402,9 @@ async function promptInstallConsent() {
     }
 
     const fourth = await rl.question(
-      "I will not modify default rate limits without understanding the implications [y/N]: "
+      "Type 'accept' to confirm rate-limit responsibility (or press Enter to exit): "
     );
-    const rateLimitPolicyAccepted = parseAnalyticsInput(fourth) === true;
+    const rateLimitPolicyAccepted = String(fourth || "").trim().toLowerCase() === "accept";
 
     return {
       termsAccepted,
