@@ -100,7 +100,7 @@ The current backlog has strong item-level specs, but we need explicit epic-level
   - Adopt licensing split (MIT core + BSL MCP/permissions layer) (`P1`, planned).
   - Define internal-vs-external tool ownership and usage metering baseline (`P1`, completed).
   - Add user-value metrics + caps + donation-based reset verification (`P1`, planned).
-  - Define read-vs-write MCP/browser boundary (`P0`, planned; cross-epic dependency with Epic A).
+  - Define read-vs-write MCP/browser boundary (`P0`, completed; cross-epic dependency with Epic A).
 
 
 
@@ -119,30 +119,14 @@ The current backlog has strong item-level specs, but we need explicit epic-level
   - STATUS: In progress (detail enrichment path shipped; source-by-source closure still open)
   - WHY: Current source coverage is mostly card/snippet level and creates avoidable scoring/filter noise.
   - IMPACT: Better quality decisions, clearer source readiness, and safer re-enable path for feature-flagged sources.
-- `P0` Define read-vs-write browser primitive boundary and enforce read-only MCP v1 tool surface. [Detailed spec](./backlog-specs/p0-integrations-read-write-boundary.md)
-  - STATUS: In progress (bridge primitive catalog + mcp_v1 read-only registration enforcement merged in `1b18d56`; MCP server integration pending)
-  - WHY: Once MCP can execute capture, accidental drift into write/apply automation becomes a high-risk failure mode.
-  - IMPACT: Explicit safety boundary for contributors and safer MCP rollout.
-- `P0` Add definitive source shape contract library for search-parameter and extraction expectations (required + optional metadata). [Detailed spec](./backlog-specs/p0-architecture-source-shape-contracts-library.md)
-  - STATUS: Completed (`444d199`, `2dd4c6f`; schema/validation, sourceId resolution, field-level drift diagnostics, and sync-path diagnostics persistence are live)
-  - WHY: Search construction and extraction expectations are not yet captured in one authoritative contract layer.
-  - IMPACT: Stronger source adapter quality, simpler onboarding automation, and clearer contract governance.
 
 ### P1
 
 **Theme: Core Functionality**
-- `P1` Persist formatter diagnostics in CLI/dashboard. [Detailed spec](./backlog-specs/p1-core-formatter-diagnostics.md)
-  - STATUS: Completed (`d552f35`; persisted source formatter diagnostics now surface in dashboard status details and remain durable in source metadata)
-  - WHY: Unsupported criteria diagnostics are currently easy to lose after a run.
-  - IMPACT: Better transparency on why filters did or did not apply per source.
 - `P1` Add shared `workType` criteria (`remote`/`hybrid`/`in_person`/`all`) across source URL builders. [Detailed spec](./backlog-specs/p1-core-worktype-field.md)
   - STATUS: Planned
   - WHY: Users need one consistent work-mode preference across all sources.
   - IMPACT: Better match quality and less per-source setup overhead.
-- `P1` Support comma-separated multiple keywords in search criteria. [Detailed spec](./backlog-specs/p1-core-multi-keyword-comma.md)
-  - STATUS: Completed (`44d227c`; criteria persistence and URL query builders now consume normalized comma-delimited keyword sets)
-  - WHY: Users need one field to express multiple distinct keyword intents.
-  - IMPACT: Better query quality with less manual criteria editing.
 - `P1` Improve search controls: clear hard filter, AND/OR keywords, include/exclude terms, and cache status visualization. [Detailed spec](./backlog-specs/p1-core-search-hardfilter-keywords-include-exclude-cache.md)
   - STATUS: In progress (hard filter + cache visibility are partially shipped; full AND/OR + include/exclude controls pending)
   - WHY: Search/filter behavior is currently hard to tune and explain quickly.
@@ -171,18 +155,10 @@ The current backlog has strong item-level specs, but we need explicit epic-level
   - IMPACT: Reliable agent-driven job search operations.
 
 **Theme: Operations & Tooling**
-- `P1` Define internal-vs-external tool ownership and add usage metering baseline (installs, runs, searches, sources, limits, donations). [Detailed spec](./backlog-specs/p1-operations-tooling-ownership-metering.md)
-  - STATUS: Completed (`c264403`; canonical analytics schema/channel tags + PostHog mapping + local counters are now implemented and tested)
-  - WHY: Product and growth operations require explicit ownership boundaries and baseline telemetry.
-  - IMPACT: Better roadmap decisions, pricing/limit enforcement readiness, and healthier maintenance model.
 - `P1` Add user-value metrics (`searches ran`, `matching jobs imported`) with free-tier caps and donation-based cap reset + verification. [Detailed spec](./backlog-specs/p1-operations-value-metrics-caps-donations.md)
   - STATUS: Planned
   - WHY: We need visible user value and enforceable usage controls to support a donation-backed early monetization model.
   - IMPACT: Clear value communication, configurable free-tier enforcement, and validated donation unlock flow.
-- `P1` Add local storage controls with status-aware auto-delete ON by default (`new`/`viewed`/`skip_for_now`/`rejected`; keep `applied`). [Detailed spec](./backlog-specs/p1-operations-local-storage-retention.md)
-  - STATUS: Completed (`34ad002`; status-aware retention policy defaults, cleanup audit logging, sync-path wiring, and policy inspection path are live)
-  - WHY: Users need predictable control over local disk usage and data retention behavior.
-  - IMPACT: Better trust, lower storage bloat, and cleaner long-term operation.
 
 ## Icebox (Out of MVP Scope For Now)
 
@@ -289,3 +265,33 @@ The current backlog has strong item-level specs, but we need explicit epic-level
 - `P0` URL-based search construction abstraction rollout (completed). [Detailed spec](./backlog-specs/completed-core-url-construction-rollout.md)
   - WHY: Needed consistent URL generation and criteria normalization.
   - IMPACT: Stable multi-source baseline now in production.
+
+- `P0` Define read-vs-write browser primitive boundary and enforce read-only MCP v1 tool surface. [Detailed spec](./backlog-specs/p0-integrations-read-write-boundary.md)
+  - STATUS: Completed (`1b18d56`; read-only primitive catalog enforcement for `mcp_v1` is active and documented)
+  - WHY: Once MCP can execute capture, accidental drift into write/apply automation becomes a high-risk failure mode.
+  - IMPACT: Explicit safety boundary for contributors and safer MCP rollout.
+
+- `P0` Add definitive source shape contract library for search-parameter and extraction expectations (required + optional metadata). [Detailed spec](./backlog-specs/p0-architecture-source-shape-contracts-library.md)
+  - STATUS: Completed (`444d199`, `2dd4c6f`; schema/validation, sourceId resolution, field-level drift diagnostics, and sync-path diagnostics persistence are live)
+  - WHY: Search construction and extraction expectations were not captured in one authoritative contract layer.
+  - IMPACT: Stronger source adapter quality, simpler onboarding automation, and clearer contract governance.
+
+- `P1` Persist formatter diagnostics in CLI/dashboard. [Detailed spec](./backlog-specs/p1-core-formatter-diagnostics.md)
+  - STATUS: Completed (`d552f35`; persisted source formatter diagnostics surface in dashboard status details and source metadata)
+  - WHY: Unsupported criteria diagnostics were easy to lose after a run.
+  - IMPACT: Better transparency on why filters did or did not apply per source.
+
+- `P1` Support comma-separated multiple keywords in search criteria. [Detailed spec](./backlog-specs/p1-core-multi-keyword-comma.md)
+  - STATUS: Completed (`44d227c`; criteria persistence and URL query builders consume normalized comma-delimited keyword sets)
+  - WHY: Users needed one field to express multiple distinct keyword intents.
+  - IMPACT: Better query quality with less manual criteria editing.
+
+- `P1` Define internal-vs-external tool ownership and add usage metering baseline (installs, runs, searches, sources, limits, donations). [Detailed spec](./backlog-specs/p1-operations-tooling-ownership-metering.md)
+  - STATUS: Completed (`c264403`; canonical analytics schema/channel tags + PostHog mapping + local counters are implemented and tested)
+  - WHY: Product and growth operations needed explicit ownership boundaries and baseline telemetry.
+  - IMPACT: Better roadmap decisions, pricing/limit enforcement readiness, and healthier maintenance model.
+
+- `P1` Add local storage controls with status-aware auto-delete ON by default (`new`/`viewed`/`skip_for_now`/`rejected`; keep `applied`). [Detailed spec](./backlog-specs/p1-operations-local-storage-retention.md)
+  - STATUS: Completed (`34ad002`; status-aware retention defaults, cleanup audit logging, sync-path wiring, and policy inspection are live)
+  - WHY: Users needed predictable control over local disk usage and data retention behavior.
+  - IMPACT: Better trust, lower storage bloat, and cleaner long-term operation.

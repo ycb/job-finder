@@ -6,6 +6,7 @@ Dispatch board: `docs/roadmap/phase-1-dispatch-board.md`
 
 ## Snapshot
 
+- Scope note: this tracker covers the current Phase 1 MVP execution set (`12` items), not the full backlog inventory.
 - Total tracked items: `12`
 - Done: `6`
 - In progress: `3`
