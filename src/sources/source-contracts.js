@@ -32,6 +32,13 @@ const CRITERIA_FIELDS = [
   "minSalary"
 ];
 
+const FULL_JOB_DESCRIPTION_MODES = new Set([
+  "unknown",
+  "none",
+  "partial",
+  "full"
+]);
+
 function assertObject(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${label} must be an object.`);
@@ -54,6 +61,214 @@ function normalizeStringArray(value) {
     }
   }
   return output;
+}
+
+function normalizeCriteriaFieldArray(value, label) {
+  const output = normalizeStringArray(value);
+  for (const field of output) {
+    if (!CRITERIA_FIELDS.includes(field)) {
+      throw new Error(
+        `${label} includes unsupported criteria field "${field}". Supported fields: ${CRITERIA_FIELDS.join(", ")}.`
+      );
+    }
+  }
+  return output;
+}
+
+function buildUnsupportedCriteriaFields(supportedFields) {
+  const supportedSet = new Set(supportedFields);
+  return CRITERIA_FIELDS.filter((field) => !supportedSet.has(field));
+}
+
+function ensureNoOverlap(fieldGroups, label) {
+  const seen = new Map();
+  for (const [groupName, fields] of fieldGroups) {
+    for (const field of fields) {
+      const previous = seen.get(field);
+      if (previous) {
+        throw new Error(
+          `${label} field "${field}" appears in both "${previous}" and "${groupName}".`
+        );
+      }
+      seen.set(field, groupName);
+    }
+  }
+}
+
+function normalizeSearchParameterShape(rawShape, criteriaMapping, label) {
+  const safeShape =
+    rawShape && typeof rawShape === "object" && !Array.isArray(rawShape)
+      ? rawShape
+      : {};
+  const supportedFromMapping = CRITERIA_FIELDS.filter(
+    (field) => criteriaMapping[field] !== "unsupported"
+  );
+  const supportedProvided = normalizeCriteriaFieldArray(
+    safeShape.supported,
+    `${label}.supported`
+  );
+  const required = normalizeCriteriaFieldArray(
+    safeShape.required,
+    `${label}.required`
+  );
+  const optional = normalizeCriteriaFieldArray(
+    safeShape.optional,
+    `${label}.optional`
+  );
+  const uiDrivenOnly = normalizeCriteriaFieldArray(
+    safeShape.uiDrivenOnly,
+    `${label}.uiDrivenOnly`
+  );
+
+  ensureNoOverlap(
+    [
+      ["required", required],
+      ["optional", optional],
+      ["uiDrivenOnly", uiDrivenOnly]
+    ],
+    label
+  );
+
+  const union = normalizeStringArray([...required, ...optional, ...uiDrivenOnly]);
+  const supported = supportedProvided.length > 0 ? supportedProvided : union.length > 0 ? union : supportedFromMapping;
+  const supportedSet = new Set(supported);
+  const unionSet = new Set(union);
+
+  if (supportedProvided.length > 0) {
+    const mismatch = supported.some((field) => !unionSet.has(field)) || union.some((field) => !supportedSet.has(field));
+    if (mismatch) {
+      throw new Error(
+        `${label}.supported must exactly match required + optional + uiDrivenOnly.`
+      );
+    }
+  }
+
+  for (const field of union) {
+    if (!supportedSet.has(field)) {
+      throw new Error(`${label} field "${field}" must be listed in supported.`);
+    }
+  }
+
+  for (const field of CRITERIA_FIELDS) {
+    const mode = criteriaMapping[field];
+    const isSupported = supportedSet.has(field);
+    if (mode === "unsupported" && isSupported) {
+      throw new Error(
+        `${label} marks "${field}" as supported but criteriaMapping.${field} is unsupported.`
+      );
+    }
+    if (mode !== "unsupported" && !isSupported) {
+      throw new Error(
+        `${label} must include "${field}" in supported because criteriaMapping.${field} is "${mode}".`
+      );
+    }
+  }
+
+  for (const field of uiDrivenOnly) {
+    if (criteriaMapping[field] !== "ui_bootstrap") {
+      throw new Error(
+        `${label}.uiDrivenOnly field "${field}" requires criteriaMapping.${field}="ui_bootstrap".`
+      );
+    }
+  }
+
+  return {
+    supported,
+    required,
+    optional,
+    uiDrivenOnly,
+    unsupported: buildUnsupportedCriteriaFields(supported)
+  };
+}
+
+function normalizeFieldThresholdMap(value, label, requiredMetadata) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  const requiredSet = new Set(requiredMetadata);
+  const output = {};
+  for (const [field, rawRatio] of Object.entries(value)) {
+    const normalizedField = normalizeString(field);
+    if (!normalizedField) {
+      continue;
+    }
+    if (!requiredSet.has(normalizedField)) {
+      throw new Error(
+        `${label}.${normalizedField} must reference a requiredMetadata field.`
+      );
+    }
+    const ratio = Number(rawRatio);
+    if (!Number.isFinite(ratio) || ratio < 0 || ratio > 1) {
+      throw new Error(`${label}.${normalizedField} must be a number between 0 and 1.`);
+    }
+    output[normalizedField] = Math.round(ratio * 1000) / 1000;
+  }
+  return output;
+}
+
+function normalizeExtractionShape(rawExtraction, label) {
+  const extraction =
+    rawExtraction && typeof rawExtraction === "object" && !Array.isArray(rawExtraction)
+      ? rawExtraction
+      : {};
+  const requiredMetadata = normalizeStringArray(
+    extraction.requiredMetadata || extraction.requiredFields
+  );
+  const optionalMetadata = normalizeStringArray(
+    extraction.optionalMetadata || extraction.optionalFields
+  );
+
+  ensureNoOverlap(
+    [
+      ["requiredMetadata", requiredMetadata],
+      ["optionalMetadata", optionalMetadata]
+    ],
+    label
+  );
+
+  const fullJobDescription = normalizeString(extraction.fullJobDescription, "unknown");
+  if (!FULL_JOB_DESCRIPTION_MODES.has(fullJobDescription)) {
+    throw new Error(
+      `${label}.fullJobDescription must be one of: ${Array.from(FULL_JOB_DESCRIPTION_MODES).join(", ")}.`
+    );
+  }
+
+  const qualityThresholdsRaw =
+    extraction.qualityThresholds &&
+    typeof extraction.qualityThresholds === "object" &&
+    !Array.isArray(extraction.qualityThresholds)
+      ? extraction.qualityThresholds
+      : {};
+  const rollingMinCoverageRaw = qualityThresholdsRaw.rollingMinCoverage;
+  const rollingMinCoverage =
+    Number.isFinite(Number(rollingMinCoverageRaw)) &&
+    Number(rollingMinCoverageRaw) >= 0 &&
+    Number(rollingMinCoverageRaw) <= 1
+      ? Math.round(Number(rollingMinCoverageRaw) * 1000) / 1000
+      : null;
+  const minSampleSizeRaw = qualityThresholdsRaw.minSampleSize;
+  const minSampleSize =
+    Number.isFinite(Number(minSampleSizeRaw)) && Number(minSampleSizeRaw) >= 0
+      ? Math.round(Number(minSampleSizeRaw))
+      : 0;
+  const minCoverageByField = normalizeFieldThresholdMap(
+    qualityThresholdsRaw.minCoverageByField,
+    `${label}.qualityThresholds.minCoverageByField`,
+    requiredMetadata
+  );
+
+  return {
+    requiredMetadata,
+    optionalMetadata,
+    requiredFields: requiredMetadata,
+    optionalFields: optionalMetadata,
+    fullJobDescription,
+    qualityThresholds: {
+      rollingMinCoverage,
+      minSampleSize,
+      minCoverageByField
+    }
+  };
 }
 
 function validateContract(rawContract, label) {
@@ -83,25 +298,33 @@ function validateContract(rawContract, label) {
     criteriaMapping[field] = mode;
   }
 
-  const extraction =
-    rawContract.extraction &&
-    typeof rawContract.extraction === "object" &&
-    !Array.isArray(rawContract.extraction)
-      ? rawContract.extraction
-      : {};
+  const searchParameterShape = normalizeSearchParameterShape(
+    rawContract.searchParameterShape,
+    criteriaMapping,
+    `${label}.searchParameterShape`
+  );
+  const extractionShape = normalizeExtractionShape(
+    rawContract.extractionShape || rawContract.extraction,
+    `${label}.extraction`
+  );
+  const sourceId = normalizeString(rawContract.sourceId) || null;
 
   return {
     sourceType,
+    sourceId,
     contractVersion: normalizeString(rawContract.contractVersion, "1.0.0"),
     lastVerified: normalizeString(rawContract.lastVerified),
     criteriaMapping,
-    extraction: {
-      requiredFields: normalizeStringArray(extraction.requiredFields),
-      fullJobDescription: normalizeString(extraction.fullJobDescription, "unknown")
-    },
+    searchParameterShape,
+    extraction: extractionShape,
+    extractionShape,
     expectedCountStrategy: normalizeString(rawContract.expectedCountStrategy, "none"),
     paginationStrategy: normalizeString(rawContract.paginationStrategy, "unknown")
   };
+}
+
+function buildSourceContractKey(sourceType, sourceId) {
+  return `${normalizeString(sourceType)}::${normalizeString(sourceId)}`;
 }
 
 export function loadSourceContracts(contractsPath = "config/source-contracts.json") {
@@ -124,7 +347,19 @@ export function loadSourceContracts(contractsPath = "config/source-contracts.jso
   );
 
   const byType = new Map();
+  const bySourceKey = new Map();
   for (const contract of normalizedContracts) {
+    if (contract.sourceId) {
+      const key = buildSourceContractKey(contract.sourceType, contract.sourceId);
+      if (bySourceKey.has(key)) {
+        throw new Error(
+          `Duplicate source contract for type "${contract.sourceType}" and sourceId "${contract.sourceId}" in ${resolvedPath}.`
+        );
+      }
+      bySourceKey.set(key, contract);
+      continue;
+    }
+
     if (byType.has(contract.sourceType)) {
       throw new Error(
         `Duplicate source contract for type "${contract.sourceType}" in ${resolvedPath}.`
@@ -137,8 +372,26 @@ export function loadSourceContracts(contractsPath = "config/source-contracts.jso
     path: resolvedPath,
     version: normalizeString(raw.version, "unknown"),
     contracts: normalizedContracts,
-    byType
+    byType,
+    bySourceKey
   };
+}
+
+export function resolveSourceContract(contracts, source) {
+  if (!contracts || !(contracts.byType instanceof Map)) {
+    return null;
+  }
+  const sourceType = normalizeString(source?.type);
+  const sourceId = normalizeString(source?.id);
+  if (sourceType && sourceId && contracts.bySourceKey instanceof Map) {
+    const specific = contracts.bySourceKey.get(
+      buildSourceContractKey(sourceType, sourceId)
+    );
+    if (specific) {
+      return specific;
+    }
+  }
+  return contracts.byType.get(sourceType) || null;
 }
 
 function isDateOlderThanDays(rawDate, days) {
@@ -337,7 +590,7 @@ export function evaluateSourceContractDrift(options = {}) {
   const rows = [];
 
   for (const source of sources) {
-    const contract = contracts.byType.get(source.type) || null;
+    const contract = resolveSourceContract(contracts, source);
     const capture = readSourceCaptureSummary(source);
     const jobs = Array.isArray(capture?.payload?.jobs) ? capture.payload.jobs : [];
 
@@ -392,8 +645,26 @@ export function evaluateSourceContractDrift(options = {}) {
     );
 
     const stale = isDateOlderThanDays(contract.lastVerified, staleAfterDays);
+    const fieldThresholds =
+      contract?.extraction?.qualityThresholds?.minCoverageByField &&
+      typeof contract.extraction.qualityThresholds.minCoverageByField === "object"
+        ? contract.extraction.qualityThresholds.minCoverageByField
+        : {};
+    const configuredCoverageGateFloor = normalizeCoverageRatio(
+      contract?.extraction?.qualityThresholds?.rollingMinCoverage
+    );
+    const coverageGateFloor =
+      configuredCoverageGateFloor !== null ? configuredCoverageGateFloor : minCoverage;
     const lowCoverageFields = Object.entries(rollingCoverageByField)
-      .filter(([, ratio]) => ratio !== null && Number.isFinite(Number(ratio)) && Number(ratio) < minCoverage)
+      .filter(([field, ratio]) => {
+        if (ratio === null || !Number.isFinite(Number(ratio))) {
+          return false;
+        }
+        const configuredFieldThreshold = normalizeCoverageRatio(fieldThresholds[field]);
+        const threshold =
+          configuredFieldThreshold !== null ? configuredFieldThreshold : coverageGateFloor;
+        return Number(ratio) < threshold;
+      })
       .map(([field]) => field);
     const hasRollingCoverage = Object.values(rollingCoverageByField).some(
       (ratio) => ratio !== null && Number.isFinite(Number(ratio))
@@ -407,7 +678,7 @@ export function evaluateSourceContractDrift(options = {}) {
     }
     if (lowCoverageFields.length > 0) {
       issues.push(
-        `Rolling coverage below ${(minCoverage * 100).toFixed(0)}% for: ${lowCoverageFields.join(", ")}.`
+        `Rolling coverage below configured threshold(s) for: ${lowCoverageFields.join(", ")}.`
       );
     }
 

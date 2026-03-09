@@ -4,13 +4,27 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { loadSourceContracts } from "../src/sources/source-contracts.js";
+import {
+  loadSourceContracts,
+  resolveSourceContract
+} from "../src/sources/source-contracts.js";
 
 test("loadSourceContracts parses configured contracts", () => {
   const loaded = loadSourceContracts();
   assert.ok(loaded.contracts.length > 0);
   assert.ok(loaded.byType.has("linkedin_capture_file"));
   assert.ok(loaded.byType.has("indeed_search"));
+  const linkedIn = loaded.byType.get("linkedin_capture_file");
+  assert.ok(linkedIn.searchParameterShape);
+  assert.ok(Array.isArray(linkedIn.searchParameterShape.supported));
+  assert.ok(Array.isArray(linkedIn.searchParameterShape.required));
+  assert.ok(Array.isArray(linkedIn.searchParameterShape.optional));
+  assert.ok(Array.isArray(linkedIn.searchParameterShape.uiDrivenOnly));
+  assert.ok(linkedIn.extraction.qualityThresholds);
+  assert.ok(Array.isArray(linkedIn.extraction.requiredMetadata));
+  assert.ok(Array.isArray(linkedIn.extraction.optionalMetadata));
+  assert.ok(linkedIn.searchParameterShape.supported.includes("title"));
+  assert.equal(linkedIn.searchParameterShape.unsupported.includes("title"), false);
 });
 
 test("loadSourceContracts rejects duplicate source type contracts", () => {
@@ -88,6 +102,105 @@ test("loadSourceContracts rejects unsupported criteria mapping modes", () => {
     );
 
     assert.throws(() => loadSourceContracts(contractsPath));
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("loadSourceContracts rejects overlapping search parameter buckets", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-finder-source-contracts-"));
+  const contractsPath = path.join(tempDir, "source-contracts.json");
+
+  try {
+    fs.writeFileSync(
+      contractsPath,
+      JSON.stringify(
+        {
+          version: "test",
+          contracts: [
+            {
+              sourceType: "indeed_search",
+              criteriaMapping: {
+                title: "url"
+              },
+              searchParameterShape: {
+                required: ["title"],
+                optional: ["title"],
+                uiDrivenOnly: [],
+                supported: ["title"]
+              },
+              extraction: {
+                requiredFields: ["title"]
+              }
+            }
+          ]
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    assert.throws(() => loadSourceContracts(contractsPath));
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("resolveSourceContract prefers sourceId-specific contract over type default", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-finder-source-contracts-"));
+  const contractsPath = path.join(tempDir, "source-contracts.json");
+
+  try {
+    fs.writeFileSync(
+      contractsPath,
+      JSON.stringify(
+        {
+          version: "test",
+          contracts: [
+            {
+              sourceType: "indeed_search",
+              contractVersion: "1.0.0",
+              criteriaMapping: {
+                title: "url"
+              },
+              extraction: {
+                requiredFields: ["title"]
+              }
+            },
+            {
+              sourceType: "indeed_search",
+              sourceId: "indeed-special",
+              contractVersion: "1.1.0",
+              criteriaMapping: {
+                title: "url"
+              },
+              extraction: {
+                requiredFields: ["title", "salaryText"]
+              }
+            }
+          ]
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    const loaded = loadSourceContracts(contractsPath);
+    const specific = resolveSourceContract(loaded, {
+      id: "indeed-special",
+      type: "indeed_search"
+    });
+    const fallback = resolveSourceContract(loaded, {
+      id: "indeed-default",
+      type: "indeed_search"
+    });
+
+    assert.equal(specific.contractVersion, "1.1.0");
+    assert.equal(fallback.contractVersion, "1.0.0");
+    assert.deepEqual(specific.extraction.requiredFields, ["title", "salaryText"]);
+    assert.deepEqual(fallback.extraction.requiredFields, ["title"]);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
