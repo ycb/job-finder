@@ -509,7 +509,6 @@ function resolveCriteriaFreshnessDays(datePosted) {
 function hasSearchCriteriaSignal(rawCriteria = {}) {
   const title = normalizeSearchCriteriaText(rawCriteria.title);
   const keywords = resolvePositiveKeywordTerms(rawCriteria);
-  const excludeTerms = resolveExcludeKeywordTerms(rawCriteria);
   const location = normalizeSearchCriteriaText(rawCriteria.location);
   const minSalary = Number(rawCriteria.minSalary);
   const freshnessDays = resolveCriteriaFreshnessDays(rawCriteria.datePosted);
@@ -517,7 +516,6 @@ function hasSearchCriteriaSignal(rawCriteria = {}) {
   return (
     Boolean(title) ||
     keywords.length > 0 ||
-    excludeTerms.length > 0 ||
     Boolean(location) ||
     (Number.isFinite(minSalary) && minSalary > 0) ||
     freshnessDays !== null

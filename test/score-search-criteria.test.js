@@ -175,3 +175,44 @@ test("evaluateJobsFromSearchCriteria applies exclude terms as hard filters", () 
   assert.equal(evaluations[0].hardFiltered, true);
   assert.match(evaluations[0].summary, /hard filter hit/i);
 });
+
+test("evaluateJobsFromSearchCriteria keeps baseline scoring for exclude-only criteria", () => {
+  const evaluations = evaluateJobsFromSearchCriteria(
+    {
+      excludeTerms: ["contract"]
+    },
+    [
+      {
+        id: "job-excluded",
+        title: "Product Manager (Contract)",
+        company: "Acme",
+        location: "San Francisco, CA",
+        description: "Contract product role",
+        salaryText: "$220,000 - $260,000",
+        source: "indeed_search",
+        postedAt: new Date().toISOString()
+      },
+      {
+        id: "job-eligible",
+        title: "Senior Product Manager",
+        company: "Acme",
+        location: "San Francisco, CA",
+        description: "Own AI platform roadmap",
+        salaryText: "$220,000 - $260,000",
+        source: "indeed_search",
+        postedAt: new Date().toISOString()
+      }
+    ]
+  );
+
+  const excluded = evaluations.find((evaluation) => evaluation.jobId === "job-excluded");
+  const eligible = evaluations.find((evaluation) => evaluation.jobId === "job-eligible");
+
+  assert.ok(excluded);
+  assert.equal(excluded.hardFiltered, true);
+  assert.equal(excluded.score, 0);
+
+  assert.ok(eligible);
+  assert.equal(eligible.hardFiltered, false);
+  assert.ok(eligible.score > 0);
+});
