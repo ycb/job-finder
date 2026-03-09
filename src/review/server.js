@@ -19,8 +19,8 @@ import {
   addZipRecruiterSearchSource,
   addWellfoundSearchSource,
   connectNarrataGoalsFile,
-  loadSearchCriteria,
   loadActiveProfile,
+  loadSearchCriteria,
   normalizeAllSourceSearchUrls,
   saveSearchCriteria,
   useLegacyProfileSource,
@@ -28,9 +28,11 @@ import {
   loadSources,
   updateSourceDefinition
 } from "../config/load-config.js";
+import { loadRetentionPolicy } from "../config/retention-policy.js";
 import { openDatabase } from "../db/client.js";
 import { runMigrations } from "../db/migrations.js";
 import { normalizeJobRecord } from "../jobs/normalize.js";
+import { applyRetentionPolicyCleanup, writeRetentionCleanupAudit } from "../jobs/retention.js";
 import {
   listAllJobs,
   listAllJobsWithStatus,
@@ -794,6 +796,7 @@ function runSyncAndScore() {
   const { criteria } = loadSearchCriteria();
   const sources = loadSources().sources.filter((source) => source.enabled);
   const allowQuarantined = resolveAllowQuarantinedIngest();
+  const retentionPolicy = loadRetentionPolicy();
 
   return withDatabase((db) => {
     let totalCollected = 0;
@@ -893,6 +896,12 @@ function runSyncAndScore() {
       );
     }
 
+    const retentionCleanup = applyRetentionPolicyCleanup(
+      db,
+      retentionPolicy.policy
+    );
+    const retentionAuditPath = writeRetentionCleanupAudit(retentionCleanup);
+
     const jobs = listAllJobs(db);
     const evaluations = evaluateJobsFromSearchCriteria(criteria, jobs);
     upsertEvaluations(db, evaluations);
@@ -903,6 +912,8 @@ function runSyncAndScore() {
       pruned: totalPruned,
       skippedByQuality,
       qualityMessages,
+      retentionCleanup,
+      retentionAuditPath,
       evaluated: evaluations.length,
       buckets: summarizeBuckets(evaluations)
     };
@@ -4483,7 +4494,8 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
           upserted: sync.upserted,
           pruned: sync.pruned,
           skipped_by_quality: sync.skippedByQuality,
-          evaluated: sync.evaluated
+          evaluated: sync.evaluated,
+          retention_deleted: Number(sync?.retentionCleanup?.totalDeleted || 0)
         });
         response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
         response.end(JSON.stringify({ ok: true, sync }));
@@ -4518,6 +4530,10 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
           sync_evaluated:
             Number.isFinite(Number(result?.sync?.evaluated))
               ? Number(result.sync.evaluated)
+              : null,
+          retention_deleted:
+            Number.isFinite(Number(result?.sync?.retentionCleanup?.totalDeleted))
+              ? Number(result.sync.retentionCleanup.totalDeleted)
               : null
         });
         response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });

@@ -31,9 +31,11 @@ import {
   useMyGoalsProfileSource,
   updateSourceSearchUrl
 } from "./config/load-config.js";
+import { loadRetentionPolicy } from "./config/retention-policy.js";
 import { openDatabase } from "./db/client.js";
 import { runMigrations } from "./db/migrations.js";
 import { normalizeJobRecord } from "./jobs/normalize.js";
+import { applyRetentionPolicyCleanup, writeRetentionCleanupAudit } from "./jobs/retention.js";
 import {
   listAllJobs,
   listReviewQueue,
@@ -80,6 +82,21 @@ function trackTerminalEvent(eventName, properties = {}) {
   } catch {
     // Never block CLI flow on analytics.
   }
+}
+
+function runRetentionCleanupWithAudit(db, options = {}) {
+  const loadedPolicy = loadRetentionPolicy(options.retentionPolicyPath);
+  const cleanup = applyRetentionPolicyCleanup(db, loadedPolicy.policy, {
+    nowMs: options.nowMs
+  });
+  const auditPath = writeRetentionCleanupAudit(cleanup, options.retentionAuditPath);
+
+  return {
+    policyPath: loadedPolicy.path,
+    policyExists: loadedPolicy.exists,
+    cleanup,
+    auditPath
+  };
 }
 
 function withDatabase() {
@@ -218,6 +235,7 @@ function runSync(options = {}) {
   const sources = loadSources();
   const { db } = withDatabase();
   const allowQuarantined = resolveAllowQuarantinedIngest(options);
+  let retentionRun = null;
 
   let totalCollected = 0;
   let totalUpserted = 0;
@@ -322,6 +340,8 @@ function runSync(options = {}) {
     );
   }
 
+  retentionRun = runRetentionCleanupWithAudit(db, options);
+
   db.close();
 
   try {
@@ -356,12 +376,19 @@ function runSync(options = {}) {
   for (const message of qualityMessages) {
     console.log(`  quality: ${message}`);
   }
+  if (retentionRun) {
+    const deletedByStatus = retentionRun.cleanup.deletedByStatus;
+    console.log(
+      `  retention: deleted=${retentionRun.cleanup.totalDeleted} (new=${deletedByStatus.new}, viewed=${deletedByStatus.viewed}, skip_for_now=${deletedByStatus.skip_for_now}, rejected=${deletedByStatus.rejected}, applied=${deletedByStatus.applied}) protected.applied=${retentionRun.cleanup.protected.applied} audit=${retentionRun.auditPath}`
+    );
+  }
 
   trackTerminalEvent("jobs_synced", {
     total_collected: totalCollected,
     total_upserted: totalUpserted,
     total_pruned: totalPruned,
     skipped_by_quality: skippedByQuality,
+    retention_deleted: retentionRun?.cleanup?.totalDeleted || 0,
     enabled_sources: sources.sources.filter((item) => item.enabled).length
   });
   if (skippedByQuality > 0) {
@@ -1559,6 +1586,21 @@ async function runLivePipeline(options = {}) {
   await runPipeline(options);
 }
 
+function runRetentionPolicyConfig() {
+  const loaded = loadRetentionPolicy();
+  console.log(
+    JSON.stringify(
+      {
+        path: loaded.path,
+        exists: loaded.exists,
+        policy: loaded.policy
+      },
+      null,
+      2
+    )
+  );
+}
+
 function printHelp() {
   console.log(`
 job-finder - Local-first job search with intelligent de-duplication
@@ -1584,6 +1626,7 @@ SOURCE MANAGEMENT:
   jf add-remoteok-source <label> <url>      Add RemoteOK search
   jf set-source-url <id-or-label> <url>     Update source URL
   jf normalize-source-urls [--dry-run]      Normalize URLs from search criteria
+  jf retention-policy                       Show retention policy path and effective config
   jf check-source-contracts [--window n] [--min-coverage 0.7]  Run source contract drift checks
   jf check-source-canaries [--include-disabled]  Run source adapter canary checks
 
@@ -1686,6 +1729,9 @@ async function main() {
         const parsed = extractFlag(args, "--dry-run");
         runNormalizeSourceUrls({ dryRun: parsed.present });
       }
+      break;
+    case "retention-policy":
+      runRetentionPolicyConfig();
       break;
     case "check-source-contracts":
       {
