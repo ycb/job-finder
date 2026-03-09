@@ -4,6 +4,11 @@ import { captureSourceWithChromeAppleScript } from "./providers/chrome-applescri
 import { captureSourceWithNoop } from "./providers/noop.js";
 import { captureSourceWithPersistentScaffold } from "./providers/persistent-scaffold.js";
 import { captureSourceWithPlaywrightCli } from "./providers/playwright-cli.js";
+import {
+  BRIDGE_PRIMITIVE_ID,
+  ensureBridgePrimitiveCatalogIntegrity,
+  validatePrimitiveSurfaceRegistration
+} from "./primitives.js";
 
 function createJsonResponse(response, statusCode, payload) {
   response.writeHead(statusCode, {
@@ -40,6 +45,18 @@ function readRequestBody(request) {
   });
 }
 
+function createRouteKey(method, pathName) {
+  return `${String(method || "GET").toUpperCase()} ${String(pathName || "/")}`;
+}
+
+function resolveRequestPath(requestUrl) {
+  try {
+    return new URL(String(requestUrl || "/"), "http://127.0.0.1").pathname;
+  } catch {
+    return String(requestUrl || "/");
+  }
+}
+
 function resolveProvider(providerName = "noop") {
   if (providerName === "chrome_applescript") {
     return {
@@ -68,26 +85,24 @@ function resolveProvider(providerName = "noop") {
   };
 }
 
-export async function startBrowserBridgeServer({
-  port = 4315,
-  providerName = process.env.JOB_FINDER_BRIDGE_PROVIDER || "chrome_applescript"
-} = {}) {
-  const provider = resolveProvider(providerName);
-
-  const server = http.createServer(async (request, response) => {
-    try {
-      if (request.method === "GET" && request.url === "/health") {
-        createJsonResponse(response, 200, {
+export function buildBridgeRouteDefinitions(provider) {
+  return [
+    {
+      method: "GET",
+      path: "/health",
+      primitiveId: BRIDGE_PRIMITIVE_ID.HEALTH_CHECK,
+      handle() {
+        return {
           ok: true,
           provider: provider.name
-        });
-        return;
+        };
       }
-
-      if (
-        request.method === "POST" &&
-        (request.url === "/capture-source" || request.url === "/capture-linkedin-source")
-      ) {
+    },
+    {
+      method: "POST",
+      path: "/capture-source",
+      primitiveId: BRIDGE_PRIMITIVE_ID.CAPTURE_SOURCE,
+      async handle(request) {
         const body = await readRequestBody(request);
         const result = provider.captureSource(
           body.source,
@@ -95,11 +110,73 @@ export async function startBrowserBridgeServer({
           body.options || {}
         );
 
-        createJsonResponse(response, 200, {
+        return {
           ok: true,
           provider: provider.name,
           result
-        });
+        };
+      }
+    },
+    {
+      method: "POST",
+      path: "/capture-linkedin-source",
+      primitiveId: BRIDGE_PRIMITIVE_ID.CAPTURE_LINKEDIN_SOURCE,
+      async handle(request) {
+        const body = await readRequestBody(request);
+        const result = provider.captureSource(
+          body.source,
+          body.snapshotPath,
+          body.options || {}
+        );
+
+        return {
+          ok: true,
+          provider: provider.name,
+          result
+        };
+      }
+    }
+  ];
+}
+
+export function buildBridgeRouteMap(provider, { surface = "mcp_v1" } = {}) {
+  ensureBridgePrimitiveCatalogIntegrity();
+  const routeDefinitions = buildBridgeRouteDefinitions(provider);
+  validatePrimitiveSurfaceRegistration({
+    surface,
+    primitiveIds: routeDefinitions.map((route) => route.primitiveId)
+  });
+
+  const routeMap = new Map();
+  for (const route of routeDefinitions) {
+    const key = createRouteKey(route.method, route.path);
+    if (routeMap.has(key)) {
+      throw new Error(`Duplicate bridge route registration for "${key}".`);
+    }
+    routeMap.set(key, route);
+  }
+
+  return routeMap;
+}
+
+export async function startBrowserBridgeServer({
+  port = 4315,
+  providerName = process.env.JOB_FINDER_BRIDGE_PROVIDER || "chrome_applescript"
+} = {}) {
+  const provider = resolveProvider(providerName);
+  const routeMap = buildBridgeRouteMap(provider, { surface: "mcp_v1" });
+
+  const server = http.createServer(async (request, response) => {
+    try {
+      const key = createRouteKey(
+        request.method,
+        resolveRequestPath(request.url)
+      );
+      const route = routeMap.get(key);
+
+      if (route) {
+        const payload = await route.handle(request, response);
+        createJsonResponse(response, 200, payload);
         return;
       }
 

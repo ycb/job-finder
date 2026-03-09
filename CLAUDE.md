@@ -226,6 +226,13 @@ All sources support:
 
 The browser bridge provides automated capture for browser-capture sources (LinkedIn, Wellfound, Ashby, Google, Indeed, ZipRecruiter, RemoteOK) through multiple provider strategies:
 
+**Read/Write safety boundary (intentional policy):**
+- Bridge primitives are classified in `src/browser-bridge/primitives.js`.
+- `mcp_v1` surfaces are read-only (`health` + capture primitives).
+- Write primitives (for example apply clicks, form typing/uploads, dialog confirmation) are not exposed in v1.
+- Attempting to register write primitives for `mcp_v1` fails validation by design.
+- Any write-capable exposure proposal requires explicit stakeholder approval and a decision-log update.
+
 **chrome_applescript** (default on macOS):
 - Uses AppleScript to extract content from active Chrome tab
 - Requires Chrome setting: View > Developer > Allow JavaScript from Apple Events
@@ -383,6 +390,8 @@ Express server serving local UI with:
 - Implement `captureSnapshot(url)` returning accessibility tree string
 - Register in `src/browser-bridge/server.js`
 - Default provider: `chrome_applescript`
+- Classify any new bridge primitive in `src/browser-bridge/primitives.js` before exposing it
+- Keep `mcp_v1` route/tool registrations read-only unless explicit approval is documented
 
 **Search criteria system:**
 - Global criteria loaded from `config/search-criteria.json` via `loadSearchCriteria()`
