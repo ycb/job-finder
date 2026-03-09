@@ -7,14 +7,14 @@ Dispatch board: `docs/roadmap/phase-1-dispatch-board.md`
 ## Snapshot
 
 - Total tracked items: `12`
-- Done: `4`
-- In progress: `4`
+- Done: `5`
+- In progress: `3`
 - Blocked: `1`
 - Planned: `3`
 
 ## Active Dispatch State
 
-- current_task: `W1-07`
+- current_task: `W1-08`
 - lane: `Operations Metrics`
 - implementer_status: `ready to dispatch`
 - spec_review_status: `pending`
@@ -34,7 +34,7 @@ Dispatch board: `docs/roadmap/phase-1-dispatch-board.md`
 | Multi-keyword criteria support | P1 | Core | Done (`44d227c`) | M | Search-controls cleanup [soft] |
 | Search controls (hard filter, include/exclude, cache) | P1 | Core | In progress | L | - |
 | Net-new + refresh behavior | P1 | Core | In progress | M | - |
-| Tooling ownership/metering baseline | P1 | Operations | In progress | L | PostHog SDK installed; channel taxonomy/reporting contract pending |
+| Tooling ownership/metering baseline | P1 | Operations | Done (`c264403`) | L | - |
 | Value metrics + caps + donation verification | P1 | Operations | Planned | L | Tooling ownership/metering [hard] |
 | Local storage retention controls | P1 | Operations | Planned | M | Tooling ownership/metering [soft] |
 

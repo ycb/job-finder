@@ -98,7 +98,7 @@ The current backlog has strong item-level specs, but we need explicit epic-level
 - Success signals: contributors can tell what is intentionally internal, what is externally supported, and how policy/limits are enforced.
 - Primary linked items:
   - Adopt licensing split (MIT core + BSL MCP/permissions layer) (`P1`, planned).
-  - Define internal-vs-external tool ownership and usage metering baseline (`P1`, planned).
+  - Define internal-vs-external tool ownership and usage metering baseline (`P1`, completed).
   - Add user-value metrics + caps + donation-based reset verification (`P1`, planned).
   - Define read-vs-write MCP/browser boundary (`P0`, planned; cross-epic dependency with Epic A).
 
@@ -172,7 +172,7 @@ The current backlog has strong item-level specs, but we need explicit epic-level
 
 **Theme: Operations & Tooling**
 - `P1` Define internal-vs-external tool ownership and add usage metering baseline (installs, runs, searches, sources, limits, donations). [Detailed spec](./backlog-specs/p1-operations-tooling-ownership-metering.md)
-  - STATUS: In progress (PostHog SDK/instrumentation present; channel taxonomy + reporting contract still pending)
+  - STATUS: Completed (`c264403`; canonical analytics schema/channel tags + PostHog mapping + local counters are now implemented and tested)
   - WHY: Product and growth operations require explicit ownership boundaries and baseline telemetry.
   - IMPACT: Better roadmap decisions, pricing/limit enforcement readiness, and healthier maintenance model.
 - `P1` Add user-value metrics (`searches ran`, `matching jobs imported`) with free-tier caps and donation-based cap reset + verification. [Detailed spec](./backlog-specs/p1-operations-value-metrics-caps-donations.md)

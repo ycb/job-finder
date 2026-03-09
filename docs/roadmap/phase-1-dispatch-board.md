@@ -32,6 +32,8 @@ Baseline verification command run in lane workspace:
   - `npm test` => `169` pass, `0` fail on commit `d552f35`.
 - Latest verification after multi-keyword merge:
   - `npm test` => `170` pass, `0` fail on commit `44d227c` (lane full suite).
+- Latest verification after analytics-schema merge:
+  - `npm test` => `175` pass, `0` fail on commit `c264403`.
 
 ## Wave 1 Queue (Prioritized)
 
@@ -43,8 +45,8 @@ Baseline verification command run in lane workspace:
 | W1-04 | P0 | Add contract loader/validator and drift diagnostics path for contract violations | Source Contracts | Completed (`2dd4c6f`) | W1-03 [hard] |
 | W1-05 | P1 | Complete dashboard surfacing for persisted formatter diagnostics | Criteria Fidelity | Completed (`d552f35`) | None |
 | W1-06 | P1 | Finalize multi-keyword flow through URL/search criteria (comma and boolean mode prep) | Criteria Fidelity | Completed (`44d227c`) | Search controls model [soft] |
-| W1-07 | P1 | Define canonical event schema + channel tags + PostHog mapping for all surfaces | Operations Metrics | In progress (active dispatch) | None |
-| W1-08 | P1 | Implement status-aware retention defaults and policy persistence wiring | Operations Metrics | Ready | W1-07 [soft] |
+| W1-07 | P1 | Define canonical event schema + channel tags + PostHog mapping for all surfaces | Operations Metrics | Completed (`c264403`) | None |
+| W1-08 | P1 | Implement status-aware retention defaults and policy persistence wiring | Operations Metrics | In progress (active dispatch) | W1-07 [soft] |
 
 ## Controller Checklist Per Task
 
@@ -72,4 +74,4 @@ Baseline verification command run in lane workspace:
 
 ## Notes
 
-- PostHog setup is already present in repo (`posthog-node` dependency + instrumentation baseline). Remaining work for `W1-07` is taxonomy/contract hardening, not SDK installation.
+- PostHog mapping contract and channel-tag schema are now in-repo (`docs/analytics/event-schema.md` + analytics modules). Active operations focus is now `W1-08` retention policy wiring.
