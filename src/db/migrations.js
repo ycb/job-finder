@@ -101,6 +101,7 @@ export function runMigrations(db) {
         bucket TEXT NOT NULL,
         summary TEXT NOT NULL,
         reasons TEXT NOT NULL,
+        evaluation_meta TEXT,
         confidence INTEGER,
         freshness_days INTEGER,
         hard_filtered INTEGER NOT NULL DEFAULT 0,
@@ -123,6 +124,7 @@ export function runMigrations(db) {
   addColumnIfMissing(db, "evaluations", "confidence", "INTEGER");
   addColumnIfMissing(db, "evaluations", "freshness_days", "INTEGER");
   addColumnIfMissing(db, "evaluations", "hard_filtered", "INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing(db, "evaluations", "evaluation_meta", "TEXT");
   addColumnIfMissing(db, "jobs", "structured_meta", "TEXT");
   addColumnIfMissing(db, "jobs", "metadata_quality_score", "INTEGER");
   addColumnIfMissing(db, "jobs", "missing_required_fields", "TEXT");

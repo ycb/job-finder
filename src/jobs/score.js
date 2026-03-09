@@ -121,6 +121,70 @@ function parseDateToIso(value) {
   return null;
 }
 
+function parseObject(value) {
+  if (!value) {
+    return null;
+  }
+  if (typeof value === "object" && !Array.isArray(value)) {
+    return value;
+  }
+  if (typeof value !== "string") {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeDescriptionSource(value) {
+  const source = normalizeText(value);
+  if (source === "detail" || source === "card" || source === "fallback_unknown") {
+    return source;
+  }
+  return "unknown";
+}
+
+function resolveEvaluationContentPath(job) {
+  const structuredMeta = parseObject(job?.structuredMeta || job?.structured_meta);
+  const descriptionSourceCandidates = [
+    job?.descriptionSource,
+    job?.description_source,
+    job?.extractorProvenance?.description,
+    structuredMeta?.descriptionSource,
+    structuredMeta?.extractorProvenance?.description
+  ];
+  const descriptionSource = normalizeDescriptionSource(
+    descriptionSourceCandidates.find((candidate) => normalizeText(candidate))
+  );
+
+  const snippetDescription = normalizeText(job?.description);
+  const detailDescription = normalizeText(structuredMeta?.description);
+  const useDetailDescription =
+    descriptionSource === "detail" && detailDescription.length > 0;
+  const descriptionForEvaluation = useDetailDescription
+    ? detailDescription
+    : snippetDescription || detailDescription;
+
+  return {
+    description: descriptionForEvaluation,
+    evaluationMeta: {
+      contentPathUsed: useDetailDescription
+        ? "detail_description"
+        : "snippet_description",
+      detailFetchStatus: useDetailDescription ? "detail_success" : "snippet_fallback",
+      contentPathRationale: useDetailDescription
+        ? "detail provenance available; evaluated against full description"
+        : `detail unavailable; evaluated against snippet fallback (source=${descriptionSource})`,
+      descriptionSource
+    }
+  };
+}
+
 function inferWorkType(searchableText) {
   const normalized = normalizeText(searchableText);
   const matched = [];
@@ -570,7 +634,8 @@ function evaluateJobFromSearchCriteria(criteria, job) {
 
   const title = normalizeText(job.title);
   const location = normalizeText(job.location);
-  const description = normalizeText(job.description);
+  const contentPath = resolveEvaluationContentPath(job);
+  const description = contentPath.description;
   const employment = normalizeText(job.employment_type || job.employmentType);
   const searchableText = [title, location, employment, description].join(" ");
   const parsedWorkTypes = inferWorkType(searchableText);
@@ -684,6 +749,7 @@ function evaluateJobFromSearchCriteria(criteria, job) {
     bucket,
     summary,
     reasons,
+    evaluationMeta: contentPath.evaluationMeta,
     confidence: calcDataConfidence(job, parsedWorkTypes),
     freshnessDays,
     hardFiltered: false,

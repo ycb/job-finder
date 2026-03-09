@@ -1,5 +1,30 @@
 # Data Quality Epic Todo
 
+## Lane C Plan (W2-02 -> W2-01)
+
+- [x] W2-02 tests first: add `test/full-jd-detail-coverage-gate.test.js` covering source-level `% description from detail`, rolling-window persistence, and `>=0.9` gate diagnostics.
+- [x] W2-02 implementation: extend source-contract drift evaluation + diagnostics persistence with detail-description coverage metrics and gate outcomes (threshold default `0.9`).
+- [x] W2-02 surfacing: update `check-source-contracts` output/help text to show detail-coverage gate status and mismatches.
+- [x] W2-01 tests first: add `test/full-jd-evaluation-pass.test.js` covering detail-success path vs snippet-fallback path and metadata evidence.
+- [x] W2-01 implementation: add evaluation metadata (`contentPathUsed`, `detailFetchStatus`, rationale) and persist it through DB/repository/read paths.
+- [x] W2-01 scoring path: ensure criteria evaluation uses full JD content when available and records fallback deterministically when not.
+- [x] Verification: run targeted Lane C tests (`full-jd-detail-coverage-gate`, `full-jd-evaluation-pass`, `score-search-criteria`, `hard-filter`), run `node src/cli.js check-source-contracts --window 3 --min-coverage 0.9`, then run `npm test`.
+- [x] Docs/status: update backlog spec + tracker/dispatch references only if code behavior or verification commands changed.
+
+## Lane C Review (2026-03-08)
+
+- Added W2-02 guardrails:
+  - source-level detail-description coverage computation (`latest` + rolling).
+  - history persistence for detail coverage metrics in `source-coverage-history.json`.
+  - explicit detail gate diagnostics with `>=0.9` default threshold behavior.
+- Added W2-01 evaluation evidence:
+  - deterministic content-path resolver (`detail_description` vs `snippet_description`).
+  - persisted evaluation metadata in DB via `evaluations.evaluation_meta`.
+- Verification evidence:
+  - `node --test test/full-jd-detail-coverage-gate.test.js test/full-jd-evaluation-pass.test.js test/score-search-criteria.test.js test/hard-filter.test.js` -> pass.
+  - `node src/cli.js check-source-contracts --window 3 --min-coverage 0.9` -> pass.
+  - `npm test` -> pass (`184` pass, `0` fail).
+
 ## Plan
 
 - [x] Complete Track A criteria accountability implementation + tests.
