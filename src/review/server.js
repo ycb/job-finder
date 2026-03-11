@@ -111,6 +111,9 @@ const REVIEW_MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(REVIEW_MODULE_DIR, "../..");
 const LEGAL_TERMS_PATH = path.join(PROJECT_ROOT, "TERMS.md");
 const LEGAL_PRIVACY_PATH = path.join(PROJECT_ROOT, "PRIVACY.md");
+const REVIEW_WEB_DIST_PATH = path.join(REVIEW_MODULE_DIR, "web", "dist");
+const REVIEW_WEB_INDEX_PATH = path.join(REVIEW_WEB_DIST_PATH, "index.html");
+const REVIEW_WEB_ASSETS_PATH = path.join(REVIEW_WEB_DIST_PATH, "assets");
 const MANUAL_REFRESH_DAILY_CAP = 3;
 
 function normalizeConsent(input) {
@@ -1733,6 +1736,61 @@ function buildDashboardData(limit = 200) {
 function isEnabledFlag(rawValue) {
   const raw = String(rawValue || "").trim().toLowerCase();
   return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
+
+function isDashboardReactUiEnabled(env = process.env) {
+  return String(env?.JOB_FINDER_DASHBOARD_UI || "").trim().toLowerCase() === "react";
+}
+
+function resolveStaticAssetPath(urlPath) {
+  if (typeof urlPath !== "string" || !urlPath.startsWith("/assets/")) {
+    return null;
+  }
+
+  const relativeAssetPath = urlPath.slice("/assets/".length);
+  if (!relativeAssetPath || relativeAssetPath.includes("\0")) {
+    return null;
+  }
+
+  const resolvedPath = path.resolve(REVIEW_WEB_ASSETS_PATH, relativeAssetPath);
+  const assetsRootWithSeparator = `${REVIEW_WEB_ASSETS_PATH}${path.sep}`;
+  if (
+    resolvedPath !== REVIEW_WEB_ASSETS_PATH &&
+    !resolvedPath.startsWith(assetsRootWithSeparator)
+  ) {
+    return null;
+  }
+
+  return resolvedPath;
+}
+
+function getStaticContentType(filePath) {
+  const extension = path.extname(filePath).toLowerCase();
+  if (extension === ".js") {
+    return "application/javascript; charset=utf-8";
+  }
+  if (extension === ".css") {
+    return "text/css; charset=utf-8";
+  }
+  if (extension === ".json") {
+    return "application/json; charset=utf-8";
+  }
+  if (extension === ".svg") {
+    return "image/svg+xml";
+  }
+  if (extension === ".png") {
+    return "image/png";
+  }
+  if (extension === ".jpg" || extension === ".jpeg") {
+    return "image/jpeg";
+  }
+  if (extension === ".ico") {
+    return "image/x-icon";
+  }
+  if (extension === ".map") {
+    return "application/json; charset=utf-8";
+  }
+  return "application/octet-stream";
 }
 
 export function isNarrataConnectEnabled(env = process.env) {
@@ -6456,6 +6514,8 @@ function renderPolicyDocumentPage(title, content) {
 }
 
 export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
+  const useReactDashboardUi = isDashboardReactUiEnabled(process.env);
+
   const server = http.createServer(async (request, response) => {
     try {
       const url = new URL(request.url || "/", `http://${request.headers.host || "127.0.0.1"}`);
@@ -6481,6 +6541,20 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
         const content = fs.readFileSync(LEGAL_PRIVACY_PATH, "utf8");
         response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         response.end(renderPolicyDocumentPage("Privacy Policy", content));
+        return;
+      }
+
+      if (useReactDashboardUi && request.method === "GET" && url.pathname.startsWith("/assets/")) {
+        const assetPath = resolveStaticAssetPath(url.pathname);
+        if (!assetPath || !fs.existsSync(assetPath) || !fs.statSync(assetPath).isFile()) {
+          response.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });
+          response.end(JSON.stringify({ error: "Not found" }));
+          return;
+        }
+
+        const contentType = getStaticContentType(assetPath);
+        response.writeHead(200, { "Content-Type": contentType });
+        response.end(fs.readFileSync(assetPath));
         return;
       }
 
@@ -7275,6 +7349,12 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
       }
 
       if (request.method === "GET" && url.pathname === "/") {
+        if (useReactDashboardUi && fs.existsSync(REVIEW_WEB_INDEX_PATH)) {
+          response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+          response.end(fs.readFileSync(REVIEW_WEB_INDEX_PATH, "utf8"));
+          return;
+        }
+
         const dashboard = buildDashboardData(limit);
         response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         response.end(renderDashboardPage(dashboard));
