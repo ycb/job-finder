@@ -8,6 +8,7 @@ output/
 !src/output/
 !src/output/render.js
 node_modules/
+src/review/web/dist/
 .DS_Store
 Resume-Peter-Spannagle.pdf
 fixtures/ai-pm.json

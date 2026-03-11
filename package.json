@@ -5,7 +5,14 @@
   "bin": {
     "jf": "./bin/cli.js"
   },
-  "keywords": ["job-search", "cli", "linkedin", "indeed", "job-board", "career"],
+  "keywords": [
+    "job-search",
+    "cli",
+    "linkedin",
+    "indeed",
+    "job-board",
+    "career"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/ycb/job-finder.git"
@@ -26,11 +33,19 @@
     "CLAUDE.md"
   ],
   "dependencies": {
+    "@radix-ui/react-select": "^2.2.6",
+    "@radix-ui/react-slot": "^1.2.4",
+    "@radix-ui/react-tabs": "^1.1.13",
+    "@radix-ui/react-toast": "^1.2.15",
     "chalk": "^5.4.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "figures": "^6.1.0",
     "ink": "^5.0.1",
     "is-interactive": "^2.0.0",
-    "react": "^18.3.1"
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^3.5.0"
   },
   "scripts": {
     "init": "node src/cli.js init",
@@ -54,6 +69,16 @@
     "run:probe": "JOB_FINDER_REFRESH_PROFILE=probe node src/cli.js run",
     "run:mock": "JOB_FINDER_REFRESH_PROFILE=mock node src/cli.js run",
     "run:live": "node src/cli.js run-live",
+    "dashboard:web:dev": "vite --config src/review/web/vite.config.js",
+    "dashboard:web:build": "vite build --config src/review/web/vite.config.js",
+    "dashboard:web:preview": "vite preview --config src/review/web/vite.config.js",
     "test": "node --test"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.1.4",
+    "autoprefixer": "^10.4.27",
+    "postcss": "^8.5.8",
+    "tailwindcss": "^3.4.19",
+    "vite": "^7.3.1"
   }
 }
