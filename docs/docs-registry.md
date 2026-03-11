@@ -1,6 +1,6 @@
 # Documentation Registry
 
-As of 2026-03-09.
+As of 2026-03-10.
 
 ## Purpose
 
@@ -42,6 +42,7 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/plans/2026-03-08-phase-1-multi-agent-orchestration-execplan.md` | Contributors/operators | Phase 1 multi-agent orchestration execution plan | Multi-agent execution process updates |
 | `docs/plans/2026-03-09-lane-b-w2-04-net-new-refresh-deltas-execplan.md` | Contributors/operators | Lane B execution plan for run-delta persistence and dashboard surfacing | Run-delta persistence/surfacing changes |
 | `docs/plans/2026-03-09-phase-1-1-closeout-execution-plan.md` | Contributors/operators | Phase 1.1 closeout implementation sequencing plan for remaining MVP items | Phase 1.1 scope or sequencing changes |
+| `docs/plans/2026-03-06-onboarding-analytics-monetization-foundation-execplan.md` | Contributors/operators | Onboarding, consent, analytics, and monetization-foundation execution plan | Onboarding/consent/telemetry contract changes |
 | `docs/backlog-specs/completed-core-url-construction-rollout.md` | Contributors | Completed URL construction rollout record | Backfilled completion notes |
 | `docs/backlog-specs/p0-source-capture-verification-framework.md` | Contributors | P0 source capture verification specification | Verification framework changes |
 | `docs/backlog-specs/p0-source-full-jd-gap-closure.md` | Contributors | P0 source full-JD gap closure specification | Source extraction quality roadmap changes |
@@ -103,6 +104,7 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/roadmap/progress-merge/README.md` | Stakeholders, contributors | Merge-to-main roadmap update artifact conventions | Merge update process changes |
 | `docs/roadmap/progress-merge/2026-03-09-lane-a-w2-03-playwright-smoke.md` | Stakeholders, contributors | Lane A smoke-check evidence for search-controls completion | Merge verification evidence refresh |
 | `docs/roadmap/progress-merge/2026-03-09-lane-b-w2-04.md` | Stakeholders, contributors | Lane B merge report for run-delta persistence and surfacing | Merge verification evidence refresh |
+| `docs/roadmap/progress-merge/2026-03-10-onboarding-integration-qa.md` | Stakeholders, contributors | Integration QA report for rebased onboarding branch merge onto main | Onboarding integration verification refresh |
 | `docs/roadmap/retros/README.md` | Contributors | Virtual-retro artifact conventions | Retro process changes |
 | `docs/roadmap/retros/2026-03-08.md` | Stakeholders, contributors | Daily retro for kickoff + multi-agent orchestration setup | Daily retro cadence and process-learning updates |
 | `docs/roadmap/retros/2026-03-08-1b18d56.md` | Stakeholders, contributors | Merge-level retro for safety-boundary execution slice | Merge-triggered retrospective cadence |

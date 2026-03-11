@@ -194,7 +194,7 @@ The dashboard includes:
 - a de-duped ranked queue with selected-job detail and `Prev/Next` navigation in `Jobs`
 - job views: `All`, `New`, `Best Match`, `Applied`, `Skipped`, `Rejected`
 - source-kind job filters in `Jobs` (for example, LinkedIn/Built In/Ashby)
-- `Searches` tab grouped by source kind with funnel metrics: `Found`, `Filtered`, `Dupes`, `Imported`, `Avg Score`
+- `Searches` tab with Enabled/Disabled source lifecycle controls, auth-aware actions, and funnel metrics: `Found`, `Filtered`, `Dupes`, `Imported`, `Avg Score`
 - run-delta context in search/source status (`new`, `updated`, `unchanged`) for latest refresh
 - `Found` shown as `imported/expected` when expected totals are detectable, otherwise `imported/?`
 - source refresh/capture status signals including cache/live state
@@ -227,7 +227,7 @@ Scoring notes:
 - title mismatch is strongly penalized (score cap path)
 - source hard filters still run before scoring when configured in `sources.json`
 
-Global search-construction criteria in `config/search-criteria.json`:
+Global search-construction criteria in `config/source-criteria.json` (legacy `config/search-criteria.json` fallback still supported):
 
 - `title`, `keywords`, `keywordMode`, `includeTerms`, `excludeTerms`, `location`, `minSalary`, `distanceMiles`, `datePosted`, `experienceLevel`
 - these are used as the default canonical variables when constructing source URLs

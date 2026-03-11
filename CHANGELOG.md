@@ -6,6 +6,14 @@ All notable changes to this project should be documented in this file.
 
 ### Added
 
+- Onboarding consent surface and install-preference capture:
+  - `jf init` supports `--channel`, `--analytics`, `--no-analytics`, and `--non-interactive`
+  - legal acceptance persisted in onboarding state with explicit terms/privacy/risk acknowledgment
+  - policy endpoints exposed at `GET /policy/terms` and `GET /policy/privacy`
+- Searches onboarding/auth flow primitives:
+  - Enabled/Disabled source lifecycle controls in `Searches`
+  - auth-check dialog flow for auth-required sources with source-check persistence
+
 - Search-controls expansion in canonical criteria and dashboard/API:
   - `keywordMode` (`and`/`or`) support
   - `includeTerms` / `excludeTerms` support
@@ -81,6 +89,9 @@ All notable changes to this project should be documented in this file.
 - `src/output/render.js` shortlist writer module (fixes CLI startup import path).
 
 ### Changed
+
+- Dashboard `Searches` view now centers onboarding source-state actions (enable/check access/run now) while retaining funnel metrics and run-context status copy.
+- `jf review` accepts an optional port argument (`jf review <port>`) to support isolated local QA sessions.
 
 - `check-source-contracts` now supports richer per-contract quality thresholds (required-field and detail-description coverage gates) and defaults to `minCoverage=0.9`.
 - Dashboard search criteria controls now expose `AND`/`OR` keyword mode and include/exclude term fields.

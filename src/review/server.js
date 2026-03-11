@@ -5310,6 +5310,16 @@ export function renderDashboardPage(dashboard, options = {}) {
                 : String(source.importedCount) +
                   "/" +
                   String(Math.max(0, Math.round(source.expectedFoundCount)));
+            const disableControls = busy || onboardingBusy || Boolean(authFlowSourceId);
+            const runNowDisabled = disableControls || !source.manualRefreshAllowed;
+            const runNowLabel = runNowDisabled
+              ? source.manualRefreshNextEligibleAt
+                ? "Available in " + formatDurationFromNow(source.manualRefreshNextEligibleAt)
+                : "Run now"
+              : "Run now";
+            const overflowMenu = source.enabled
+              ? buildSourceOverflowMenu(source.id, disableControls, "disable")
+              : "";
 
             return [
               '<tr class="search-row' + (source.enabled ? "" : " is-disabled") + '">',
