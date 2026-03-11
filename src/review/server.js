@@ -2336,8 +2336,8 @@ export function renderDashboardPage(dashboard, options = {}) {
         position: fixed;
         top: 20px;
         right: 20px;
-        width: min(920px, calc(100vw - 24px));
-        padding: 10px 12px;
+        width: min(360px, calc(100vw - 24px));
+        padding: 10px 34px 10px 12px;
         border-radius: 12px;
         border: 1px solid rgba(27, 58, 51, 0.2);
         background: rgba(232, 244, 238, 0.96);
@@ -2358,8 +2358,24 @@ export function renderDashboardPage(dashboard, options = {}) {
       }
 
       .search-welcome-toast-actions {
-        margin-left: auto;
+        margin-left: 0;
         justify-content: flex-end;
+      }
+
+      .search-welcome-toast-close {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        width: 22px;
+        height: 22px;
+        border: 1px solid rgba(27, 58, 51, 0.25);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.76);
+        color: var(--accent);
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+        line-height: 1;
       }
 
       @keyframes search-toast-slide-in {
@@ -2427,6 +2443,27 @@ export function renderDashboardPage(dashboard, options = {}) {
 
       .search-state-tabs {
         margin-left: auto;
+        display: inline-flex;
+        align-items: flex-end;
+        gap: 6px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .search-state-tab {
+        border: 1px solid rgba(27, 58, 51, 0.38);
+        border-bottom: 0;
+        border-radius: 10px 10px 0 0;
+        background: rgba(30, 42, 38, 0.92);
+        color: #f0ebdd;
+        padding: 8px 14px;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      .search-state-tab.active {
+        background: var(--panel);
+        color: var(--ink);
+        border-color: var(--line);
       }
 
       .run-cadence-control {
@@ -3078,6 +3115,12 @@ export function renderDashboardPage(dashboard, options = {}) {
           width: calc(100vw - 24px);
         }
 
+        .search-state-tabs {
+          margin-left: 0;
+          width: 100%;
+          overflow-x: auto;
+        }
+
         table,
         thead,
         tbody,
@@ -3149,6 +3192,7 @@ export function renderDashboardPage(dashboard, options = {}) {
 
       const app = document.getElementById("app");
       const JOBS_PAGE_SIZE = 10;
+      const SEARCHES_WELCOME_TOAST_SEEN_KEY = "jobFinder.searchesWelcomeToastSeen";
 
       if (onboardingEnabled && dashboard.onboarding && dashboard.onboarding.completed !== true) {
         selectedTab = "searches";
@@ -3159,6 +3203,13 @@ export function renderDashboardPage(dashboard, options = {}) {
         selectedSearchRunCadence = normalizeRunCadence(storedCadence);
       } catch {
         selectedSearchRunCadence = "12h";
+      }
+
+      try {
+        searchesWelcomeToastDismissed =
+          window.localStorage.getItem(SEARCHES_WELCOME_TOAST_SEEN_KEY) === "1";
+      } catch {
+        searchesWelcomeToastDismissed = false;
       }
 
       function escapeHtml(value) {
@@ -4859,6 +4910,11 @@ export function renderDashboardPage(dashboard, options = {}) {
 
       function dismissSearchesWelcomeToast() {
         searchesWelcomeToastDismissed = true;
+        try {
+          window.localStorage.setItem(SEARCHES_WELCOME_TOAST_SEEN_KEY, "1");
+        } catch {
+          // no-op
+        }
         render();
       }
 
@@ -5194,12 +5250,12 @@ export function renderDashboardPage(dashboard, options = {}) {
         );
 
         const searchFilterTabs = [
-          '<button class="sub-tab' +
+          '<button class="search-state-tab' +
             (selectedSearchStateFilter === "enabled" ? " active" : "") +
             '" data-search-state="enabled">Enabled (' +
             String(enabledSearchSources.length) +
             ")</button>",
-          '<button class="sub-tab' +
+          '<button class="search-state-tab' +
             (selectedSearchStateFilter === "disabled" ? " active" : "") +
             '" data-search-state="disabled">Disabled (' +
             String(disabledSearchSources.length) +
@@ -5963,12 +6019,20 @@ export function renderDashboardPage(dashboard, options = {}) {
           selectedSearchStateFilter === "enabled" &&
           (onboardingAuthPendingSources.length > 0 || hasAuthSourcesInDisabled) &&
           !searchesWelcomeToastDismissed;
+        if (showSearchWelcomeToast) {
+          searchesWelcomeToastDismissed = true;
+          try {
+            window.localStorage.setItem(SEARCHES_WELCOME_TOAST_SEEN_KEY, "1");
+          } catch {
+            // no-op
+          }
+        }
         const searchesWelcomeToastMarkup = showSearchWelcomeToast
           ? '<div class="search-welcome-toast">' +
-              '<div class="search-welcome-toast-text">Welcome to Job Finder! These sources don&#39;t require authentication and are enabled automatically. To enable sources that require a login, visit the Disabled tab.</div>' +
+              '<button class="search-welcome-toast-close" type="button" aria-label="Close welcome message" data-search-welcome-dismiss="1">X</button>' +
+              '<div class="search-welcome-toast-text">Welcome to Job Finder! The Enabled tab shows websites with public job postings. To enable sources like LinkedIn (where login is required) visit the Disabled tab.</div>' +
               '<div class="inline-actions search-welcome-toast-actions">' +
                 '<button class="secondary" data-search-welcome-disabled="1">Go to Disabled</button>' +
-                '<button class="secondary" data-search-welcome-dismiss="1">Dismiss</button>' +
               "</div>" +
             "</div>"
           : "";
@@ -6017,7 +6081,7 @@ export function renderDashboardPage(dashboard, options = {}) {
           '<section class="card" style="margin-top: 18px;">',
           '  <div class="search-header">',
           '    <p class="section-label">My Job Searches</p>',
-          '    <div class="sub-tabs search-state-tabs">' + searchFilterTabs + "</div>",
+          '    <div class="search-state-tabs">' + searchFilterTabs + "</div>",
           "  </div>",
           (selectedSearchStateFilter === "enabled"
             ? '  <div class="search-controls-row">' +

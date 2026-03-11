@@ -99,6 +99,8 @@ test("renderDashboardPage builds searches enabled/disabled tabs", () => {
   });
   assert.equal(html.includes('data-search-state="enabled"'), true);
   assert.equal(html.includes('data-search-state="disabled"'), true);
+  assert.equal(html.includes('class="search-state-tabs"'), true);
+  assert.equal(html.includes('class="search-state-tab\' +'), true);
   assert.equal(html.includes("const searchSources = (Array.isArray(dashboard.sources) ? dashboard.sources : [])"), true);
   assert.equal(html.includes("button.dataset.searchState"), true);
 });
@@ -254,10 +256,39 @@ test("renderDashboardPage shows enabled-tab onboarding welcome toast with disabl
     true
   );
   assert.equal(
-    html.includes("visit the Disabled tab."),
+    html.includes(
+      "The Enabled tab shows websites with public job postings. To enable sources like LinkedIn (where login is required) visit the Disabled tab."
+    ),
     true
   );
   assert.equal(html.includes('data-search-welcome-disabled="1"'), true);
+  assert.equal(html.includes('data-search-welcome-dismiss="1"'), true);
+  assert.equal(
+    html.includes('aria-label="Close welcome message"'),
+    true
+  );
+  assert.equal(html.includes(">Dismiss<"), false);
+});
+
+test("renderDashboardPage persists first-visit state key for searches welcome toast", () => {
+  const html = renderDashboardPage({
+    featureFlags: { onboardingWizard: true },
+    onboarding: {
+      completed: false,
+      consentComplete: true,
+      consent: {
+        termsAccepted: true,
+        privacyAccepted: true,
+        tosRiskAccepted: true
+      },
+      checks: { sources: {} }
+    }
+  });
+
+  assert.equal(
+    html.includes("jobFinder.searchesWelcomeToastSeen"),
+    true
+  );
   assert.equal(html.includes('data-search-welcome-dismiss="1"'), true);
 });
 
