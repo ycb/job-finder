@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { buildConsentPayload, getCheckButtonLabel, groupOnboardingSources } from "@/lib/onboarding";
 import {
   buildSearchRows,
   computeSearchTotals,
@@ -39,6 +40,38 @@ const MAIN_TABS = [
   { value: "searches", label: "Searches" },
   { value: "profile", label: "Profile" },
 ];
+
+const AUTH_FLOW_HELP_TEXT = "Step 1: Open source. Step 2: Sign in. Step 3: Click I'm logged in.";
+const CONSENT_REQUIRED_MESSAGE =
+  "Before continuing, review Terms + Privacy and accept the consent checkboxes in Step 1.";
+
+function StatusChip({ readiness }) {
+  const toneClass =
+    readiness.tone === "ok"
+      ? "border-emerald-200 bg-emerald-100 text-emerald-900"
+      : readiness.tone === "warn"
+        ? "border-amber-200 bg-amber-100 text-amber-900"
+        : "border-slate-200 bg-slate-100 text-slate-700";
+
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium",
+        toneClass,
+      )}
+    >
+      {readiness.label}
+    </span>
+  );
+}
+
+function EmptyGroupState({ children }) {
+  return (
+    <div className="rounded-lg border border-dashed border-border/80 px-3 py-2 text-sm text-muted-foreground">
+      {children}
+    </div>
+  );
+}
 
 function statusPresentationForRow(row) {
   const healthStatus = row.adapterHealthStatus || "unknown";
@@ -185,6 +218,16 @@ export default function App() {
   });
   const [welcomeToastVisible, setWelcomeToastVisible] = useState(false);
   const [feedback, setFeedback] = useState({ message: "", error: false });
+  const [consentDraft, setConsentDraft] = useState({
+    legalAccepted: false,
+    tosRiskAccepted: false,
+  });
+  const [authFlow, setAuthFlow] = useState({
+    sourceId: null,
+    message: "",
+    error: false,
+    busy: false,
+  });
 
   const loadDashboard = useCallback(async (options = {}) => {
     const quiet = options.quiet === true;
@@ -247,10 +290,29 @@ export default function App() {
     dashboard?.onboarding?.checks && typeof dashboard.onboarding.checks === "object"
       ? dashboard.onboarding.checks.sources || {}
       : {};
+  const rawSources = Array.isArray(dashboard?.sources) ? dashboard.sources : [];
+  const sourceById = useMemo(() => {
+    const lookup = Object.create(null);
+    for (const source of rawSources) {
+      if (source && source.id) {
+        lookup[source.id] = source;
+      }
+    }
+    return lookup;
+  }, [rawSources]);
+  const onboardingGroups = useMemo(
+    () => groupOnboardingSources(rawSources, onboardingChecksBySourceId),
+    [rawSources, onboardingChecksBySourceId],
+  );
+  const onboardingEnabledCount = onboardingGroups.enabled.length;
+  const onboardingDisabledCount = onboardingGroups.notEnabled.length;
+  const consentGateRequired =
+    dashboard?.onboarding?.enabled === true &&
+    dashboard?.onboarding?.consentComplete !== true;
 
   const searchRows = useMemo(
-    () => buildSearchRows(Array.isArray(dashboard?.sources) ? dashboard.sources : [], onboardingChecksBySourceId),
-    [dashboard?.sources, onboardingChecksBySourceId],
+    () => buildSearchRows(rawSources, onboardingChecksBySourceId),
+    [rawSources, onboardingChecksBySourceId],
   );
 
   const { enabledRows, disabledRows } = useMemo(
@@ -265,7 +327,23 @@ export default function App() {
     [filteredRows, selectedSearchState],
   );
 
-  const controlsDisabled = busyAction.length > 0;
+  const controlsDisabled = busyAction.length > 0 || authFlow.busy;
+
+  const currentEnabledSourceIds = useCallback(
+    () =>
+      rawSources
+        .filter((source) => source && source.enabled === true && source.id)
+        .map((source) => source.id),
+    [rawSources],
+  );
+
+  const ensureConsentAccepted = useCallback(() => {
+    if (consentGateRequired) {
+      setFeedback({ message: CONSENT_REQUIRED_MESSAGE, error: true });
+      return false;
+    }
+    return true;
+  }, [consentGateRequired]);
 
   const persistEnabledSources = useCallback(
     async (enabledSourceIds) => {
@@ -285,12 +363,24 @@ export default function App() {
 
   const handleEnableSource = useCallback(
     async (sourceId, sourceName) => {
+      if (!ensureConsentAccepted()) {
+        return;
+      }
       setBusyAction(`enable:${sourceId}`);
       setFeedback({ message: `Enabling ${sourceName}...`, error: false });
       try {
-        const nextEnabledIds = [...enabledRows.map((row) => row.id), sourceId];
+        const nextEnabledIds = [...currentEnabledSourceIds(), sourceId];
         await persistEnabledSources(nextEnabledIds);
         setFeedback({ message: `${sourceName} enabled.`, error: false });
+        const source = sourceById[sourceId];
+        if (source?.authRequired === true) {
+          setAuthFlow({
+            sourceId,
+            message: AUTH_FLOW_HELP_TEXT,
+            error: false,
+            busy: false,
+          });
+        }
       } catch (error) {
         setFeedback({
           message: typeof error?.message === "string" ? error.message : "Unable to enable source.",
@@ -300,17 +390,25 @@ export default function App() {
         setBusyAction("");
       }
     },
-    [enabledRows, persistEnabledSources],
+    [currentEnabledSourceIds, ensureConsentAccepted, persistEnabledSources, sourceById],
   );
 
   const handleDisableSource = useCallback(
     async (sourceId, sourceName) => {
+      if (!ensureConsentAccepted()) {
+        return;
+      }
       setBusyAction(`disable:${sourceId}`);
       setFeedback({ message: `Disabling ${sourceName}...`, error: false });
       try {
-        const nextEnabledIds = enabledRows.map((row) => row.id).filter((id) => id !== sourceId);
+        const nextEnabledIds = currentEnabledSourceIds().filter((id) => id !== sourceId);
         await persistEnabledSources(nextEnabledIds);
         setFeedback({ message: `${sourceName} disabled.`, error: false });
+        setAuthFlow((current) =>
+          current.sourceId === sourceId
+            ? { sourceId: null, message: "", error: false, busy: false }
+            : current,
+        );
       } catch (error) {
         setFeedback({
           message: typeof error?.message === "string" ? error.message : "Unable to disable source.",
@@ -320,11 +418,14 @@ export default function App() {
         setBusyAction("");
       }
     },
-    [enabledRows, persistEnabledSources],
+    [currentEnabledSourceIds, ensureConsentAccepted, persistEnabledSources],
   );
 
   const handleRunSourceNow = useCallback(
     async (sourceId) => {
+      if (!ensureConsentAccepted()) {
+        return;
+      }
       setBusyAction(`run:${sourceId}`);
       setFeedback({ message: "Running source now...", error: false });
       try {
@@ -360,22 +461,27 @@ export default function App() {
         setBusyAction("");
       }
     },
-    [loadDashboard],
+    [ensureConsentAccepted, loadDashboard],
   );
 
   const handleCheckAccess = useCallback(
-    async (sourceId, sourceName) => {
+    async (sourceId, sourceName, options = {}) => {
+      if (!ensureConsentAccepted()) {
+        return false;
+      }
       setBusyAction(`check:${sourceId}`);
       setFeedback({ message: `Checking access for ${sourceName}...`, error: false });
       try {
+        const source = sourceById[sourceId];
+        const authRequired = source?.authRequired === true;
         const payload = await requestJson("/api/onboarding/check-source", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             sourceId,
-            probeLive: false,
-            authProbe: true,
-            closeWindowAfterProbe: true,
+            probeLive: !authRequired,
+            authProbe: authRequired,
+            closeWindowAfterProbe: authRequired,
           }),
         });
         await loadDashboard({ quiet: true });
@@ -385,19 +491,25 @@ export default function App() {
             : "";
         if (status === "pass") {
           setFeedback({ message: `${sourceName} is ready.`, error: false });
+          return true;
         } else {
           setFeedback({ message: `${sourceName} is not authorized. Sign in and retry.`, error: true });
+          if (options.openSourceOnFail !== false && source?.searchUrl && authRequired) {
+            window.open(source.searchUrl, "_blank", "noopener,noreferrer");
+          }
+          return false;
         }
       } catch (error) {
         setFeedback({
           message: typeof error?.message === "string" ? error.message : "Unable to check source access.",
           error: true,
         });
+        return false;
       } finally {
         setBusyAction("");
       }
     },
-    [loadDashboard],
+    [ensureConsentAccepted, loadDashboard, sourceById],
   );
 
   const dismissWelcomeToast = useCallback(() => {
@@ -414,6 +526,167 @@ export default function App() {
     setWelcomeToastVisible(false);
     setSearchState("disabled");
   }, []);
+
+  const handleSaveConsent = useCallback(async () => {
+    const payload = buildConsentPayload(consentDraft);
+    if (
+      !payload.termsAccepted ||
+      !payload.privacyAccepted ||
+      !payload.rateLimitPolicyAccepted ||
+      !payload.tosRiskAccepted
+    ) {
+      setFeedback({
+        message: "Accept all required acknowledgements in Step 1 before continuing.",
+        error: true,
+      });
+      return;
+    }
+
+    setBusyAction("consent:save");
+    setFeedback({ message: "Saving legal consent...", error: false });
+    try {
+      await requestJson("/api/onboarding/consent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      await loadDashboard({ quiet: true });
+      setFeedback({ message: "Saved. Next: choose sources in Step 1.", error: false });
+    } catch (error) {
+      setFeedback({
+        message: typeof error?.message === "string" ? error.message : "Failed to save legal consent.",
+        error: true,
+      });
+    } finally {
+      setBusyAction("");
+    }
+  }, [consentDraft, loadDashboard]);
+
+  const authFlowSource =
+    authFlow.sourceId && sourceById[authFlow.sourceId] ? sourceById[authFlow.sourceId] : null;
+
+  const handleOpenSourceFromAuthFlow = useCallback(() => {
+    if (!authFlowSource?.searchUrl) {
+      return;
+    }
+    window.open(authFlowSource.searchUrl, "_blank", "noopener,noreferrer");
+    setAuthFlow((current) => ({
+      ...current,
+      error: false,
+      message: "Source opened in a new tab. Sign in, then click I'm logged in.",
+    }));
+  }, [authFlowSource]);
+
+  const handleAuthFlowCheck = useCallback(async () => {
+    if (!authFlowSource || authFlow.busy) {
+      return;
+    }
+
+    setAuthFlow((current) => ({
+      ...current,
+      busy: true,
+      error: false,
+      message: `Checking access for ${authFlowSource.name}...`,
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const passed = await handleCheckAccess(authFlowSource.id, authFlowSource.name, {
+      openSourceOnFail: false,
+    });
+
+    setAuthFlow((current) => ({
+      ...current,
+      busy: false,
+      error: !passed,
+      message: passed
+        ? `Success! ${authFlowSource.name} is now enabled.`
+        : `${authFlowSource.name} is not authorized. Sign in and retry.`,
+    }));
+  }, [authFlow.busy, authFlowSource, handleCheckAccess]);
+
+  const renderOnboardingSourceRow = useCallback((source) => {
+    const readiness = onboardingGroups.readinessBySourceId[source.id] || {
+      key: "disabled",
+      label: "Disabled",
+      tone: "muted",
+    };
+    const sourceCheck = onboardingChecksBySourceId[source.id];
+    const checkStatus =
+      sourceCheck && sourceCheck.status ? String(sourceCheck.status).toLowerCase() : "";
+    const hasPriorFailedCheck = Boolean(checkStatus) && checkStatus !== "pass";
+    const isBusyRow = busyAction === `check:${source.id}`;
+    const disableControls =
+      controlsDisabled || (Boolean(authFlow.sourceId) && authFlow.sourceId !== source.id);
+    const canEnable = readiness.key === "disabled";
+    const canCheck = source.authRequired === true && readiness.key === "not_authorized";
+    const checkButtonLabel = getCheckButtonLabel({
+      isBusy: isBusyRow,
+      hasPriorFailedCheck,
+    });
+
+    return (
+      <div key={source.id} className="rounded-xl border border-border/80 bg-card/60 p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <div className="font-medium text-foreground">{source.name}</div>
+            <div className="text-xs text-muted-foreground">{source.id}</div>
+          </div>
+          <StatusChip readiness={readiness} />
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {canEnable ? (
+            <Button
+              size="sm"
+              data-onboarding-enable-source={source.id}
+              disabled={disableControls}
+              onClick={() => {
+                void handleEnableSource(source.id, source.name);
+              }}
+            >
+              Enable
+            </Button>
+          ) : null}
+
+          {canCheck ? (
+            <Button
+              size="sm"
+              data-onboarding-check-source={source.id}
+              disabled={disableControls}
+              onClick={() => {
+                void handleCheckAccess(source.id, source.name);
+              }}
+            >
+              {checkButtonLabel}
+            </Button>
+          ) : null}
+
+          {!canEnable ? (
+            <Button
+              size="sm"
+              variant="outline"
+              data-onboarding-disable-source={source.id}
+              disabled={disableControls}
+              onClick={() => {
+                void handleDisableSource(source.id, source.name);
+              }}
+            >
+              Disable
+            </Button>
+          ) : null}
+        </div>
+      </div>
+    );
+  }, [
+    authFlow.sourceId,
+    busyAction,
+    controlsDisabled,
+    handleCheckAccess,
+    handleDisableSource,
+    handleEnableSource,
+    onboardingChecksBySourceId,
+    onboardingGroups.readinessBySourceId,
+  ]);
 
   if (loading && !dashboard) {
     return (
@@ -453,6 +726,124 @@ export default function App() {
                     </TabsList>
                   </Tabs>
                 </div>
+
+                {consentGateRequired ? (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-xl">To access JobFinder, review and accept the following:</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <label className="flex items-start gap-3 text-sm text-foreground">
+                        <input
+                          id="onboarding-consent-legal"
+                          type="checkbox"
+                          className="mt-0.5 h-4 w-4"
+                          checked={consentDraft.legalAccepted}
+                          onChange={(event) => {
+                            setConsentDraft((current) => ({
+                              ...current,
+                              legalAccepted: event.target.checked,
+                            }));
+                          }}
+                        />
+                        <span>
+                          I have read and accept the{" "}
+                          <a
+                            className="underline"
+                            href={dashboard?.onboarding?.legalDocs?.termsUrl || "/policy/terms"}
+                            target="_blank"
+                            rel="noreferrer noopener"
+                          >
+                            Terms of Service
+                          </a>{" "}
+                          and{" "}
+                          <a
+                            className="underline"
+                            href={dashboard?.onboarding?.legalDocs?.privacyUrl || "/policy/privacy"}
+                            target="_blank"
+                            rel="noreferrer noopener"
+                          >
+                            Privacy Policy
+                          </a>.
+                        </span>
+                      </label>
+
+                      <label className="flex items-start gap-3 text-sm text-foreground">
+                        <input
+                          id="onboarding-consent-tos-risk"
+                          type="checkbox"
+                          className="mt-0.5 h-4 w-4"
+                          checked={consentDraft.tosRiskAccepted}
+                          onChange={(event) => {
+                            setConsentDraft((current) => ({
+                              ...current,
+                              tosRiskAccepted: event.target.checked,
+                            }));
+                          }}
+                        />
+                        <span>
+                          I understand some platforms restrict automated access from logged-in users and accept
+                          responsibility for my accounts.
+                        </span>
+                      </label>
+
+                      <div>
+                        <Button
+                          id="onboarding-save-consent"
+                          disabled={controlsDisabled}
+                          onClick={() => {
+                            void handleSaveConsent();
+                          }}
+                        >
+                          Agree and Continue
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <Card data-onboarding-section="sources">
+                    <CardHeader>
+                      <CardTitle className="text-xl">Connect your sources</CardTitle>
+                      <CardDescription>
+                        Enabled and auth-required groups update automatically after each access check.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                      <section data-onboarding-group="enabled" className="space-y-3">
+                        <h3 className="text-base font-semibold">Enabled ({onboardingEnabledCount})</h3>
+                        {onboardingGroups.enabled.length > 0 ? (
+                          <div className="grid gap-3">
+                            {onboardingGroups.enabled.map((source) => renderOnboardingSourceRow(source))}
+                          </div>
+                        ) : (
+                          <EmptyGroupState>No enabled sources yet.</EmptyGroupState>
+                        )}
+                      </section>
+
+                      <section data-onboarding-group="auth-required" className="space-y-3">
+                        <h3 className="text-base font-semibold">Authentication Required</h3>
+                        {onboardingGroups.authRequired.length > 0 ? (
+                          <div className="grid gap-3">
+                            {onboardingGroups.authRequired.map((source) => renderOnboardingSourceRow(source))}
+                          </div>
+                        ) : (
+                          <EmptyGroupState>No sources currently need authentication.</EmptyGroupState>
+                        )}
+                      </section>
+
+                      <section data-onboarding-group="not-enabled" className="space-y-3">
+                        <h3 className="text-base font-semibold">Not Enabled ({onboardingDisabledCount})</h3>
+                        {onboardingGroups.notEnabled.length > 0 ? (
+                          <div className="grid gap-3">
+                            {onboardingGroups.notEnabled.map((source) => renderOnboardingSourceRow(source))}
+                          </div>
+                        ) : (
+                          <EmptyGroupState>No disabled sources.</EmptyGroupState>
+                        )}
+                      </section>
+                    </CardContent>
+                  </Card>
+                )}
 
                 <Card className="searches-card">
                   <CardHeader className="pb-4">
@@ -664,6 +1055,68 @@ export default function App() {
           </Tabs>
         </CardHeader>
       </Card>
+
+      {authFlowSource ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-black/45" />
+          <section
+            className="relative z-10 w-full max-w-xl rounded-xl border border-border bg-card p-5 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="auth-flow-title"
+            data-auth-flow-modal="1"
+          >
+            <h3 id="auth-flow-title" className="text-lg font-semibold">Connect {authFlowSource.name}</h3>
+            <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
+              <li>Open the source website in a new tab.</li>
+              <li>Complete sign-in.</li>
+              <li>Return here and click I&apos;m logged in.</li>
+            </ol>
+
+            {authFlow.message ? (
+              <div
+                data-auth-flow-status="1"
+                className={cn(
+                  "mt-4 text-sm",
+                  authFlow.error ? "text-destructive" : "text-muted-foreground",
+                )}
+              >
+                {authFlow.message}
+              </div>
+            ) : null}
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                data-auth-flow-open-source="1"
+                disabled={authFlow.busy}
+                onClick={handleOpenSourceFromAuthFlow}
+              >
+                Open source
+              </Button>
+              <Button
+                data-auth-flow-check="1"
+                disabled={authFlow.busy}
+                onClick={() => {
+                  void handleAuthFlowCheck();
+                }}
+              >
+                {authFlow.busy ? "Checking..." : "I'm logged in"}
+              </Button>
+              <Button
+                variant="outline"
+                data-auth-flow-close="1"
+                disabled={authFlow.busy}
+                onClick={() => {
+                  setAuthFlow({ sourceId: null, message: "", error: false, busy: false });
+                }}
+              >
+                Close
+              </Button>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       {welcomeToastVisible && mainTab === "searches" && selectedSearchState === "enabled" ? (
         <aside className="fixed right-4 top-4 z-50 w-[min(420px,calc(100vw-2rem))] rounded-lg border border-border bg-card p-4 shadow-panel animate-fade-in">

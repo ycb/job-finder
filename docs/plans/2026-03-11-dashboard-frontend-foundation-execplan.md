@@ -17,8 +17,9 @@ After this plan, the dashboard UI will run on React components styled with Tailw
 - [x] (2026-03-11) F1-B completed shared design tokens and shadcn primitives for tabs/cards/table/toast/button/select.
 - [x] (2026-03-11 21:28Z) Started lane `F2-D Searches Slice` in worktree `/Users/admin/.codex/worktrees/309b/job-finder` on branch `codex/worktrees/frontend-f2-d-searches`; verified F1-A/F1-B/F1-C baseline merge commit (`678ab70`) before implementation.
 - [x] (2026-03-11 22:07Z) Ported `Searches` shell/state tabs/search-frequency/source rows-actions/first-visit welcome toast to React (`src/review/web/src/App.jsx`) with behavior helpers tested in `test/review-searches-react-logic.test.js`.
-- [ ] Port onboarding source readiness/auth UX used from `Searches` into React.
+- [x] (2026-03-11 22:48Z) Ported onboarding source readiness/auth UX into React Searches with consent interstitial, grouped source readiness sections, and auth modal probe flow parity (`src/review/web/src/App.jsx`, `src/review/web/src/lib/onboarding.js`).
 - [x] (2026-03-11 22:07Z) Added and ran React Searches Playwright smoke (`scripts/playwright-searches-flow-smoke.js`) with screenshot+log artifacts under `docs/roadmap/progress-merge/`.
+- [x] (2026-03-11 22:48Z) Added and ran onboarding auth React smoke (`scripts/playwright-onboarding-auth-smoke.js`) with result/log/screenshot artifacts under `docs/roadmap/progress-merge/`.
 - [ ] Run full QA checklist for Phase 1/1.1 + onboarding on React UI and update backlog/roadmap status.
 
 ## Surprises & Discoveries
@@ -29,6 +30,8 @@ After this plan, the dashboard UI will run on React components styled with Tailw
   Evidence: Toast did not appear in QA when gate depended on auth-source conditions or stale localStorage state.
 - Observation: Local port `4432` returned `listen EPERM` in this environment while `4511` was available.
   Evidence: Searches smoke failed on `4432` with timeout + `listen EPERM`; rerun on `4511` succeeded and produced artifacts.
+- Observation: Onboarding auth smoke is deterministic only when bridge provider is forced to noop in the harness.
+  Evidence: `scripts/playwright-onboarding-auth-smoke.js` sets `JOB_FINDER_BRIDGE_PROVIDER=noop` before starting the review server, avoiding external auth/window side-effects.
 
 ## Decision Log
 
@@ -48,6 +51,7 @@ After this plan, the dashboard UI will run on React components styled with Tailw
 ## Outcomes & Retrospective
 
 - (2026-03-11, lane `F2-D`) Delivered React Searches parity slice with active-tab semantics, frequency control gating to Enabled tab, source row actions (`Enable`/`Run now`/`Check access`/overflow `Disable`), and first-visit welcome toast (dismiss + `Go to Disabled`). Added pure-logic tests and a dedicated Playwright Searches flow smoke. Remaining scope for this milestone is onboarding auth modal flow parity, explicitly deferred to lane `F2-E`.
+- (2026-03-11, lane `F2-E`) Delivered onboarding parity in React Searches: legal-consent interstitial gating (`/api/onboarding/consent`), grouped source readiness sections (Enabled / Authentication Required / Not Enabled), enable/disable actions (`/api/onboarding/sources`), and auth modal check flow (`/api/onboarding/check-source`). Added onboarding model tests and deterministic Playwright auth smoke artifacts.
 
 ## Context and Orientation
 

@@ -1,0 +1,4 @@
+[assert] auth candidate id=linkedin-live-capture
+[assert] modal status=Checking access for LinkedIn...
+[assert] check response=200:fail
+[assert] onboarding consent complete=true

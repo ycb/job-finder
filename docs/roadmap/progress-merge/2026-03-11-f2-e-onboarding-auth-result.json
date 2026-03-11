@@ -1,0 +1,11 @@
+{
+  "capturedAt": "2026-03-11T23:28:03.909Z",
+  "baseUrl": "http://127.0.0.1:51810",
+  "authCandidate": {
+    "id": "linkedin-live-capture",
+    "name": "LinkedIn"
+  },
+  "modalStatus": "Checking access for LinkedIn...",
+  "checkResponseSummary": "200:fail",
+  "onboardingConsentComplete": true
+}
