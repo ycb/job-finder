@@ -1,6 +1,6 @@
 # Documentation Registry
 
-As of 2026-03-10.
+As of 2026-03-11.
 
 ## Purpose
 
@@ -43,6 +43,7 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/plans/2026-03-09-lane-b-w2-04-net-new-refresh-deltas-execplan.md` | Contributors/operators | Lane B execution plan for run-delta persistence and dashboard surfacing | Run-delta persistence/surfacing changes |
 | `docs/plans/2026-03-09-phase-1-1-closeout-execution-plan.md` | Contributors/operators | Phase 1.1 closeout implementation sequencing plan for remaining MVP items | Phase 1.1 scope or sequencing changes |
 | `docs/plans/2026-03-06-onboarding-analytics-monetization-foundation-execplan.md` | Contributors/operators | Onboarding, consent, analytics, and monetization-foundation execution plan | Onboarding/consent/telemetry contract changes |
+| `docs/plans/2026-03-11-dashboard-frontend-foundation-execplan.md` | Contributors/operators | Frontend foundation migration plan (React + Tailwind + shadcn) before full QA closeout | Frontend architecture/stack/sequencing changes |
 | `docs/backlog-specs/completed-core-url-construction-rollout.md` | Contributors | Completed URL construction rollout record | Backfilled completion notes |
 | `docs/backlog-specs/p0-source-capture-verification-framework.md` | Contributors | P0 source capture verification specification | Verification framework changes |
 | `docs/backlog-specs/p0-source-full-jd-gap-closure.md` | Contributors | P0 source full-JD gap closure specification | Source extraction quality roadmap changes |
@@ -90,6 +91,7 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/roadmap/kickoff/2026-03-08-mvp-phase-1-kickoff.md` | Stakeholders, contributors | Dated kickoff charter for MVP Phase 1 scope, sequencing, and accountability | Phase kickoffs or kickoff revision approvals |
 | `docs/roadmap/kickoff/2026-03-09-mvp-phase-1-1-closeout.md` | Stakeholders, contributors | Dated closeout scope charter for remaining Phase 1 MVP follow-on work | Phase closeout scope changes |
 | `docs/roadmap/phase-1-dispatch-board.md` | Stakeholders, contributors | Active dispatch control board for lane/worktree/task gate tracking | Any active queue, lane, or gate-state change |
+| `docs/roadmap/frontend-foundation-dispatch-board.md` | Stakeholders, contributors | Dispatch board for frontend foundation migration lanes and merge gates | Any frontend lane/gate/dependency state change |
 | `docs/roadmap/phase-1-execution-tracker.md` | Stakeholders, contributors | Live Phase 1 status/dependency tracker for MVP execution | Any status/dependency/milestone change in Phase 1 |
 | `docs/roadmap/progress-merge/2026-03-08-1b18d56.md` | Stakeholders, contributors | Merge-to-main execution report for safety-boundary milestone | Each merge to main for roadmap-tracked work |
 | `docs/roadmap/progress-merge/2026-03-08-444d199.md` | Stakeholders, contributors | Merge-to-main execution report for source-contracts schema milestone | Each merge to main for roadmap-tracked work |
@@ -116,5 +118,6 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/roadmap/retros/2026-03-08-c264403.md` | Stakeholders, contributors | Merge-level retro for analytics schema/mapping completion slice | Merge-triggered retrospective cadence |
 | `docs/roadmap/retros/2026-03-08-34ad002.md` | Stakeholders, contributors | Merge-level retro for retention-policy completion slice | Merge-triggered retrospective cadence |
 | `docs/roadmap/task-packets/2026-03-08-phase1-wave1.md` | Contributors/operators | Copy/paste dispatch packets for Phase 1 Wave 1 tasks | Queue/scope/dependency changes for Wave 1 execution |
+| `docs/roadmap/task-packets/2026-03-11-dashboard-frontend-foundation.md` | Contributors/operators | Copy/paste dispatch packets for frontend foundation migration lanes (F1/F2) | Queue/scope/dependency changes for frontend migration execution |
 | `docs/assets/dashboard-preview.svg` | Users, evaluators | Dashboard visual preview asset | Dashboard visual refresh |
 | `docs/roadmap/progress-merge/2026-03-09-lane-b-w2-04-playwright-smoke.png` | Stakeholders, contributors | Playwright screenshot evidence for lane B dashboard run-delta UX | Merge verification asset refresh |

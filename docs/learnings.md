@@ -184,3 +184,8 @@ As of 2026-03-06.
 - For auth-required source enablement, enforce one-source-at-a-time with a guided modal flow (`Open source` -> user signs in -> `I'm logged in` auth probe).
 - Use explicit positive-success copy in auth modals: `Success! <Source> is now enabled.` instead of vague readiness text.
 - Orientation guidance should use a true toast pattern: fixed top-right, animated entrance from the right, non-blocking with explicit CTA + dismiss.
+
+## Dispatch and QA Commit Discipline
+
+- Never hand off QA instructions assuming code is available in downstream worktrees until the fix is committed and pushed (or explicit local-only scope is stated).
+- Before giving QA refresh commands, verify upstream commit presence with `git log -n 1` and branch sync with `git status --short --branch`.
