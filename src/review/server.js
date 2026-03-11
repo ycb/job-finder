@@ -6023,12 +6023,8 @@ export function renderDashboardPage(dashboard, options = {}) {
               "</div>"
             ].join("")
           : "";
-        const hasAuthSourcesInDisabled = disabledSearchSources.some(
-          (source) => source.authRequired
-        );
         const showSearchWelcomeToast =
           selectedSearchStateFilter === "enabled" &&
-          hasAuthSourcesInDisabled &&
           !searchesWelcomeToastDismissed;
         if (showSearchWelcomeToast) {
           searchesWelcomeToastDismissed = true;

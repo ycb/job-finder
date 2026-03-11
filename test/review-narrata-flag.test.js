@@ -295,6 +295,10 @@ test("renderDashboardPage persists first-visit state key for searches welcome to
     html.includes("onboardingIncomplete &&"),
     false
   );
+  assert.equal(
+    html.includes("hasAuthSourcesInDisabled &&"),
+    false
+  );
   assert.equal(html.includes('data-search-welcome-dismiss="1"'), true);
 });
 
