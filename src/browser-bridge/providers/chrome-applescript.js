@@ -150,6 +150,27 @@ function showAutomationMessage(message) {
   );
 }
 
+function closeAutomationWindow() {
+  if (!Number.isInteger(automationWindowId)) {
+    return;
+  }
+
+  try {
+    runAppleScript(
+      [
+        'tell application "Google Chrome"',
+        `set _window to window id ${automationWindowId}`,
+        "if _window is not missing value then close _window",
+        "end tell"
+      ].join("\n")
+    );
+  } catch {
+    // no-op
+  } finally {
+    automationWindowId = null;
+  }
+}
+
 function navigateAutomationTab(url, message) {
   const windowId = ensureAutomationWindow(message);
   showAutomationMessage(message);
@@ -196,6 +217,115 @@ function readAutomationTabInfo() {
     url: String(url || "").trim(),
     title: String(title || "").trim()
   };
+}
+
+const AUTH_REQUIRED_SOURCE_TYPES = new Set([
+  "linkedin_capture_file",
+  "wellfound_search",
+  "indeed_search",
+  "ziprecruiter_search",
+  "remoteok_search"
+]);
+
+function buildAuthProbeScript() {
+  return `
+(() => {
+  const bodyText = String(document.body?.innerText || "").replace(/\\s+/g, " ").trim();
+  const snippet = bodyText.slice(0, 1600);
+  return JSON.stringify({
+    href: String(location.href || ""),
+    host: String(location.host || ""),
+    pathname: String(location.pathname || ""),
+    title: String(document.title || ""),
+    hasPasswordField: Boolean(document.querySelector('input[type="password"]')),
+    textSnippet: snippet
+  });
+})()
+`;
+}
+
+function authProbeLooksUnauthorized(sourceType, probe) {
+  const href = String(probe?.href || "").toLowerCase();
+  const title = String(probe?.title || "").toLowerCase();
+  const text = String(probe?.textSnippet || "").toLowerCase();
+  const pathname = String(probe?.pathname || "").toLowerCase();
+  const host = String(probe?.host || "").toLowerCase();
+  const hasPasswordField = probe?.hasPasswordField === true;
+  const source = String(sourceType || "").toLowerCase();
+
+  let hostPattern = /(linkedin|indeed|ziprecruiter|wellfound|remoteok)\./;
+  if (source === "linkedin_capture_file") {
+    hostPattern = /linkedin\./;
+  } else if (source === "indeed_search") {
+    hostPattern = /indeed\./;
+  } else if (source === "ziprecruiter_search") {
+    hostPattern = /ziprecruiter\./;
+  } else if (source === "wellfound_search") {
+    hostPattern = /wellfound\./;
+  } else if (source === "remoteok_search") {
+    hostPattern = /remoteok\./;
+  }
+
+  const hasLoginPath =
+    hostPattern.test(host) &&
+    /(login|signin|sign-in|authwall|checkpoint|session)/.test(pathname);
+  const hasLoginInHref = /(login|signin|sign-in|authwall|checkpoint|session)/.test(href);
+  const likelyLoginTitle = /(sign in|log in|login)/.test(title);
+  const likelyLoginText = /(sign in|log in|login|continue with)/.test(text);
+
+  return hasLoginPath || hasLoginInHref || hasPasswordField || (likelyLoginTitle && likelyLoginText);
+}
+
+export function probeSourceAccessWithChromeAppleScript(source, options = {}) {
+  if (!source || !AUTH_REQUIRED_SOURCE_TYPES.has(source.type)) {
+    throw new Error(
+      `Auth probe is supported only for auth-required browser sources. "${source?.name || "unknown"}" is ${source?.type || "unknown"}.`
+    );
+  }
+  if (!source.searchUrl) {
+    throw new Error("Auth probe requires a source with searchUrl.");
+  }
+
+  const settleMs = Number(options.settleMs) > 0 ? Number(options.settleMs) : 1500;
+  const closeWindowAfterProbe = options?.closeWindowAfterProbe === true;
+  try {
+    navigateAutomationTab(source.searchUrl, `Checking access for ${source.name || "source"}...`);
+    sleepSync(settleMs);
+
+    const tabInfo = readAutomationTabInfo();
+    let probe = {
+      href: tabInfo.url,
+      title: tabInfo.title,
+      host: "",
+      pathname: "",
+      hasPasswordField: false,
+      textSnippet: ""
+    };
+
+    try {
+      const raw = executeInAutomationTab(buildAuthProbeScript());
+      const parsed = JSON.parse(String(raw || "{}"));
+      probe = {
+        ...probe,
+        ...(parsed && typeof parsed === "object" ? parsed : {})
+      };
+    } catch {
+      // URL/title checks are sufficient for basic auth probe fallback.
+    }
+
+    const unauthorized = authProbeLooksUnauthorized(source.type, probe);
+    return {
+      status: unauthorized ? "unauthorized" : "authorized",
+      reasonCode: unauthorized ? "auth_required" : "auth_ok",
+      pageUrl: String(probe.href || tabInfo.url || source.searchUrl),
+      pageTitle: String(probe.title || tabInfo.title || ""),
+      provider: "chrome_applescript"
+    };
+  } finally {
+    if (closeWindowAfterProbe) {
+      closeAutomationWindow();
+    }
+  }
 }
 
 function buildExtractionScript() {

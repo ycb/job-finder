@@ -2,11 +2,13 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
 
 import { createAnalyticsClient } from "../analytics/client.js";
 
 import {
   captureSourceViaBridge,
+  probeSourceAccessViaBridge,
   resolveBrowserBridgeBaseUrl
 } from "../browser-bridge/client.js";
 import { startBrowserBridgeServer } from "../browser-bridge/server.js";
@@ -64,7 +66,12 @@ import {
   shouldIngestCaptureEvaluation,
   writeCaptureQuarantineArtifact
 } from "../sources/capture-validation.js";
-import { classifyRefreshErrorOutcome, recordRefreshEvent } from "../sources/refresh-state.js";
+import {
+  classifyRefreshErrorOutcome,
+  countSourceEventsForUtcDay,
+  readRefreshState,
+  recordRefreshEvent
+} from "../sources/refresh-state.js";
 import {
   computeAllSourceHealthStatuses,
   recordSourceHealthFromCaptureEvaluation
@@ -83,6 +90,7 @@ import {
   loadUserSettings,
   markFirstRunCompleted,
   markOnboardingCompleted,
+  updateInstallConsent,
   updateAnalyticsPreference,
   updateOnboardingChannel,
   updateOnboardingSourceCheck,
@@ -97,6 +105,47 @@ function trackDashboardEvent(eventName, properties = {}) {
   } catch {
     // Never block dashboard API flow on analytics.
   }
+}
+
+const REVIEW_MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
+const PROJECT_ROOT = path.resolve(REVIEW_MODULE_DIR, "../..");
+const LEGAL_TERMS_PATH = path.join(PROJECT_ROOT, "TERMS.md");
+const LEGAL_PRIVACY_PATH = path.join(PROJECT_ROOT, "PRIVACY.md");
+const MANUAL_REFRESH_DAILY_CAP = 3;
+
+function normalizeConsent(input) {
+  const consent =
+    input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  return {
+    termsAccepted: Boolean(consent.termsAccepted),
+    privacyAccepted: Boolean(consent.privacyAccepted),
+    rateLimitPolicyAccepted: Boolean(consent.rateLimitPolicyAccepted),
+    tosRiskAccepted: Boolean(consent.tosRiskAccepted),
+    acceptedAt:
+      consent.acceptedAt && String(consent.acceptedAt).trim()
+        ? String(consent.acceptedAt)
+        : null,
+    updatedAt:
+      consent.updatedAt && String(consent.updatedAt).trim()
+        ? String(consent.updatedAt)
+        : null
+  };
+}
+
+function isConsentComplete(consent) {
+  const normalized = normalizeConsent(consent);
+  return (
+    normalized.termsAccepted &&
+    normalized.privacyAccepted &&
+    normalized.tosRiskAccepted
+  );
+}
+
+function nextUtcDayStartIso(nowMs = Date.now()) {
+  const now = new Date(nowMs);
+  return new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0, 0)
+  ).toISOString();
 }
 
 function escapeHtml(value) {
@@ -1009,6 +1058,18 @@ function describeRefreshDecision(source, decision) {
   return `Using cache for "${sourceName}" (live refresh blocked: ${decision.reason}; next eligible=${decision.nextEligibleAt || "unknown"}; capturedAt=${capturedAt}).`;
 }
 
+function sourceWithCadenceCacheTtl(source, options = {}) {
+  const overrideHours = Number(options.cacheTtlHours);
+  if (!Number.isFinite(overrideHours) || overrideHours <= 0) {
+    return source;
+  }
+
+  return {
+    ...source,
+    cacheTtlHours: overrideHours
+  };
+}
+
 async function runSourceCaptureWithOptions(sourceId, options = {}) {
   const source = loadSources().sources.find((item) => item.id === sourceId);
 
@@ -1031,7 +1092,8 @@ async function runSourceCaptureWithOptions(sourceId, options = {}) {
   const refreshProfile = normalizeRefreshProfile(
     options.refreshProfile || process.env.JOB_FINDER_REFRESH_PROFILE || "safe"
   );
-  const decision = getSourceRefreshDecision(source, {
+  const decisionSource = sourceWithCadenceCacheTtl(source, options);
+  const decision = getSourceRefreshDecision(decisionSource, {
     profile: refreshProfile,
     forceRefresh: Boolean(options.forceRefresh),
     statePath: options.refreshStatePath
@@ -1063,6 +1125,7 @@ async function runSourceCaptureWithOptions(sourceId, options = {}) {
       statePath: options.refreshStatePath,
       sourceId: source.id,
       outcome,
+      mode: options.runMode === "manual" ? "manual" : "scheduled",
       at: new Date().toISOString(),
       cooldownMinutes:
         outcome === "challenge" ? Number(decision?.policy?.cooldownMinutes || 0) : 0
@@ -1073,10 +1136,11 @@ async function runSourceCaptureWithOptions(sourceId, options = {}) {
   if (capture.status === "completed") {
     recordRefreshEvent({
       statePath: options.refreshStatePath,
-      sourceId: source.id,
-      outcome: "success",
-      at: capture.capturedAt || new Date().toISOString()
-    });
+        sourceId: source.id,
+        outcome: "success",
+        mode: options.runMode === "manual" ? "manual" : "scheduled",
+        at: capture.capturedAt || new Date().toISOString()
+      });
   }
 
   const sync =
@@ -1086,6 +1150,97 @@ async function runSourceCaptureWithOptions(sourceId, options = {}) {
     capture,
     sync
   };
+}
+
+function buildAuthPreflightFailure(source, error) {
+  const outcome = classifyRefreshErrorOutcome(error);
+  const technicalDetails = {
+    sourceId: source.id,
+    error: String(error?.message || error || "unknown")
+  };
+
+  if (outcome === "challenge") {
+    return normalizeSourceCheckResult({
+      status: "fail",
+      reasonCode: "auth_challenge",
+      userMessage:
+        "Sign-in could not be confirmed. Open source site, sign in, then check access again.",
+      technicalDetails
+    });
+  }
+
+  return normalizeSourceCheckResult({
+    status: "fail",
+    reasonCode: "auth_check_failed",
+    userMessage: "Auth check failed. Open source site, sign in, then retry.",
+    technicalDetails
+  });
+}
+
+function mapAuthProbeToCheckResult(source, probeResult) {
+  const status = String(probeResult?.status || "").trim().toLowerCase();
+  const isAuthorized = status === "authorized";
+  const pageUrl = String(probeResult?.pageUrl || source.searchUrl || "");
+  const pageTitle = String(probeResult?.pageTitle || "");
+
+  return normalizeSourceCheckResult({
+    status: isAuthorized ? "pass" : "fail",
+    reasonCode: isAuthorized ? "auth_ok" : "auth_required",
+    userMessage: isAuthorized
+      ? "Access confirmed."
+      : "Sign-in could not be confirmed. Open source site, sign in, then retry.",
+    technicalDetails: {
+      sourceId: source.id,
+      sourceType: source.type,
+      pageUrl,
+      pageTitle,
+      provider: probeResult?.provider || null
+    }
+  });
+}
+
+async function runSourceAuthProbe(source, options = {}) {
+  await ensureBridgeForSources([source]);
+  const probeResult = await probeSourceAccessViaBridge(source, {
+    settleMs: 1200,
+    timeoutMs: 15_000,
+    closeWindowAfterProbe: options.closeWindowAfterProbe === true
+  });
+  return mapAuthProbeToCheckResult(source, probeResult);
+}
+
+async function runAuthPreflightForEnabledSources(options = {}) {
+  const enabledAuthSources = loadSources().sources.filter(
+    (source) => source.enabled && isSourceAuthRequired(source.type)
+  );
+  const blockedSources = [];
+
+  if (enabledAuthSources.length === 0) {
+    return blockedSources;
+  }
+
+  await ensureBridgeForSources(enabledAuthSources);
+
+  for (const source of enabledAuthSources) {
+    let result;
+    try {
+      result = await runSourceAuthProbe(source);
+    } catch (error) {
+      result = buildAuthPreflightFailure(source, error);
+    }
+
+    updateOnboardingSourceCheck(source.id, result);
+    if (result.status !== "pass") {
+      blockedSources.push({
+        sourceId: source.id,
+        sourceName: source.name,
+        searchUrl: source.searchUrl,
+        result
+      });
+    }
+  }
+
+  return blockedSources;
 }
 
 async function runAllCaptures() {
@@ -1107,7 +1262,7 @@ async function runAllCapturesWithOptions(options = {}) {
       continue;
     }
 
-    const decision = getSourceRefreshDecision(source, {
+    const decision = getSourceRefreshDecision(sourceWithCadenceCacheTtl(source, options), {
       profile: refreshProfile,
       forceRefresh: Boolean(options.forceRefresh),
       statePath: options.refreshStatePath
@@ -1126,11 +1281,13 @@ async function runAllCapturesWithOptions(options = {}) {
     let capture;
 
     if (isBrowserCaptureSource(source)) {
-      const decision = decisions.get(source.id) || getSourceRefreshDecision(source, {
-        profile: refreshProfile,
-        forceRefresh: Boolean(options.forceRefresh),
-        statePath: options.refreshStatePath
-      });
+      const decision =
+        decisions.get(source.id) ||
+        getSourceRefreshDecision(sourceWithCadenceCacheTtl(source, options), {
+          profile: refreshProfile,
+          forceRefresh: Boolean(options.forceRefresh),
+          statePath: options.refreshStatePath
+        });
 
       if (!decision.allowLive) {
         capture = {
@@ -1156,6 +1313,7 @@ async function runAllCapturesWithOptions(options = {}) {
             statePath: options.refreshStatePath,
             sourceId: source.id,
             outcome,
+            mode: options.runMode === "manual" ? "manual" : "scheduled",
             at: new Date().toISOString(),
             cooldownMinutes:
               outcome === "challenge" ? Number(decision?.policy?.cooldownMinutes || 0) : 0
@@ -1168,6 +1326,7 @@ async function runAllCapturesWithOptions(options = {}) {
             statePath: options.refreshStatePath,
             sourceId: source.id,
             outcome: "success",
+            mode: options.runMode === "manual" ? "manual" : "scheduled",
             at: capture.capturedAt || new Date().toISOString()
           });
         }
@@ -1204,14 +1363,42 @@ function buildDashboardData(limit = 200) {
   const activeProfile = loadActiveProfile();
   const profile = activeProfile.profile;
   const searchCriteria = loadSearchCriteria();
-  const sources = loadSources().sources;
   const userSettings = loadUserSettings();
   const settings = userSettings.settings;
+  const hasConfiguredOnboardingSources = Boolean(settings?.onboarding?.sourcesConfiguredAt);
   const effectiveChannel = getEffectiveOnboardingChannel(settings);
   const onboardingEnabled = isOnboardingWizardEnabled();
+  let sources = loadSources().sources;
+  if (
+    onboardingEnabled &&
+    settings?.onboarding?.completed !== true &&
+    !settings?.onboarding?.firstRunAt &&
+    !hasConfiguredOnboardingSources
+  ) {
+    const enabledIds = new Set(
+      sources.filter((source) => source.enabled).map((source) => source.id)
+    );
+    const noAuthDefaultIds = sources
+      .filter((source) => !isSourceAuthRequired(source.type))
+      .map((source) => source.id);
+    let changed = false;
+    for (const sourceId of noAuthDefaultIds) {
+      if (!enabledIds.has(sourceId)) {
+        enabledIds.add(sourceId);
+        changed = true;
+      }
+    }
+    if (changed) {
+      setEnabledSources([...enabledIds]);
+      sources = loadSources().sources;
+    }
+  }
   const analyticsFlagEnabled = isAnalyticsEnabledByFlag();
   const monetizationLimitsEnabled = isMonetizationLimitsEnabled();
   const entitlement = getEntitlementState(settings);
+  const refreshState = readRefreshState();
+  const nowMs = Date.now();
+  const nowIso = new Date(nowMs).toISOString();
   const statsQueue = hydrateQueue(getAllJobsWithStatus(5_000), { includeRejected: true });
   const scoresBySourceIdAndHash = new Map();
   for (const job of statsQueue) {
@@ -1303,6 +1490,13 @@ function buildDashboardData(limit = 200) {
       startedAt: settings?.onboarding?.startedAt || null,
       completedAt: settings?.onboarding?.completedAt || null,
       firstRunAt: settings?.onboarding?.firstRunAt || null,
+      sourcesConfiguredAt: settings?.onboarding?.sourcesConfiguredAt || null,
+      legalDocs: {
+        termsUrl: "/policy/terms",
+        privacyUrl: "/policy/privacy"
+      },
+      consent: normalizeConsent(settings?.onboarding?.consent),
+      consentComplete: isConsentComplete(settings?.onboarding?.consent),
       selectedSourceIds: Array.isArray(settings?.onboarding?.selectedSourceIds)
         ? settings.onboarding.selectedSourceIds
         : [],
@@ -1409,6 +1603,27 @@ function buildDashboardData(limit = 200) {
         captureExpectedCount,
         importedCount
       );
+      const manualRefreshesToday = countSourceEventsForUtcDay(
+        refreshState,
+        source.id,
+        nowIso,
+        { mode: "manual" }
+      );
+      const manualRemaining = Math.max(0, MANUAL_REFRESH_DAILY_CAP - manualRefreshesToday);
+      const manualCapNextEligibleAt =
+        manualRemaining <= 0 ? nextUtcDayStartIso(nowMs) : null;
+      const manualPolicyNextEligibleAt =
+        typeof refreshMeta.nextEligibleAt === "string" && refreshMeta.nextEligibleAt.trim()
+          ? refreshMeta.nextEligibleAt
+          : null;
+      const manualNextEligibleAt = manualCapNextEligibleAt || manualPolicyNextEligibleAt;
+      const manualBlockedReason =
+        manualCapNextEligibleAt
+          ? "manual_daily_cap"
+          : manualPolicyNextEligibleAt
+            ? String(refreshMeta.statusReason || "min_interval")
+            : null;
+      const manualAllowed = source.enabled === true && !manualNextEligibleAt;
 
       return {
         id: source.id,
@@ -1476,6 +1691,12 @@ function buildDashboardData(limit = 200) {
           latestRunDelta.capturedAt.trim()
             ? latestRunDelta.capturedAt
             : null,
+        manualRefreshCap: MANUAL_REFRESH_DAILY_CAP,
+        manualRefreshesToday,
+        manualRefreshRemaining: manualRemaining,
+        manualRefreshNextEligibleAt: manualNextEligibleAt,
+        manualRefreshAllowed: manualAllowed,
+        manualRefreshBlockedReason: manualBlockedReason,
         ...refreshMeta
       };
     }),
@@ -1597,6 +1818,14 @@ export function renderDashboardPage(dashboard, options = {}) {
         box-shadow: 0 20px 40px rgba(52, 44, 29, 0.12);
         padding: 22px;
         backdrop-filter: blur(10px);
+      }
+
+      .panel.panel-consent-only {
+        background: transparent;
+        border: 0;
+        box-shadow: none;
+        padding: 0;
+        backdrop-filter: none;
       }
 
       .header {
@@ -1879,16 +2108,16 @@ export function renderDashboardPage(dashboard, options = {}) {
         background: #b64040;
       }
 
-      .search-row {
+      .status-dot[data-tone="muted"] {
+        background: #a3a3a3;
+      }
+
+      .search-row-hotspot[data-open-jobs-row] {
         cursor: pointer;
       }
 
-      .search-row:hover {
+      .search-row-hotspot[data-open-jobs-row]:hover {
         background: rgba(255, 255, 255, 0.5);
-      }
-
-      .search-row:hover .search-link-label {
-        text-decoration: underline;
       }
 
       .search-totals-row td {
@@ -2099,6 +2328,111 @@ export function renderDashboardPage(dashboard, options = {}) {
         flex-wrap: wrap;
       }
 
+      .search-controls-row {
+        margin-top: 8px;
+      }
+
+      .search-welcome-toast {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        width: min(920px, calc(100vw - 24px));
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid rgba(27, 58, 51, 0.2);
+        background: rgba(232, 244, 238, 0.96);
+        color: var(--accent);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+        z-index: 95;
+        box-shadow: 0 10px 28px rgba(14, 29, 27, 0.18);
+        animation: search-toast-slide-in 220ms ease-out;
+      }
+
+      .search-welcome-toast-text {
+        font-size: 13px;
+        line-height: 1.4;
+      }
+
+      .search-welcome-toast-actions {
+        margin-left: auto;
+        justify-content: flex-end;
+      }
+
+      @keyframes search-toast-slide-in {
+        from {
+          opacity: 0;
+          transform: translateX(28px);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(0);
+        }
+      }
+
+      .auth-flow-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(14, 29, 27, 0.28);
+        z-index: 90;
+      }
+
+      .auth-flow-modal {
+        position: fixed;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        width: min(560px, calc(100vw - 24px));
+        border: 1px solid var(--line-strong);
+        border-radius: 14px;
+        background: #fffdf9;
+        box-shadow: 0 20px 50px rgba(14, 29, 27, 0.22);
+        z-index: 91;
+        padding: 16px;
+      }
+
+      .auth-flow-title {
+        margin: 0;
+        font-size: 22px;
+      }
+
+      .auth-flow-steps {
+        margin: 10px 0 0;
+        padding-left: 18px;
+        color: var(--muted);
+      }
+
+      .auth-flow-steps li + li {
+        margin-top: 4px;
+      }
+
+      .auth-flow-status {
+        margin-top: 10px;
+        border: 1px solid rgba(27, 58, 51, 0.2);
+        background: rgba(232, 244, 238, 0.66);
+        color: var(--accent);
+        border-radius: 12px;
+        padding: 10px 12px;
+        font-size: 14px;
+      }
+
+      .auth-flow-status.error {
+        border-color: rgba(182, 64, 64, 0.32);
+        background: rgba(252, 237, 237, 0.9);
+        color: var(--error);
+      }
+
+      .search-state-tabs {
+        margin-left: auto;
+      }
+
+      .run-cadence-control {
+        min-width: 300px;
+      }
+
       .source-badge {
         display: inline-flex;
         align-items: center;
@@ -2183,6 +2517,13 @@ export function renderDashboardPage(dashboard, options = {}) {
         line-height: 1.2;
       }
 
+      .onboarding-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
       .onboarding-lede {
         margin-top: 8px;
         max-width: 940px;
@@ -2221,6 +2562,19 @@ export function renderDashboardPage(dashboard, options = {}) {
         gap: 8px;
       }
 
+      .onboarding-source-group {
+        margin: 0;
+        border: 0;
+        background: transparent;
+        padding: 0;
+      }
+
+      .onboarding-source-group summary {
+        cursor: pointer;
+        font-weight: 700;
+        color: var(--ink);
+      }
+
       .onboarding-source-row {
         border: 1px solid rgba(216, 207, 189, 0.9);
         border-radius: 12px;
@@ -2228,9 +2582,13 @@ export function renderDashboardPage(dashboard, options = {}) {
         background: rgba(255, 255, 255, 0.82);
       }
 
+      .onboarding-source-row.compact {
+        padding: 8px 10px;
+      }
+
       .onboarding-source-top {
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         justify-content: space-between;
         gap: 10px;
       }
@@ -2250,8 +2608,12 @@ export function renderDashboardPage(dashboard, options = {}) {
       }
 
       .onboarding-source-meta {
-        display: inline-flex;
+        display: flex;
         align-items: center;
+        justify-content: flex-end;
+        margin-left: auto;
+        flex: 0 0 auto;
+        min-height: 24px;
         gap: 6px;
       }
 
@@ -2281,18 +2643,66 @@ export function renderDashboardPage(dashboard, options = {}) {
       }
 
       .status-chip.compact {
+        display: inline-flex;
+        align-items: center;
+        height: 24px;
         font-size: 12px;
         gap: 6px;
       }
 
-      .onboarding-source-note {
-        margin-top: 6px;
-        font-size: 13px;
-        color: var(--muted);
-      }
-
       .onboarding-actions {
         margin-top: 10px;
+      }
+
+      .onboarding-source-actions {
+        margin-top: 8px;
+        align-items: center;
+      }
+
+      .onboarding-overflow-menu {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        flex: 0 0 auto;
+      }
+
+      .onboarding-overflow-menu summary {
+        list-style: none;
+        cursor: pointer;
+        border: 0;
+        border-radius: 8px;
+        width: 24px;
+        height: 24px;
+        padding: 0;
+        color: var(--muted);
+        background: transparent;
+        font-size: 16px;
+        font-weight: 700;
+        line-height: 1;
+        user-select: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .onboarding-overflow-menu summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .onboarding-overflow-menu summary:hover {
+        background: rgba(27, 58, 51, 0.08);
+      }
+
+      .onboarding-overflow-menu-items {
+        position: absolute;
+        right: 0;
+        top: calc(100% + 6px);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: #fffdf9;
+        box-shadow: 0 8px 20px rgba(14, 29, 27, 0.12);
+        padding: 6px;
+        z-index: 5;
       }
 
       .onboarding-progress {
@@ -2320,6 +2730,40 @@ export function renderDashboardPage(dashboard, options = {}) {
       .onboarding-source-empty {
         color: var(--muted);
         font-size: 14px;
+      }
+
+      .onboarding-checklist {
+        margin-top: 10px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .onboarding-checklist label {
+        display: grid;
+        grid-template-columns: 20px minmax(0, 1fr);
+        align-items: start;
+        column-gap: 10px;
+        font-size: 14px;
+        color: var(--ink);
+      }
+
+      .onboarding-checklist .consent-copy {
+        display: inline-block;
+        line-height: 1.5;
+      }
+
+      .onboarding-checklist input[type="checkbox"] {
+        margin-top: 3px;
+      }
+
+      .onboarding-checklist a {
+        font-weight: 600;
+      }
+
+      .onboarding-blocked-note {
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 13px;
       }
 
       .jobs-layout {
@@ -2628,6 +3072,12 @@ export function renderDashboardPage(dashboard, options = {}) {
           width: 100%;
         }
 
+        .search-welcome-toast {
+          top: 12px;
+          right: 12px;
+          width: calc(100vw - 24px);
+        }
+
         table,
         thead,
         tbody,
@@ -2668,7 +3118,9 @@ export function renderDashboardPage(dashboard, options = {}) {
       let selectedJobsSort = "score";
       let jobsFiltersCollapsed = true;
       let selectedJobsPage = 1;
-      let selectedSearchSourceFilter = "all";
+      let selectedSearchStateFilter = "enabled";
+      let selectedSearchRunCadence = "12h";
+      let searchesWelcomeToastDismissed = false;
       let selectedJobId = dashboard.queue[0] ? dashboard.queue[0].id : null;
       let editingSourceId = null;
       let sourceFormOpen = false;
@@ -2682,6 +3134,13 @@ export function renderDashboardPage(dashboard, options = {}) {
       let onboardingStepStatus = "";
       let onboardingStepStatusError = false;
       let onboardingVerifyProgress = "";
+      let onboardingConsentDraft = null;
+      let onboardingActiveSourceId = null;
+      let onboardingSourcesCollapsed = false;
+      let authFlowSourceId = null;
+      let authFlowMessage = "";
+      let authFlowError = false;
+      let authFlowBusy = false;
       const narrataConnectEnabled = ${narrataConnectEnabled ? "true" : "false"};
       const wellfoundEnabled = ${wellfoundEnabled ? "true" : "false"};
       const remoteokEnabled = ${remoteokEnabled ? "true" : "false"};
@@ -2693,6 +3152,13 @@ export function renderDashboardPage(dashboard, options = {}) {
 
       if (onboardingEnabled && dashboard.onboarding && dashboard.onboarding.completed !== true) {
         selectedTab = "searches";
+      }
+
+      try {
+        const storedCadence = window.localStorage.getItem("jobFinder.searchRunCadence");
+        selectedSearchRunCadence = normalizeRunCadence(storedCadence);
+      } catch {
+        selectedSearchRunCadence = "12h";
       }
 
       function escapeHtml(value) {
@@ -2730,6 +3196,38 @@ export function renderDashboardPage(dashboard, options = {}) {
         return dashboard && typeof dashboard.onboarding === "object" ? dashboard.onboarding : {};
       }
 
+      function onboardingConsentFromData() {
+        const onboarding = onboardingData();
+        const consent =
+          onboarding &&
+          onboarding.consent &&
+          typeof onboarding.consent === "object" &&
+          !Array.isArray(onboarding.consent)
+            ? onboarding.consent
+            : {};
+        return {
+          termsAccepted: Boolean(consent.termsAccepted),
+          privacyAccepted: Boolean(consent.privacyAccepted),
+          rateLimitPolicyAccepted: Boolean(consent.rateLimitPolicyAccepted),
+          tosRiskAccepted: Boolean(consent.tosRiskAccepted),
+          acceptedAt: consent.acceptedAt || null
+        };
+      }
+
+      function onboardingConsentForRender() {
+        return onboardingConsentDraft || onboardingConsentFromData();
+      }
+
+      function isOnboardingConsentComplete(consent = onboardingConsentForRender()) {
+        return Boolean(
+          consent &&
+            consent.termsAccepted &&
+            consent.privacyAccepted &&
+            consent.rateLimitPolicyAccepted &&
+            consent.tosRiskAccepted
+        );
+      }
+
       function onboardingChecksBySourceId() {
         const onboarding = onboardingData();
         const checks = onboarding && onboarding.checks && typeof onboarding.checks === "object"
@@ -2756,12 +3254,14 @@ export function renderDashboardPage(dashboard, options = {}) {
         const onboarding = onboardingData();
         const sourceChecks = onboardingChecksBySourceId();
         const hasChecks = Object.keys(sourceChecks).length > 0;
+        const hasConfiguredSources = Boolean(onboarding && onboarding.sourcesConfiguredAt);
         const isFirstRunSelection =
           onboardingEnabled &&
           onboarding &&
           onboarding.completed !== true &&
           !hasChecks &&
-          !onboarding.firstRunAt;
+          !onboarding.firstRunAt &&
+          !hasConfiguredSources;
         if (isFirstRunSelection) {
           return defaultOnboardingSelection(onboardingCandidateSources());
         }
@@ -2771,6 +3271,9 @@ export function renderDashboardPage(dashboard, options = {}) {
           .map((source) => source.id);
         if (saved.length > 0) {
           return saved;
+        }
+        if (hasConfiguredSources) {
+          return [];
         }
         return defaultOnboardingSelection(onboardingCandidateSources());
       }
@@ -3200,14 +3703,48 @@ export function renderDashboardPage(dashboard, options = {}) {
         return [...new Set(visibleSources().map((source) => sourceKindFromType(source.type)))];
       }
 
-      function isSourceVisibleForSearchFilter(source) {
-        if (!source || !isSourceTypeEnabled(source.type)) {
-          return false;
+      function normalizeRunCadence(value) {
+        const normalized = String(value || "").trim().toLowerCase();
+        if (["12h", "daily", "weekly", "cached"].includes(normalized)) {
+          return normalized;
         }
-        return (
-          selectedSearchSourceFilter === "all" ||
-          sourceKindFromType(source.type) === selectedSearchSourceFilter
-        );
+        return "12h";
+      }
+
+      function runCadencePayload() {
+        if (selectedSearchRunCadence === "cached") {
+          return { refreshProfile: "mock" };
+        }
+        if (selectedSearchRunCadence === "weekly") {
+          return { refreshProfile: "safe", cacheTtlHours: 168 };
+        }
+        if (selectedSearchRunCadence === "daily") {
+          return { refreshProfile: "safe", cacheTtlHours: 24 };
+        }
+        return { refreshProfile: "safe", cacheTtlHours: 12 };
+      }
+
+      function formatDurationFromNow(value) {
+        const targetMs = Date.parse(String(value || ""));
+        if (!Number.isFinite(targetMs)) {
+          return "Unavailable";
+        }
+
+        const deltaMs = targetMs - Date.now();
+        if (deltaMs <= 0) {
+          return "Now";
+        }
+
+        const totalMinutes = Math.ceil(deltaMs / 60000);
+        const hours = Math.floor(totalMinutes / 60);
+        const minutes = totalMinutes % 60;
+        if (hours > 0 && minutes > 0) {
+          return hours + "h " + minutes + "m";
+        }
+        if (hours > 0) {
+          return hours + "h";
+        }
+        return minutes + "m";
       }
 
       function formatFreshness(job) {
@@ -3298,7 +3835,9 @@ export function renderDashboardPage(dashboard, options = {}) {
         }
 
         if (!response.ok) {
-          throw new Error(payload.error || "The dashboard request failed.");
+          const error = new Error(payload.error || "The dashboard request failed.");
+          error.payload = payload;
+          throw error;
         }
 
         return payload;
@@ -3307,6 +3846,7 @@ export function renderDashboardPage(dashboard, options = {}) {
       async function refreshDashboard() {
         const payload = await getJson("/api/dashboard");
         dashboard = payload;
+        onboardingConsentDraft = null;
         ensureSelectedJob();
         syncJobsPageToSelection();
         render();
@@ -3366,58 +3906,33 @@ export function renderDashboardPage(dashboard, options = {}) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body)
           });
-          const runAllPayload = await getJson("/api/sources/run-all", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" }
-          });
-          if (!runAllPayload?.sync) {
-            await getJson("/api/sync-score", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" }
+          let runAllPayload;
+          const runPayloadBase = runCadencePayload();
+          try {
+            runAllPayload = await runAllSourcesAndSync(runPayloadBase);
+          } catch (error) {
+            const authSources = Array.isArray(error?.payload?.authSources)
+              ? error.payload.authSources
+              : [];
+            const requiresAuthCheck = Boolean(error?.payload?.requiresAuthCheck);
+            if (!requiresAuthCheck || authSources.length === 0) {
+              throw error;
+            }
+
+            const recovered = await recoverAuthForSources(authSources);
+            if (!recovered) {
+              throw new Error(
+                "Search run paused. Finish sign-in and pass access checks for blocked sources."
+              );
+            }
+            runAllPayload = await runAllSourcesAndSync({
+              ...runPayloadBase,
+              skipAuthPreflight: true
             });
           }
+
           await refreshDashboard();
-          const captures = Array.isArray(runAllPayload?.captures) ? runAllPayload.captures : [];
-          const completedCaptures = captures.filter((capture) => capture?.status === "completed").length;
-          const liveCaptures = captures.filter(
-            (capture) =>
-              capture?.servedFrom === "live" ||
-              (capture?.provider && capture.provider !== "cache" && capture?.cached !== true)
-          ).length;
-          const cachedCaptures = captures.filter(
-            (capture) =>
-              capture?.servedFrom === "cache" ||
-              capture?.cached === true ||
-              capture?.provider === "cache"
-          ).length;
-          const runDeltaText =
-            runAllPayload?.sync &&
-            Number.isFinite(Number(runAllPayload.sync.newCount)) &&
-            Number.isFinite(Number(runAllPayload.sync.updatedCount)) &&
-            Number.isFinite(Number(runAllPayload.sync.unchangedCount))
-              ? " Run delta: new " +
-                String(Number(runAllPayload.sync.newCount)) +
-                ", updated " +
-                String(Number(runAllPayload.sync.updatedCount)) +
-                ", unchanged " +
-                String(Number(runAllPayload.sync.unchangedCount)) +
-                "."
-              : "";
-          const activeRankedCount = Number(dashboard?.profile?.activeCount || 0);
-          setCriteriaFeedback(
-            "Done. Ran " +
-              String(completedCaptures) +
-              "/" +
-              String(captures.length) +
-              " sources (" +
-              String(liveCaptures) +
-              " live source(s), " +
-              String(cachedCaptures) +
-              " cached source(s)). " +
-              String(activeRankedCount) +
-              " active ranked jobs." +
-              runDeltaText
-          );
+          setCriteriaFeedback(buildRunAllFeedback(runAllPayload));
         } catch (error) {
           setCriteriaFeedback(error.message, true);
         } finally {
@@ -3427,16 +3942,417 @@ export function renderDashboardPage(dashboard, options = {}) {
         }
       }
 
+      function buildRunAllFeedback(runAllPayload) {
+        const captures = Array.isArray(runAllPayload?.captures) ? runAllPayload.captures : [];
+        const completedCaptures = captures.filter((capture) => capture?.status === "completed").length;
+        const activeRankedCount = Number(dashboard?.profile?.activeCount || 0);
+        return (
+          "Done. Ran " +
+          String(completedCaptures) +
+          "/" +
+          String(captures.length) +
+          " sources. " +
+          String(activeRankedCount) +
+          " active ranked jobs."
+        );
+      }
+
+      async function runAllSourcesAndSync(payload = {}) {
+        const runAllPayload = await getJson("/api/sources/run-all", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        if (!runAllPayload?.sync) {
+          await getJson("/api/sync-score", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        return runAllPayload;
+      }
+
       function selectedOnboardingSourceIdsFromDom() {
-        return [...document.querySelectorAll("[data-onboarding-source]")]
-          .filter((input) => input.checked)
-          .map((input) => String(input.value || "").trim())
-          .filter(Boolean);
+        return onboardingCandidateSources()
+          .filter((source) => source && source.enabled)
+          .map((source) => source.id);
+      }
+
+      function enabledOnboardingSourceIds() {
+        return onboardingCandidateSources()
+          .filter((source) => source && source.enabled)
+          .map((source) => source.id);
+      }
+
+      function onboardingReadinessState(source, checksBySourceId = onboardingChecksBySourceId()) {
+        if (!source || source.enabled !== true) {
+          return {
+            key: "disabled",
+            label: "Disabled",
+            tone: "muted"
+          };
+        }
+
+        if (!sourceRequiresAuth(source)) {
+          return {
+            key: "ready",
+            label: "Ready",
+            tone: "ok"
+          };
+        }
+
+        const check = checksBySourceId[source.id];
+        const status = check && check.status ? String(check.status).toLowerCase() : "warn";
+        if (status === "pass") {
+          return {
+            key: "ready",
+            label: "Ready",
+            tone: "ok"
+          };
+        }
+
+        return {
+          key: "not_authorized",
+          label: "Issue detected",
+          tone: "warn"
+        };
+      }
+
+      function buildSourceOverflowMenu(sourceId, disableControls, action = "disable") {
+        const normalizedAction = action === "enable" ? "enable" : "disable";
+        const actionLabel = normalizedAction === "enable" ? "Enable" : "Disable";
+        const dataAttr =
+          normalizedAction === "enable"
+            ? 'data-onboarding-enable-source'
+            : 'data-onboarding-disable-source';
+        return (
+          '<details class="onboarding-overflow-menu" data-stop-row-open="1">' +
+            '<summary aria-label="Source actions" title="Source actions" data-stop-row-open="1">&#x22EF;</summary>' +
+            '<div class="onboarding-overflow-menu-items" data-stop-row-open="1">' +
+              '<button class="secondary" ' +
+                dataAttr +
+                '="' +
+                escapeHtml(sourceId) +
+                '" data-stop-row-open="1"' +
+                (disableControls ? " disabled" : "") +
+                ">" +
+                actionLabel +
+                "</button>" +
+            "</div>" +
+          "</details>"
+        );
+      }
+
+      async function saveEnabledOnboardingSources(sourceIds) {
+        const normalizedSourceIds = [...new Set((Array.isArray(sourceIds) ? sourceIds : [])
+          .map((value) => String(value || "").trim())
+          .filter(Boolean))];
+        await getJson("/api/onboarding/sources", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sourceIds: normalizedSourceIds,
+            enabledSourceIds: normalizedSourceIds
+          })
+        });
+      }
+
+      function toggleOnboardingSourcesCollapsed() {
+        onboardingSourcesCollapsed = !onboardingSourcesCollapsed;
+        render();
+      }
+
+      function openSourceInBrowser(source) {
+        if (!source || !source.searchUrl) {
+          return;
+        }
+        window.open(source.searchUrl, "_blank", "noopener,noreferrer");
+      }
+
+      function openAuthFlowModal(sourceId, message = "") {
+        authFlowSourceId = sourceId;
+        authFlowMessage = String(message || "").trim();
+        authFlowError = false;
+        authFlowBusy = false;
+        render();
+      }
+
+      function closeAuthFlowModal() {
+        if (authFlowBusy) {
+          return;
+        }
+        authFlowSourceId = null;
+        authFlowMessage = "";
+        authFlowError = false;
+        authFlowBusy = false;
+        render();
+      }
+
+      async function runAuthFlowCheck() {
+        if (!authFlowSourceId || authFlowBusy) {
+          return;
+        }
+        const source = sourceById(authFlowSourceId);
+        if (!source) {
+          closeAuthFlowModal();
+          return;
+        }
+
+        authFlowBusy = true;
+        authFlowMessage = "Checking access for " + source.name + "...";
+        authFlowError = false;
+        render();
+
+        try {
+          const passed = await verifySingleOnboardingSource(authFlowSourceId, {
+            openSourceOnFail: false
+          });
+          if (passed) {
+            authFlowMessage = "Success! " + source.name + " is now enabled.";
+            authFlowError = false;
+          } else {
+            authFlowMessage = source.name + " is not authorized. Sign in and retry.";
+            authFlowError = true;
+          }
+        } finally {
+          authFlowBusy = false;
+          render();
+        }
+      }
+
+      async function enableOnboardingSource(sourceId) {
+        if (!ensureOnboardingConsentAccepted()) {
+          return;
+        }
+
+        const source = onboardingCandidateSources().find((candidate) => candidate.id === sourceId);
+        if (!source) {
+          onboardingStepStatus = "Source not found.";
+          onboardingStepStatusError = true;
+          render();
+          return;
+        }
+
+        onboardingBusy = true;
+        onboardingActiveSourceId = sourceId;
+        onboardingStepStatus = "Enabling " + source.name + "...";
+        onboardingStepStatusError = false;
+        render();
+
+        try {
+          const enabledIds = new Set(enabledOnboardingSourceIds());
+          enabledIds.add(sourceId);
+          await saveEnabledOnboardingSources([...enabledIds]);
+          await refreshDashboard();
+          if (sourceRequiresAuth(source)) {
+            onboardingStepStatus = source.name + " enabled. Complete access check.";
+            onboardingStepStatusError = false;
+            openAuthFlowModal(
+              sourceId,
+              "Step 1: Open source. Step 2: Sign in. Step 3: Click I\u2019m logged in."
+            );
+          } else {
+            onboardingStepStatus = source.name + " enabled.";
+            onboardingStepStatusError = false;
+          }
+        } catch (error) {
+          onboardingStepStatus = error.message;
+          onboardingStepStatusError = true;
+        } finally {
+          onboardingBusy = false;
+          render();
+        }
+      }
+
+      async function disableOnboardingSource(sourceId) {
+        if (!ensureOnboardingConsentAccepted()) {
+          return;
+        }
+
+        onboardingBusy = true;
+        onboardingActiveSourceId = sourceId;
+        onboardingStepStatus = "Disabling source...";
+        onboardingStepStatusError = false;
+        render();
+
+        try {
+          const enabledIds = enabledOnboardingSourceIds().filter((id) => id !== sourceId);
+          await saveEnabledOnboardingSources(enabledIds);
+          await refreshDashboard();
+          onboardingStepStatus = "Source disabled.";
+          onboardingStepStatusError = false;
+        } catch (error) {
+          onboardingStepStatus = error.message;
+          onboardingStepStatusError = true;
+        } finally {
+          onboardingBusy = false;
+          render();
+        }
+      }
+
+      async function verifySingleOnboardingSource(sourceId, options = {}) {
+        if (!ensureOnboardingConsentAccepted()) {
+          return false;
+        }
+
+        const source = onboardingCandidateSources().find((candidate) => candidate.id === sourceId);
+        if (!source) {
+          onboardingStepStatus = "Source not found.";
+          onboardingStepStatusError = true;
+          render();
+          return false;
+        }
+
+        const authRequired = sourceRequiresAuth(source);
+        onboardingBusy = true;
+        onboardingActiveSourceId = sourceId;
+        onboardingVerifyProgress = "Checking access for " + source.name + "...";
+        onboardingStepStatus = "Checking access for " + source.name + "...";
+        onboardingStepStatusError = false;
+        render();
+
+        try {
+          const checkPayload = await getJson("/api/onboarding/check-source", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sourceId,
+              probeLive: !authRequired,
+              authProbe: authRequired,
+              closeWindowAfterProbe: authRequired
+            })
+          });
+          const result =
+            checkPayload && checkPayload.result && typeof checkPayload.result === "object"
+              ? checkPayload.result
+              : null;
+          await refreshDashboard();
+          const isPass =
+            result && result.status && String(result.status).toLowerCase() === "pass";
+          if (isPass) {
+            onboardingStepStatus = source.name + " is ready.";
+            onboardingStepStatusError = false;
+            return true;
+          }
+
+          onboardingStepStatus = source.name + " is not authorized. Sign in and retry.";
+          onboardingStepStatusError = true;
+          if (options.openSourceOnFail !== false) {
+            openSourceInBrowser(source);
+          }
+          return false;
+        } catch (error) {
+          onboardingStepStatus = error.message;
+          onboardingStepStatusError = true;
+          return false;
+        } finally {
+          onboardingBusy = false;
+          onboardingVerifyProgress = "";
+          render();
+        }
+      }
+
+      async function recoverAuthForSources(authSources) {
+        const blocked = Array.isArray(authSources) ? authSources : [];
+        if (blocked.length === 0) {
+          return true;
+        }
+
+        for (const blockedSource of blocked) {
+          const sourceId = String(blockedSource?.sourceId || "").trim();
+          if (!sourceId) {
+            continue;
+          }
+          const source = sourceById(sourceId) || onboardingCandidateSources().find((item) => item.id === sourceId);
+          const sourceName = source ? source.name : String(blockedSource?.sourceName || sourceId);
+
+          window.alert(
+            sourceName +
+              " requires sign-in. The source page will open now. Sign in, then return and continue."
+          );
+          if (source) {
+            openSourceInBrowser(source);
+          }
+
+          const readyToCheck = window.confirm(
+            "After you sign in to " + sourceName + ", click OK to run access check."
+          );
+          if (!readyToCheck) {
+            return false;
+          }
+
+          const passed = await verifySingleOnboardingSource(sourceId, {
+            openSourceOnFail: false
+          });
+          if (!passed) {
+            return false;
+          }
+        }
+
+        return true;
+      }
+
+      function readOnboardingConsentFromDom() {
+        const legal = document.getElementById("onboarding-consent-legal");
+        const tosRisk = document.getElementById("onboarding-consent-tos-risk");
+        return {
+          termsAccepted: Boolean(legal && legal.checked),
+          privacyAccepted: Boolean(legal && legal.checked),
+          tosRiskAccepted: Boolean(tosRisk && tosRisk.checked),
+          rateLimitPolicyAccepted: true
+        };
+      }
+
+      function ensureOnboardingConsentAccepted() {
+        if (isOnboardingConsentComplete()) {
+          return true;
+        }
+        onboardingStepStatus =
+          "Before continuing, review Terms + Privacy and accept the consent checkboxes in Step 1.";
+        onboardingStepStatusError = true;
+        render();
+        return false;
+      }
+
+      async function saveOnboardingConsent() {
+        const consent = readOnboardingConsentFromDom();
+        onboardingConsentDraft = consent;
+
+        if (!isOnboardingConsentComplete(consent)) {
+          onboardingStepStatus =
+            "Accept all required acknowledgements in Step 1 before continuing.";
+          onboardingStepStatusError = true;
+          render();
+          return;
+        }
+
+        onboardingBusy = true;
+        onboardingStepStatus = "Saving legal consent...";
+        onboardingStepStatusError = false;
+        render();
+
+        try {
+          await getJson("/api/onboarding/consent", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(consent)
+          });
+          await refreshDashboard();
+          onboardingStepStatus = "Saved. Next: choose sources in Step 1.";
+          onboardingStepStatusError = false;
+        } catch (error) {
+          onboardingStepStatus = error.message;
+          onboardingStepStatusError = true;
+        } finally {
+          onboardingBusy = false;
+          render();
+        }
       }
 
       async function saveOnboardingSetup() {
-        const analyticsToggle = document.getElementById("onboarding-analytics-enabled");
-        const analyticsEnabled = analyticsToggle ? Boolean(analyticsToggle.checked) : true;
+        if (!ensureOnboardingConsentAccepted()) {
+          return;
+        }
         const sourceIds = selectedOnboardingSourceIdsFromDom();
 
         if (sourceIds.length === 0) {
@@ -3456,11 +4372,6 @@ export function renderDashboardPage(dashboard, options = {}) {
             const source = onboardingCandidateSources().find((candidate) => candidate.id === sourceId);
             return !sourceRequiresAuth(source);
           });
-          await getJson("/api/onboarding/channel", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ analyticsEnabled })
-          });
           await getJson("/api/onboarding/sources", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -3479,6 +4390,9 @@ export function renderDashboardPage(dashboard, options = {}) {
       }
 
       async function verifyOnboardingSources(sourceIdsOverride = null) {
+        if (!ensureOnboardingConsentAccepted()) {
+          return;
+        }
         const sourceIds = Array.isArray(sourceIdsOverride) && sourceIdsOverride.length > 0
           ? sourceIdsOverride
           : selectedOnboardingSourceIdsFromDom();
@@ -3585,6 +4499,9 @@ export function renderDashboardPage(dashboard, options = {}) {
       }
 
       async function retryFailedOnboardingAuthSources() {
+        if (!ensureOnboardingConsentAccepted()) {
+          return;
+        }
         const selectedSourceIds = onboardingSelectedSourceIdsForRender();
         const failedAuth = failedAuthSourceIds(onboardingChecksBySourceId(), selectedSourceIds);
         if (failedAuth.length === 0) {
@@ -3598,6 +4515,9 @@ export function renderDashboardPage(dashboard, options = {}) {
       }
 
       async function completeOnboarding() {
+        if (!ensureOnboardingConsentAccepted()) {
+          return;
+        }
         onboardingBusy = true;
         onboardingStepStatus = "Completing onboarding...";
         onboardingStepStatusError = false;
@@ -3616,6 +4536,30 @@ export function renderDashboardPage(dashboard, options = {}) {
           onboardingStepStatusError = true;
         } finally {
           onboardingBusy = false;
+          render();
+        }
+      }
+
+      async function saveAnalyticsPreferenceFromProfile() {
+        const toggle = document.getElementById("profile-analytics-enabled");
+        const analyticsEnabled = toggle ? Boolean(toggle.checked) : true;
+
+        busy = true;
+        setFeedback("Saving analytics preference...");
+        render();
+
+        try {
+          await getJson("/api/preferences/analytics", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ analyticsEnabled })
+          });
+          await refreshDashboard();
+          setFeedback("Analytics " + (analyticsEnabled ? "enabled." : "disabled."));
+        } catch (error) {
+          setFeedback(error.message, true);
+        } finally {
+          busy = false;
           render();
         }
       }
@@ -3714,6 +4658,45 @@ export function renderDashboardPage(dashboard, options = {}) {
           );
         } catch (error) {
           setFeedback(error.message, true);
+        } finally {
+          busy = false;
+          render();
+        }
+      }
+
+      async function runSourceNow(sourceId) {
+        busy = true;
+        setFeedback("Running source now...");
+
+        try {
+          const payload = await getJson(
+            "/api/sources/" + encodeURIComponent(sourceId) + "/manual-refresh",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" }
+            }
+          );
+          await refreshDashboard();
+          const captureMessage =
+            payload.capture && payload.capture.message
+              ? payload.capture.message
+              : "Manual refresh completed.";
+          setFeedback(captureMessage);
+        } catch (error) {
+          const nextEligibleAt =
+            error && error.payload && typeof error.payload.nextEligibleAt === "string"
+              ? error.payload.nextEligibleAt
+              : "";
+          if (nextEligibleAt) {
+            setFeedback(
+              "Manual refresh unavailable. Available in " +
+                formatDurationFromNow(nextEligibleAt) +
+                ".",
+              true
+            );
+          } else {
+            setFeedback(error.message, true);
+          }
         } finally {
           busy = false;
           render();
@@ -3865,17 +4848,36 @@ export function renderDashboardPage(dashboard, options = {}) {
         render();
       }
 
-      function setSearchSourceFilter(filterValue) {
-        const normalized = String(filterValue || "all").trim();
-        if (!normalized) {
+      function setSearchStateFilter(filterValue) {
+        const normalized = String(filterValue || "").trim().toLowerCase();
+        if (!["enabled", "disabled"].includes(normalized)) {
           return;
         }
+        selectedSearchStateFilter = normalized;
+        render();
+      }
 
-        if (normalized !== "all" && !visibleSourceKinds().includes(normalized)) {
-          return;
+      function dismissSearchesWelcomeToast() {
+        searchesWelcomeToastDismissed = true;
+        render();
+      }
+
+      function goToDisabledFromSearchesWelcomeToast() {
+        searchesWelcomeToastDismissed = true;
+        selectedSearchStateFilter = "disabled";
+        render();
+      }
+
+      function setSearchRunCadence(value) {
+        selectedSearchRunCadence = normalizeRunCadence(value);
+        try {
+          window.localStorage.setItem(
+            "jobFinder.searchRunCadence",
+            selectedSearchRunCadence
+          );
+        } catch {
+          // no-op
         }
-
-        selectedSearchSourceFilter = normalized;
         render();
       }
 
@@ -4063,318 +5065,148 @@ export function renderDashboardPage(dashboard, options = {}) {
         ) {
           selectedSourceFilter = "all";
         }
-        if (
-          selectedSearchSourceFilter !== "all" &&
-          !sourceFilters.some((sourceFilter) => sourceFilter.kind === selectedSearchSourceFilter)
-        ) {
-          selectedSearchSourceFilter = "all";
+        if (!["enabled", "disabled"].includes(selectedSearchStateFilter)) {
+          selectedSearchStateFilter = "enabled";
         }
 
-        const searchSourcesByKind = new Map();
-        const adapterHealthRank = (status) => {
-          if (status === "failing") return 3;
-          if (status === "degraded") return 2;
-          if (status === "ok") return 1;
-          return 0;
-        };
-        for (const source of sourcesForDisplay) {
-          const sourceKind = sourceKindFromType(source.type);
-          const current = searchSourcesByKind.get(sourceKind) || {
-            kind: sourceKind,
-            label: sourceKindLabel(sourceKind),
-            sourceIds: [],
-            searchUrl: "",
-            recencyWindow: null,
-            capturedAt: null,
-            captureStatus: "never_run",
-            captureFunnelError: null,
-            hasCacheState: false,
-            refreshMode: null,
-            refreshServedFrom: null,
-            refreshStatusReason: null,
-            refreshStatusLabel: null,
-            refreshContextAtMs: null,
-            jobCount: 0,
-            capturedCount: 0,
-            filteredCount: 0,
-            dedupedCount: 0,
-            importedCount: 0,
-            runNewCount: 0,
-            runUpdatedCount: 0,
-            runUnchangedCount: 0,
-            runImportedCount: 0,
-            hasRunDelta: false,
-            runDeltaRecordedAt: null,
-            runDeltaCapturedAt: null,
-            expectedFoundCount: 0,
-            hasUnknownExpectedCount: false,
-            adapterHealthStatus: "unknown",
-            adapterHealthScore: null,
-            adapterHealthReason: null,
-            adapterHealthUpdatedAt: null,
-            formatterUnsupported: [],
-            formatterNotes: [],
-            appliedCount: 0,
-            skippedCount: 0,
-            highSignalCount: 0,
-            weightedAvgScoreTotal: 0,
-            weightedAvgScoreCount: 0
-          };
-
-          current.sourceIds.push(source.id);
-          if (!current.searchUrl && source.searchUrl) {
-            current.searchUrl = source.searchUrl;
-          }
-          if (!current.recencyWindow && source.recencyWindow) {
-            current.recencyWindow = source.recencyWindow;
-          }
-
-          const capturedAtMs = Date.parse(source.capturedAt || "");
-          const currentCapturedAtMs = Date.parse(current.capturedAt || "");
-          if (
-            Number.isFinite(capturedAtMs) &&
-            (!Number.isFinite(currentCapturedAtMs) || capturedAtMs > currentCapturedAtMs)
-          ) {
-            current.capturedAt = source.capturedAt;
-          } else if (!current.capturedAt && source.capturedAt) {
-            current.capturedAt = source.capturedAt;
-          }
-
-          if (source.captureStatus === "capture_error") {
-            current.captureStatus = "capture_error";
-          } else if (
-            source.captureStatus === "live_source" &&
-            current.captureStatus !== "capture_error"
-          ) {
-            current.captureStatus = "live_source";
-          } else if (
-            source.captureStatus === "ready" &&
-            current.captureStatus !== "capture_error" &&
-            current.captureStatus !== "live_source"
-          ) {
-            current.captureStatus = "ready";
-          }
-
-          if (source.captureFunnelError && !current.captureFunnelError) {
-            current.captureFunnelError = source.captureFunnelError;
-          }
-
-          const sourceFormatterDiagnostics =
-            source.formatterDiagnostics &&
-            typeof source.formatterDiagnostics === "object" &&
-            !Array.isArray(source.formatterDiagnostics)
-              ? source.formatterDiagnostics
-              : {};
-          const sourceFormatterUnsupported = Array.isArray(
-            sourceFormatterDiagnostics.unsupported
-          )
-            ? sourceFormatterDiagnostics.unsupported
-            : Array.isArray(source.criteriaAccountability?.unsupported)
-              ? source.criteriaAccountability.unsupported
-              : [];
-          for (const unsupportedField of sourceFormatterUnsupported) {
-            const normalizedUnsupportedField = String(unsupportedField || "").trim();
-            if (
-              normalizedUnsupportedField &&
-              !current.formatterUnsupported.includes(normalizedUnsupportedField)
-            ) {
-              current.formatterUnsupported.push(normalizedUnsupportedField);
+        const sourceChecks = onboardingChecksBySourceId();
+        const searchSources = (Array.isArray(dashboard.sources) ? dashboard.sources : [])
+          .filter((source) => source && isSourceTypeEnabled(source.type))
+          .map((source) => {
+            const readiness = onboardingReadinessState(source, sourceChecks);
+            const status =
+              readiness.key === "disabled"
+                ? {
+                    label: "Disabled",
+                    tone: "muted",
+                    detail: ""
+                  }
+                : readiness.key === "not_authorized"
+                  ? {
+                      label: "Issue detected",
+                      tone: "warn",
+                      detail: "Authentication required"
+                    }
+                  : {
+                      label: "Ready",
+                      tone: "ok",
+                      detail: ""
+                    };
+            const avgScoreValue =
+              source.avgScore === null || source.avgScore === undefined
+                ? null
+                : Number(source.avgScore);
+            return {
+              id: source.id,
+              kind: sourceKindFromType(source.type),
+              label: source.name || sourceKindLabel(sourceKindFromType(source.type)),
+              searchUrl: source.searchUrl || "",
+              enabled: source.enabled === true,
+              authRequired: sourceRequiresAuth(source),
+              status,
+              capturedAt: source.capturedAt || null,
+              capturedCount: Number(source.captureJobCount || 0),
+              filteredCount: Number(source.droppedByHardFilterCount || 0),
+              dedupedCount: Number(source.droppedByDedupeCount || 0),
+              importedCount: Number(source.importedCount || 0),
+              hasUnknownExpectedCount: !Number.isFinite(Number(source.captureExpectedCount)),
+              expectedFoundCount: Number.isFinite(Number(source.captureExpectedCount))
+                ? Math.max(0, Math.round(Number(source.captureExpectedCount)))
+                : null,
+              formatterUnsupported: Array.isArray(source.formatterDiagnostics?.unsupported)
+                ? source.formatterDiagnostics.unsupported
+                : Array.isArray(source.criteriaAccountability?.unsupported)
+                  ? source.criteriaAccountability.unsupported
+                  : [],
+              formatterNotes: Array.isArray(source.formatterDiagnostics?.notes)
+                ? source.formatterDiagnostics.notes
+                : [],
+              captureStatus: source.captureStatus || "never_run",
+              captureFunnelError: source.captureFunnelError || null,
+              hasCacheState:
+                source.servedFrom === "cache" ||
+                source.statusReason === "cache_fresh" ||
+                source.statusReason === "cooldown" ||
+                source.statusReason === "min_interval" ||
+                source.statusReason === "daily_cap" ||
+                source.statusReason === "mock_profile",
+              adapterHealthStatus:
+                typeof source.adapterHealthStatus === "string"
+                  ? source.adapterHealthStatus
+                  : "unknown",
+              adapterHealthScore:
+                Number.isFinite(Number(source.adapterHealthScore))
+                  ? Number(source.adapterHealthScore)
+                  : null,
+              adapterHealthReason:
+                Array.isArray(source.adapterHealthReasons) && source.adapterHealthReasons.length > 0
+                  ? String(source.adapterHealthReasons[0] || "")
+                  : null,
+              adapterHealthUpdatedAt:
+                typeof source.adapterHealthUpdatedAt === "string" && source.adapterHealthUpdatedAt.trim()
+                  ? source.adapterHealthUpdatedAt
+                  : null,
+              refreshStatusReason:
+                typeof source.statusReason === "string" && source.statusReason.trim()
+                  ? source.statusReason
+                  : null,
+              refreshServedFrom:
+                typeof source.servedFrom === "string" && source.servedFrom.trim()
+                  ? source.servedFrom
+                  : null,
+              runNewCount: Number.isFinite(Number(source.runNewCount))
+                ? Math.max(0, Math.round(Number(source.runNewCount)))
+                : null,
+              runUpdatedCount: Number.isFinite(Number(source.runUpdatedCount))
+                ? Math.max(0, Math.round(Number(source.runUpdatedCount)))
+                : null,
+              runUnchangedCount: Number.isFinite(Number(source.runUnchangedCount))
+                ? Math.max(0, Math.round(Number(source.runUnchangedCount)))
+                : null,
+              hasRunDelta:
+                Number.isFinite(Number(source.runNewCount)) ||
+                Number.isFinite(Number(source.runUpdatedCount)) ||
+                Number.isFinite(Number(source.runUnchangedCount)),
+              avgScore: Number.isFinite(avgScoreValue) ? Math.round(avgScoreValue) : null,
+              manualRefreshAllowed: source.manualRefreshAllowed === true,
+              manualRefreshNextEligibleAt:
+                typeof source.manualRefreshNextEligibleAt === "string"
+                  ? source.manualRefreshNextEligibleAt
+                  : null,
+              manualRefreshRemaining: Number(source.manualRefreshRemaining || 0)
+            };
+          })
+          .sort((left, right) => {
+            const leftIndex = sourceFilterOrder.indexOf(left.kind);
+            const rightIndex = sourceFilterOrder.indexOf(right.kind);
+            const normalizedLeft = leftIndex >= 0 ? leftIndex : sourceFilterOrder.length;
+            const normalizedRight = rightIndex >= 0 ? rightIndex : sourceFilterOrder.length;
+            if (normalizedLeft !== normalizedRight) {
+              return normalizedLeft - normalizedRight;
             }
-          }
-          const sourceFormatterNotes = Array.isArray(sourceFormatterDiagnostics.notes)
-            ? sourceFormatterDiagnostics.notes
-            : [];
-          for (const formatterNote of sourceFormatterNotes) {
-            const normalizedFormatterNote = String(formatterNote || "").trim();
-            if (
-              normalizedFormatterNote &&
-              !current.formatterNotes.includes(normalizedFormatterNote)
-            ) {
-              current.formatterNotes.push(normalizedFormatterNote);
-            }
-          }
+            return left.label.localeCompare(right.label);
+          });
 
-          const sourceHealthStatus =
-            typeof source.adapterHealthStatus === "string"
-              ? source.adapterHealthStatus
-              : "unknown";
-          const sourceHealthReasons = Array.isArray(source.adapterHealthReasons)
-            ? source.adapterHealthReasons
-            : [];
-          const sourceHealthScore = Number(source.adapterHealthScore);
-          if (
-            adapterHealthRank(sourceHealthStatus) >
-            adapterHealthRank(current.adapterHealthStatus)
-          ) {
-            current.adapterHealthStatus = sourceHealthStatus;
-            current.adapterHealthScore = Number.isFinite(sourceHealthScore)
-              ? sourceHealthScore
-              : null;
-            current.adapterHealthReason =
-              sourceHealthReasons.length > 0 ? sourceHealthReasons[0] : null;
-            current.adapterHealthUpdatedAt =
-              typeof source.adapterHealthUpdatedAt === "string" &&
-              source.adapterHealthUpdatedAt.trim()
-                ? source.adapterHealthUpdatedAt
-                : null;
-          } else if (
-            current.adapterHealthStatus === sourceHealthStatus &&
-            current.adapterHealthReason === null &&
-            sourceHealthReasons.length > 0
-          ) {
-            current.adapterHealthReason = sourceHealthReasons[0];
-            if (
-              typeof source.adapterHealthUpdatedAt === "string" &&
-              source.adapterHealthUpdatedAt.trim()
-            ) {
-              current.adapterHealthUpdatedAt = source.adapterHealthUpdatedAt;
-            }
-          }
-
-          if (
-            source.servedFrom === "cache" ||
-            source.statusReason === "cache_fresh" ||
-            source.statusReason === "cooldown" ||
-            source.statusReason === "min_interval" ||
-            source.statusReason === "daily_cap" ||
-            source.statusReason === "mock_profile"
-          ) {
-            current.hasCacheState = true;
-          }
-
-          const sourceContextTimestampMs = Number.isFinite(capturedAtMs)
-            ? capturedAtMs
-            : Date.parse(source.runRecordedAt || source.runCapturedAt || "");
-          if (
-            !Number.isFinite(current.refreshContextAtMs) ||
-            (Number.isFinite(sourceContextTimestampMs) &&
-              sourceContextTimestampMs > current.refreshContextAtMs)
-          ) {
-            current.refreshContextAtMs = Number.isFinite(sourceContextTimestampMs)
-              ? sourceContextTimestampMs
-              : null;
-            current.refreshMode = source.refreshMode || null;
-            current.refreshServedFrom = source.servedFrom || null;
-            current.refreshStatusReason = source.statusReason || null;
-            current.refreshStatusLabel = source.statusLabel || null;
-          }
-
-          const sourceJobCount = Number(source.jobCount || 0);
-          const sourceCapturedCount = Number(source.captureJobCount || 0);
-          const sourceFilteredCount = Number(source.droppedByHardFilterCount || 0);
-          const sourceDedupedCount = Number(source.droppedByDedupeCount || 0);
-          const sourceImportedCount = Number(source.importedCount || 0);
-          const sourceExpectedCount = Number.isFinite(Number(source.captureExpectedCount))
-            ? Math.max(0, Math.round(Number(source.captureExpectedCount)))
-            : null;
-          const sourceHighSignalCount = Number(source.highSignalCount || 0);
-          const sourceAppliedCount = Number(source.appliedCount || 0);
-          const sourceSkippedCount = Number(source.skippedCount || 0);
-          const sourceAvgScore =
-            source.avgScore === null || source.avgScore === undefined
-              ? null
-              : Number(source.avgScore);
-          const sourceRunNewCount = Number.isFinite(Number(source.runNewCount))
-            ? Math.max(0, Math.round(Number(source.runNewCount)))
-            : null;
-          const sourceRunUpdatedCount = Number.isFinite(Number(source.runUpdatedCount))
-            ? Math.max(0, Math.round(Number(source.runUpdatedCount)))
-            : null;
-          const sourceRunUnchangedCount = Number.isFinite(Number(source.runUnchangedCount))
-            ? Math.max(0, Math.round(Number(source.runUnchangedCount)))
-            : null;
-          const sourceRunImportedCount = Number.isFinite(Number(source.runImportedCount))
-            ? Math.max(0, Math.round(Number(source.runImportedCount)))
-            : null;
-
-          current.jobCount += sourceJobCount;
-          current.capturedCount += sourceCapturedCount;
-          current.filteredCount += sourceFilteredCount;
-          current.dedupedCount += sourceDedupedCount;
-          current.importedCount += sourceImportedCount;
-          if (sourceExpectedCount === null) {
-            current.hasUnknownExpectedCount = true;
-          } else {
-            current.expectedFoundCount += sourceExpectedCount;
-          }
-          current.highSignalCount += sourceHighSignalCount;
-          current.appliedCount += sourceAppliedCount;
-          current.skippedCount += sourceSkippedCount;
-          if (
-            sourceRunNewCount !== null ||
-            sourceRunUpdatedCount !== null ||
-            sourceRunUnchangedCount !== null
-          ) {
-            current.hasRunDelta = true;
-            current.runNewCount += sourceRunNewCount || 0;
-            current.runUpdatedCount += sourceRunUpdatedCount || 0;
-            current.runUnchangedCount += sourceRunUnchangedCount || 0;
-            current.runImportedCount += sourceRunImportedCount || 0;
-          }
-
-          const sourceRunRecordedAtMs = Date.parse(source.runRecordedAt || "");
-          const currentRunRecordedAtMs = Date.parse(current.runDeltaRecordedAt || "");
-          if (
-            Number.isFinite(sourceRunRecordedAtMs) &&
-            (!Number.isFinite(currentRunRecordedAtMs) ||
-              sourceRunRecordedAtMs > currentRunRecordedAtMs)
-          ) {
-            current.runDeltaRecordedAt = source.runRecordedAt;
-          }
-
-          const sourceRunCapturedAtMs = Date.parse(source.runCapturedAt || "");
-          const currentRunCapturedAtMs = Date.parse(current.runDeltaCapturedAt || "");
-          if (
-            Number.isFinite(sourceRunCapturedAtMs) &&
-            (!Number.isFinite(currentRunCapturedAtMs) ||
-              sourceRunCapturedAtMs > currentRunCapturedAtMs)
-          ) {
-            current.runDeltaCapturedAt = source.runCapturedAt;
-          }
-
-          if (
-            sourceAvgScore !== null &&
-            Number.isFinite(sourceAvgScore) &&
-            sourceImportedCount > 0
-          ) {
-            current.weightedAvgScoreTotal += sourceAvgScore * sourceImportedCount;
-            current.weightedAvgScoreCount += sourceImportedCount;
-          }
-
-          searchSourcesByKind.set(sourceKind, current);
-        }
-
-        const searchSources = [...searchSourcesByKind.values()].sort((left, right) => {
-          const leftIndex = sourceFilterOrder.indexOf(left.kind);
-          const rightIndex = sourceFilterOrder.indexOf(right.kind);
-          const normalizedLeft = leftIndex >= 0 ? leftIndex : sourceFilterOrder.length;
-          const normalizedRight = rightIndex >= 0 ? rightIndex : sourceFilterOrder.length;
-          if (normalizedLeft !== normalizedRight) {
-            return normalizedLeft - normalizedRight;
-          }
-
-          return left.label.localeCompare(right.label);
-        });
-
+        const enabledSearchSources = searchSources.filter((source) => source.enabled);
+        const disabledSearchSources = searchSources.filter((source) => !source.enabled);
         const filteredSearchSources = searchSources.filter((source) =>
-          selectedSearchSourceFilter === "all" || source.kind === selectedSearchSourceFilter
+          selectedSearchStateFilter === "enabled" ? source.enabled : !source.enabled
         );
+
         const searchFilterTabs = [
-          '<button class="sub-tab' + (selectedSearchSourceFilter === "all" ? " active" : "") + '" data-search-source="all">All</button>',
-          ...sourceFilters.map((source) =>
-            '<button class="sub-tab' +
-            (selectedSearchSourceFilter === source.kind ? " active" : "") +
-            '" data-search-source="' +
-            escapeHtml(source.kind) +
-            '">' +
-            escapeHtml(source.label) +
-            "</button>"
-          )
+          '<button class="sub-tab' +
+            (selectedSearchStateFilter === "enabled" ? " active" : "") +
+            '" data-search-state="enabled">Enabled (' +
+            String(enabledSearchSources.length) +
+            ")</button>",
+          '<button class="sub-tab' +
+            (selectedSearchStateFilter === "disabled" ? " active" : "") +
+            '" data-search-state="disabled">Disabled (' +
+            String(disabledSearchSources.length) +
+            ")</button>"
         ].join("");
         const searchRowMarkup = filteredSearchSources
           .map((source) => {
-            const sourceKind = source.kind;
-            const isActive = selectedSourceFilter === sourceKind;
             const safeName = escapeHtml(source.label);
             const safeSearchUrl = escapeHtml(source.searchUrl || "");
             const lastRun = escapeHtml(formatTime(source.capturedAt));
@@ -4480,10 +5312,16 @@ export function renderDashboardPage(dashboard, options = {}) {
                   String(Math.max(0, Math.round(source.expectedFoundCount)));
 
             return [
-              '<tr class="search-row" data-open-jobs-row="' + escapeHtml(source.kind) + '">',
+              '<tr class="search-row' + (source.enabled ? "" : " is-disabled") + '">',
               "  <td>" + sourceLabel + "</td>",
-              "  <td>" + lastRun + "</td>",
-              "  <td>" +
+              '  <td class="search-row-hotspot"' +
+                (source.enabled ? ' data-open-jobs-row="' + escapeHtml(source.kind) + '"' : "") +
+                ">" +
+                lastRun +
+                "</td>",
+              '  <td class="search-row-hotspot"' +
+                (source.enabled ? ' data-open-jobs-row="' + escapeHtml(source.kind) + '"' : "") +
+                ">" +
                 '<span class="status-chip"><span class="status-dot" data-tone="' +
                 escapeHtml(statusTone) +
                 '" aria-hidden="true"></span><span>' +
@@ -4498,26 +5336,61 @@ export function renderDashboardPage(dashboard, options = {}) {
                   ? '<div class="subhead">formatter: ' + escapeHtml(formatterDetail) + "</div>"
                   : "") +
                 "</td>",
-              "  <td>" + escapeHtml(foundLabel) + "</td>",
-              "  <td>" + escapeHtml(source.filteredCount) + "</td>",
-              "  <td>" + escapeHtml(source.dedupedCount) + "</td>",
-              "  <td>" + escapeHtml(source.importedCount) + "</td>",
-              "  <td>" +
-                escapeHtml(
-                  source.weightedAvgScoreCount > 0
-                    ? Math.round(source.weightedAvgScoreTotal / source.weightedAvgScoreCount)
-                    : "n/a"
-                ) +
+              '  <td class="search-row-hotspot"' +
+                (source.enabled ? ' data-open-jobs-row="' + escapeHtml(source.kind) + '"' : "") +
+                ">" +
+                escapeHtml(foundLabel) +
+                "</td>",
+              '  <td class="search-row-hotspot"' +
+                (source.enabled ? ' data-open-jobs-row="' + escapeHtml(source.kind) + '"' : "") +
+                ">" +
+                escapeHtml(source.filteredCount) +
+                "</td>",
+              '  <td class="search-row-hotspot"' +
+                (source.enabled ? ' data-open-jobs-row="' + escapeHtml(source.kind) + '"' : "") +
+                ">" +
+                escapeHtml(source.dedupedCount) +
+                "</td>",
+              '  <td class="search-row-hotspot"' +
+                (source.enabled ? ' data-open-jobs-row="' + escapeHtml(source.kind) + '"' : "") +
+                ">" +
+                escapeHtml(source.importedCount) +
+                "</td>",
+              '  <td class="search-row-hotspot"' +
+                (source.enabled ? ' data-open-jobs-row="' + escapeHtml(source.kind) + '"' : "") +
+                ">" +
+                escapeHtml(source.avgScore === null ? "n/a" : source.avgScore) +
                 "</td>",
               '  <td><div class="search-actions">' +
-                '<button class="' + (isActive ? "primary" : "secondary") + '" data-stop-row-open="1" data-see-results="' + escapeHtml(sourceKind) + '">See Results</button>' +
+                (!source.enabled
+                  ? '<button class="primary" data-stop-row-open="1" data-onboarding-enable-source="' +
+                      escapeHtml(source.id) +
+                      '"' +
+                      (disableControls ? " disabled" : "") +
+                      ">Enable</button>"
+                  : "") +
+                (source.enabled
+                  ? '<button class="secondary" data-stop-row-open="1" data-run-source-now="' +
+                      escapeHtml(source.id) +
+                      '"' +
+                      (runNowDisabled ? " disabled" : "") +
+                      ' title="Manual refreshes remaining today: ' +
+                      escapeHtml(source.manualRefreshRemaining) +
+                      '">' +
+                      escapeHtml(runNowLabel) +
+                    "</button>"
+                  : "") +
+                (source.enabled && source.authRequired && source.status.tone === "warn"
+                  ? '<button class="secondary" data-stop-row-open="1" data-onboarding-check-source="' + escapeHtml(source.id) + '"' + (disableControls ? " disabled" : "") + '>Check access</button>'
+                  : "") +
+                overflowMenu +
                 "</div></td>",
               "</tr>"
             ].join("");
           })
           .join("");
         const totalsRowMarkup =
-          selectedSearchSourceFilter === "all" && filteredSearchSources.length > 0
+          filteredSearchSources.length > 0
             ? (() => {
                 const totals = filteredSearchSources.reduce(
                   (accumulator, source) => {
@@ -4536,8 +5409,14 @@ export function renderDashboardPage(dashboard, options = {}) {
                         Math.round(Number(source.expectedFoundCount))
                       );
                     }
-                    accumulator.avgScoreTotal += Number(source.weightedAvgScoreTotal || 0);
-                    accumulator.avgScoreCount += Number(source.weightedAvgScoreCount || 0);
+                    if (
+                      Number.isFinite(Number(source.avgScore)) &&
+                      Number(source.importedCount || 0) > 0
+                    ) {
+                      accumulator.avgScoreTotal +=
+                        Number(source.avgScore) * Number(source.importedCount || 0);
+                      accumulator.avgScoreCount += Number(source.importedCount || 0);
+                    }
                     return accumulator;
                   },
                   {
@@ -4564,7 +5443,13 @@ export function renderDashboardPage(dashboard, options = {}) {
 
                 return [
                   '<tr class="search-totals-row">',
-                  "  <td>All Sources Total</td>",
+                  "  <td>" +
+                    escapeHtml(
+                      selectedSearchStateFilter === "enabled"
+                        ? "Enabled Total"
+                        : "Disabled Total"
+                    ) +
+                    "</td>",
                   "  <td>—</td>",
                   "  <td>—</td>",
                   "  <td>" + escapeHtml(foundTotalLabel) + "</td>",
@@ -4854,126 +5739,286 @@ export function renderDashboardPage(dashboard, options = {}) {
         const onboardingIncomplete = isOnboardingIncomplete();
         const onboardingSourceChecks = onboardingChecksBySourceId();
         const onboardingSources = onboardingCandidateSources();
-        const onboardingSelectedSources = new Set(onboardingSelectedSourceIdsForRender());
-        const failedAuthSourcesForRetry = failedAuthSourceIds(onboardingSourceChecks);
-        const onboardingSourcesMarkup = onboardingSources
-          .map((source) => {
-            const checked = onboardingSelectedSources.has(source.id);
-            const checkResult = onboardingSourceChecks[source.id];
-            const checkStatus =
-              checkResult && typeof checkResult.status === "string"
-                ? checkResult.status
-                : "unknown";
-            const checkLabel =
-              checkResult && checkResult.userMessage
-                ? checkResult.userMessage
-                : "Not checked yet";
-            const statusMeta = onboardingStatusMeta(checkStatus);
+        const onboardingReadinessBySourceId = Object.create(null);
+        for (const source of onboardingSources) {
+          onboardingReadinessBySourceId[source.id] = onboardingReadinessState(
+            source,
+            onboardingSourceChecks
+          );
+        }
+        const onboardingEnabledSources = onboardingSources.filter((source) => {
+          const readiness = onboardingReadinessBySourceId[source.id];
+          return readiness.key === "ready";
+        });
+        const onboardingAuthPendingSources = onboardingSources.filter((source) => {
+          const readiness = onboardingReadinessBySourceId[source.id];
+          return sourceRequiresAuth(source) && source.enabled === true && readiness.key === "not_authorized";
+        });
+        const onboardingNotEnabledSources = onboardingSources.filter((source) => {
+          const readiness = onboardingReadinessBySourceId[source.id];
+          return readiness.key === "disabled";
+        });
+        const onboardingEnabledCount = onboardingSources.filter((source) => {
+          const readiness = onboardingReadinessBySourceId[source.id];
+          return readiness.key === "ready";
+        }).length;
+        const onboardingConsent = onboardingConsentForRender();
+        const onboardingConsentComplete = isOnboardingConsentComplete(onboardingConsent);
+        const onboardingLegalDocs =
+          onboarding && onboarding.legalDocs && typeof onboarding.legalDocs === "object"
+            ? onboarding.legalDocs
+            : {};
+        const onboardingTermsUrl = String(onboardingLegalDocs.termsUrl || "/policy/terms");
+        const onboardingPrivacyUrl = String(onboardingLegalDocs.privacyUrl || "/policy/privacy");
+        const renderOnboardingSourceRow = (source, options = {}) => {
+          const readiness =
+            onboardingReadinessBySourceId[source.id] ||
+            onboardingReadinessState(source, onboardingSourceChecks);
+          const checkResult = onboardingSourceChecks[source.id];
+          const checkStatus =
+            checkResult && checkResult.status ? String(checkResult.status).toLowerCase() : "";
+          const hasPriorFailedCheck = Boolean(checkStatus) && checkStatus !== "pass";
+          const isBusyRow = onboardingBusy && onboardingActiveSourceId === source.id;
+          const lockOtherRows =
+            onboardingBusy &&
+            Boolean(onboardingActiveSourceId) &&
+            onboardingActiveSourceId !== source.id;
+          const disableControls =
+            busy ||
+            lockOtherRows ||
+            isBusyRow ||
+            Boolean(authFlowSourceId) ||
+            authFlowBusy;
+          const showCheckButton =
+            sourceRequiresAuth(source) && readiness.key === "not_authorized";
+          const checkButtonLabel = isBusyRow
+            ? "Checking..."
+            : hasPriorFailedCheck
+              ? "Re-check"
+              : "Check access";
+          const overflowDisableMenu = buildSourceOverflowMenu(
+            source.id,
+            disableControls,
+            readiness.key === "disabled" ? "enable" : "disable"
+          );
+          const actionMarkup =
+            readiness.key === "disabled"
+              ? '<button class="primary" data-onboarding-enable-source="' +
+                  escapeHtml(source.id) +
+                  '"' +
+                  (disableControls ? " disabled" : "") +
+                  ">Enable</button>"
+              : showCheckButton
+                ? '<button class="primary" data-onboarding-check-source="' +
+                    escapeHtml(source.id) +
+                    '"' +
+                    (disableControls ? " disabled" : "") +
+                    ">" +
+                    escapeHtml(checkButtonLabel) +
+                    "</button>"
+                : "";
+          const rowClass = options.compact === true
+            ? "onboarding-source-row compact"
+            : "onboarding-source-row";
 
-            return (
-              '<div class="onboarding-source-row">' +
-              '  <div class="onboarding-source-top">' +
-              '    <label class="onboarding-source-main">' +
-              '      <input type="checkbox" data-onboarding-source="1" value="' +
-              escapeHtml(source.id) +
-              '"' +
-              (checked ? " checked" : "") +
-              ">" +
-              '      <span class="onboarding-source-name">' +
-              escapeHtml(source.name) +
-              "</span>" +
-              "    </label>" +
-              '    <div class="onboarding-source-meta">' +
-              '      <span class="auth-chip" data-auth="' +
-              escapeHtml(sourceRequiresAuth(source) ? "required" : "none") +
-              '">' +
-              escapeHtml(sourceRequiresAuth(source) ? "Auth required" : "No auth") +
-              "</span>" +
-              '      <span class="status-chip compact"><span class="status-dot" data-tone="' +
-              escapeHtml(statusMeta.tone) +
-              '"></span>' +
-              escapeHtml(statusMeta.label) +
-              "</span>" +
-              "    </div>" +
-              "  </div>" +
-              '  <div class="onboarding-source-note">' + escapeHtml(checkLabel) + "</div>" +
-              "</div>"
-            );
-          })
+          return (
+            '<div class="' + rowClass + '">' +
+            '  <div class="onboarding-source-top">' +
+            '    <div class="onboarding-source-main">' +
+            '      <span class="onboarding-source-name">' +
+            escapeHtml(source.name) +
+            "</span>" +
+            "    </div>" +
+            '    <div class="onboarding-source-meta">' +
+            '      <span class="status-chip compact"><span class="status-dot" data-tone="' +
+            escapeHtml(readiness.tone) +
+            '"></span>' +
+            escapeHtml(readiness.label) +
+            "</span>" +
+            overflowDisableMenu +
+            "    </div>" +
+            "  </div>" +
+            (actionMarkup
+              ? '  <div class="inline-actions onboarding-source-actions">' + actionMarkup + "</div>"
+              : "") +
+            "</div>"
+          );
+        };
+        const onboardingEnabledSourcesMarkup = onboardingEnabledSources
+          .map((source) => renderOnboardingSourceRow(source, { compact: true }))
           .join("");
-        const onboardingStatusMessage = onboardingStepStatus ||
-          (onboardingIncomplete
-            ? "Choose sources, verify access, then run your first search."
-            : "Onboarding complete.");
+        const onboardingAuthSourcesMarkup = onboardingAuthPendingSources
+          .map((source) => renderOnboardingSourceRow(source))
+          .join("");
+        const onboardingNotEnabledSourcesMarkup = onboardingNotEnabledSources
+          .map((source) => renderOnboardingSourceRow(source))
+          .join("");
+        const onboardingStatusMessage =
+          onboardingStepStatus && onboardingStepStatus.trim().length > 0
+            ? onboardingStepStatus
+            : "";
         const onboardingStatusClass =
           "onboarding-status" + (onboardingStepStatusError ? " error" : "");
+        const consentGateRequired = onboardingEnabled && onboardingConsentComplete !== true;
+        const consentStatusMessage =
+          onboardingStepStatus && onboardingStepStatus.trim().length > 0
+            ? onboardingStepStatus
+            : "";
+        const consentInterstitial = consentGateRequired
+          ? [
+              '<section class="card" style="margin-top: 18px;">',
+              '  <h3 class="onboarding-title">To access JobFinder, review and accept the following:</h3>',
+              '  <div class="onboarding-checklist">',
+              '<label><input id="onboarding-consent-legal" data-onboarding-consent="1" type="checkbox"' +
+                (onboardingConsent.termsAccepted && onboardingConsent.privacyAccepted ? " checked" : "") +
+              '><span class="consent-copy">I have read and accept the <a href="' +
+                escapeHtml(onboardingTermsUrl) +
+              '" target="_blank" rel="noopener noreferrer">Terms of Service</a> and <a href="' +
+                escapeHtml(onboardingPrivacyUrl) +
+              '" target="_blank" rel="noopener noreferrer">Privacy Policy</a>.</span></label>',
+              '<label><input id="onboarding-consent-tos-risk" data-onboarding-consent="1" type="checkbox"' +
+                (onboardingConsent.tosRiskAccepted ? " checked" : "") +
+              '><span class="consent-copy">I understand some platforms restrict automated access from logged-in users and accept responsibility for my accounts.</span></label>',
+              "  </div>",
+              '  <div class="inline-actions onboarding-actions">',
+              '    <button class="primary" id="onboarding-save-consent"' +
+                (busy || onboardingBusy ? " disabled" : "") +
+                ">Agree and Continue</button>",
+              "  </div>",
+              consentStatusMessage
+                ? '  <div class="' +
+                    onboardingStatusClass +
+                    '">' +
+                    escapeHtml(consentStatusMessage) +
+                    "</div>"
+                : "",
+              "</section>"
+            ].join("")
+          : "";
         const onboardingCard = onboardingEnabled
           ? [
-              '<div class="card inset onboarding-card" style="margin-top: 12px;">',
-              '  <p class="section-label">Welcome</p>',
-              '  <h3 class="onboarding-title">Set up your first job import</h3>',
-              '  <div class="subhead onboarding-lede">' +
-                escapeHtml(
-                  onboardingIncomplete
-                    ? "Choose sources you want to use. Sources that require account login are labeled and must pass verification before they are enabled."
-                    : "Onboarding complete."
-                ) +
-                "</div>",
-              '  <div class="onboarding-stepper">',
-              '    <section class="onboarding-step">',
-              '      <p class="onboarding-step-label">Step 1</p>',
-              '      <h4>Choose sources and preferences</h4>',
-              '      <div class="search-form" style="margin-top: 10px; grid-template-columns: minmax(180px, 320px);">',
-                '        <label>Analytics' +
-                '<input id="onboarding-analytics-enabled" type="checkbox" class="onboarding-toggle"' +
-                (onboarding.analyticsEnabled ? " checked" : "") +
-                ">" +
-                "</label>",
-              "      </div>",
-              '      <div class="subhead">Install channel is captured during CLI setup (jf init).</div>',
-              '      <div class="onboarding-source-list">' +
-              (onboardingSourcesMarkup || '<div class="onboarding-source-empty">No sources are currently available.</div>') +
-              "</div>",
-              '      <div class="inline-actions onboarding-actions">',
-              '        <button class="secondary" id="onboarding-save-setup"' + (busy || onboardingBusy ? " disabled" : "") + ">Save Step 1</button>",
-              "      </div>",
-              "    </section>",
-              '    <section class="onboarding-step">',
-              '      <p class="onboarding-step-label">Step 2</p>',
-              "      <h4>Verify access one source at a time</h4>",
-              '      <div class="subhead">Sources that require auth will run a live verification capture. If auth cannot be confirmed, they remain disabled.</div>',
-              '      <div class="inline-actions onboarding-actions">',
-              '        <button class="primary" id="run-onboarding-checks"' + (busy || onboardingBusy ? " disabled" : "") + ">Verify Selected Sources</button>",
-              '        <button class="secondary" id="retry-onboarding-failed-auth"' +
-                (busy || onboardingBusy || failedAuthSourcesForRetry.length === 0 ? " disabled" : "") +
-                ">Retry Failed Auth Sources</button>",
-              "      </div>",
-              (onboardingVerifyProgress
-                ? '      <div class="onboarding-progress">' + escapeHtml(onboardingVerifyProgress) + "</div>"
-                : ""),
-              "    </section>",
-              '    <section class="onboarding-step">',
-              '      <p class="onboarding-step-label">Step 3</p>',
-              "      <h4>Run your first search</h4>",
-              '      <div class="subhead">When verification looks good, complete onboarding and start from the Jobs tab.</div>',
-              '      <div class="inline-actions onboarding-actions">',
-              '        <button class="secondary" id="complete-onboarding"' + (busy || onboardingBusy ? " disabled" : "") + ">Complete Onboarding</button>",
-              '        <button class="primary" id="onboarding-go-jobs"' + (busy || onboardingBusy ? " disabled" : "") + ">Go to Jobs</button>",
-              "      </div>",
-              "    </section>",
+              '<div class="card inset onboarding-card" style="margin-top: 18px;">',
+              '  <div class="onboarding-header">',
+              '    <h3 class="onboarding-title">Connect your sources</h3>',
+              '    <button class="secondary" id="onboarding-toggle-sources">' +
+                    (onboardingSourcesCollapsed ? "Edit" : "Done") +
+                    "</button>",
               "  </div>",
-              '  <div class="' + onboardingStatusClass + '">' + escapeHtml(onboardingStatusMessage) + "</div>",
+              (onboardingSourcesCollapsed
+                ? ""
+                : [
+                    '  <div class="onboarding-stepper">',
+                    '    <section class="onboarding-step">',
+                    "      <h4>" +
+                          escapeHtml("Enabled (" + String(onboardingEnabledCount) + ")") +
+                          "</h4>",
+                    '      <div class="onboarding-source-list">' +
+                          (onboardingEnabledSourcesMarkup ||
+                            '<div class="onboarding-source-empty">No enabled sources yet.</div>') +
+                          "</div>",
+                    "    </section>",
+                    (onboardingAuthPendingSources.length > 0
+                      ? [
+                          '    <section class="onboarding-step">',
+                          "      <h4>Authentication Required</h4>",
+                          '      <div class="onboarding-source-list">' +
+                                onboardingAuthSourcesMarkup +
+                                "</div>",
+                          (onboardingVerifyProgress
+                            ? '      <div class="onboarding-progress">' + escapeHtml(onboardingVerifyProgress) + "</div>"
+                            : ""),
+                          "    </section>"
+                        ].join("")
+                      : ""),
+                    '    <section class="onboarding-step">',
+                    "      <h4>Not Enabled</h4>",
+                    '      <div class="onboarding-source-list">' +
+                          (onboardingNotEnabledSourcesMarkup ||
+                            '<div class="onboarding-source-empty">No disabled sources.</div>') +
+                          "</div>",
+                    "    </section>",
+                    "  </div>"
+                  ].join("")),
+              (onboardingStepStatusError && onboardingStatusMessage
+                ? '  <div class="' + onboardingStatusClass + '">' + escapeHtml(onboardingStatusMessage) + "</div>"
+                : ""),
               "</div>"
             ].join("")
           : "";
+        const hasAuthSourcesInDisabled = onboardingNotEnabledSources.some((source) =>
+          sourceRequiresAuth(source)
+        );
+        const showSearchWelcomeToast =
+          onboardingIncomplete &&
+          selectedSearchStateFilter === "enabled" &&
+          (onboardingAuthPendingSources.length > 0 || hasAuthSourcesInDisabled) &&
+          !searchesWelcomeToastDismissed;
+        const searchesWelcomeToastMarkup = showSearchWelcomeToast
+          ? '<div class="search-welcome-toast">' +
+              '<div class="search-welcome-toast-text">Welcome to Job Finder! These sources don&#39;t require authentication and are enabled automatically. To enable sources that require a login, visit the Disabled tab.</div>' +
+              '<div class="inline-actions search-welcome-toast-actions">' +
+                '<button class="secondary" data-search-welcome-disabled="1">Go to Disabled</button>' +
+                '<button class="secondary" data-search-welcome-dismiss="1">Dismiss</button>' +
+              "</div>" +
+            "</div>"
+          : "";
+        const authFlowSource =
+          authFlowSourceId
+            ? sourceById(authFlowSourceId)
+            : null;
+        const authFlowModalMarkup =
+          authFlowSource && sourceRequiresAuth(authFlowSource)
+            ? [
+                '<div class="auth-flow-backdrop"></div>',
+                '<section class="auth-flow-modal" role="dialog" aria-modal="true" aria-labelledby="auth-flow-title">',
+                '  <h3 class="auth-flow-title" id="auth-flow-title">Connect ' +
+                     escapeHtml(authFlowSource.name) +
+                     "</h3>",
+                '  <ol class="auth-flow-steps">',
+                "    <li>Open source</li>",
+                "    <li>Sign in</li>",
+                "    <li>Click I&#39;m logged in</li>",
+                "  </ol>",
+                authFlowMessage
+                  ? '  <div class="auth-flow-status' +
+                      (authFlowError ? " error" : "") +
+                      '">' +
+                      escapeHtml(authFlowMessage) +
+                      "</div>"
+                  : "",
+                '  <div class="inline-actions" style="margin-top: 12px;">',
+                '    <button class="secondary" data-auth-flow-open-source="1"' +
+                     (authFlowBusy ? " disabled" : "") +
+                     ">Open Source</button>",
+                '    <button class="primary" data-auth-flow-check="1"' +
+                     (authFlowBusy ? " disabled" : "") +
+                     ">" +
+                     (authFlowBusy ? "Checking..." : "I&#39;m logged in") +
+                     "</button>",
+                '    <button class="secondary" data-auth-flow-close="1"' +
+                     (authFlowBusy ? " disabled" : "") +
+                     ">Close</button>",
+                "  </div>",
+                "</section>"
+              ].join("")
+            : "";
 
         const searchesSection = [
           '<section class="card" style="margin-top: 18px;">',
           '  <div class="search-header">',
           '    <p class="section-label">My Job Searches</p>',
+          '    <div class="sub-tabs search-state-tabs">' + searchFilterTabs + "</div>",
           "  </div>",
-          onboardingCard,
-          '  <div class="sub-tabs" style="margin-top: 8px;">' + searchFilterTabs + "</div>",
+          (selectedSearchStateFilter === "enabled"
+            ? '  <div class="search-controls-row">' +
+                '    <label class="run-cadence-control">Search frequency<select id="search-run-cadence">' +
+                  '<option value="12h"' + (selectedSearchRunCadence === "12h" ? " selected" : "") + ">12h (recommended)</option>" +
+                  '<option value="daily"' + (selectedSearchRunCadence === "daily" ? " selected" : "") + ">Daily</option>" +
+                  '<option value="weekly"' + (selectedSearchRunCadence === "weekly" ? " selected" : "") + ">Weekly</option>" +
+                  '<option value="cached"' + (selectedSearchRunCadence === "cached" ? " selected" : "") + ">Use cached results (dev)</option>" +
+                "</select></label>" +
+              "</div>"
+            : ""),
           '  <div style="margin-top: 16px; overflow-x: auto;">',
           '    <table>',
           '      <thead><tr><th>Source</th><th>Last Run</th><th>Status</th><th>Found</th><th>Filtered</th><th>Dupes</th><th>Imported</th><th>Avg Score</th><th>Actions</th></tr></thead>',
@@ -4981,11 +6026,13 @@ export function renderDashboardPage(dashboard, options = {}) {
           "    </table>",
           "  </div>",
           (filteredSearchSources.length === 0
-            ? '  <div class="subhead search-empty">No searches in this source filter.</div>'
+            ? '  <div class="subhead search-empty">No sources in this tab.</div>'
             : ""),
           '  <div class="feedback' + (feedbackError ? " error" : "") + '">' + escapeHtml(feedback) + "</div>",
-          "</section>"
+          "</section>",
+          authFlowModalMarkup
         ].join("");
+        const searchesPageSections = searchesSection + searchesWelcomeToastMarkup;
 
         const profileSection = [
           '<section class="card" style="margin-top: 18px;">',
@@ -5012,6 +6059,18 @@ export function renderDashboardPage(dashboard, options = {}) {
             escapeHtml((dashboard.monetization && dashboard.monetization.donationUrl) || "https://github.com/sponsors") +
             '" target="_blank" rel="noopener noreferrer">Support Job Finder</a>' +
           "</div>",
+          '  <div class="card inset" style="margin-top: 12px;">',
+          '    <p class="section-label">Preferences</p>',
+          '    <div class="search-form" style="grid-template-columns: minmax(180px, 320px) auto; align-items: end;">',
+          '      <label>Anonymous Metrics' +
+            '<input id="profile-analytics-enabled" type="checkbox" class="onboarding-toggle"' +
+            (dashboard.onboarding && dashboard.onboarding.analyticsEnabled ? " checked" : "") +
+            ">" +
+            "</label>",
+          '      <div class="inline-actions"><button class="secondary" id="save-profile-analytics"' + (busy ? " disabled" : "") + ">Save Preference</button></div>",
+          "    </div>",
+          '    <div class="subhead" style="margin-top: 6px;">Used to improve product quality. You can change this anytime.</div>',
+          "  </div>",
           ...(narrataConnectEnabled
             ? [
                 '  <div class="card inset" style="margin-top: 14px;">',
@@ -5034,20 +6093,41 @@ export function renderDashboardPage(dashboard, options = {}) {
           "</section>"
         ].join("");
 
-        app.innerHTML = [
-          '<div class="header">',
-          "  <div>",
-          "    <h1>Job Finder</h1>",
-          '    <div class="subhead">Manage saved searches, run intake, and review ranked jobs in one place.</div>',
-          "  </div>",
-          "</div>",
-          '<div class="main-tabs">' + tabButtons + "</div>",
-          selectedTab === "jobs"
-            ? jobsSection
-            : selectedTab === "searches"
-              ? searchesSection
-              : profileSection
-        ].join("");
+        app.innerHTML = consentGateRequired
+          ? consentInterstitial
+          : [
+              '<div class="header">',
+              "  <div>",
+              "    <h1>Job Finder</h1>",
+              '    <div class="subhead">Manage saved searches, run intake, and review ranked jobs in one place.</div>',
+              "  </div>",
+              "</div>",
+              '<div class="main-tabs">' + tabButtons + "</div>",
+              selectedTab === "jobs"
+                ? jobsSection
+                : selectedTab === "searches"
+                  ? searchesPageSections
+                  : profileSection
+            ].join("");
+        const shellPanel = document.querySelector(".panel");
+        if (shellPanel) {
+          shellPanel.classList.toggle("panel-consent-only", consentGateRequired);
+        }
+
+        if (consentGateRequired) {
+          const saveOnboardingConsentButton = document.getElementById(
+            "onboarding-save-consent"
+          );
+          if (saveOnboardingConsentButton) {
+            saveOnboardingConsentButton.addEventListener("click", saveOnboardingConsent);
+          }
+          for (const input of document.querySelectorAll("[data-onboarding-consent]")) {
+            input.addEventListener("change", () => {
+              onboardingConsentDraft = readOnboardingConsentFromDom();
+            });
+          }
+          return;
+        }
         for (const button of document.querySelectorAll("[data-tab]")) {
           button.addEventListener("click", () => setTab(button.dataset.tab));
         }
@@ -5111,44 +6191,87 @@ export function renderDashboardPage(dashboard, options = {}) {
         }
 
         if (selectedTab === "searches") {
-          const saveOnboardingSetupButton = document.getElementById("onboarding-save-setup");
-          if (saveOnboardingSetupButton) {
-            saveOnboardingSetupButton.addEventListener("click", saveOnboardingSetup);
+          const saveOnboardingConsentButton = document.getElementById("onboarding-save-consent");
+          if (saveOnboardingConsentButton) {
+            saveOnboardingConsentButton.addEventListener("click", saveOnboardingConsent);
           }
 
-          const runOnboardingChecksButton = document.getElementById("run-onboarding-checks");
-          if (runOnboardingChecksButton) {
-            runOnboardingChecksButton.addEventListener("click", verifyOnboardingSources);
+          const toggleOnboardingSourcesButton = document.getElementById("onboarding-toggle-sources");
+          if (toggleOnboardingSourcesButton) {
+            toggleOnboardingSourcesButton.addEventListener("click", toggleOnboardingSourcesCollapsed);
           }
 
-          const retryOnboardingFailedButton = document.getElementById(
-            "retry-onboarding-failed-auth"
-          );
-          if (retryOnboardingFailedButton) {
-            retryOnboardingFailedButton.addEventListener(
-              "click",
-              retryFailedOnboardingAuthSources
-            );
+          for (const input of document.querySelectorAll("[data-onboarding-consent]")) {
+            input.addEventListener("change", () => {
+              onboardingConsentDraft = readOnboardingConsentFromDom();
+            });
           }
 
-          const completeOnboardingButton = document.getElementById("complete-onboarding");
-          if (completeOnboardingButton) {
-            completeOnboardingButton.addEventListener("click", completeOnboarding);
-          }
-
-          const onboardingGoJobsButton = document.getElementById("onboarding-go-jobs");
-          if (onboardingGoJobsButton) {
-            onboardingGoJobsButton.addEventListener("click", () => setTab("jobs"));
-          }
-
-          for (const button of document.querySelectorAll("[data-search-source]")) {
-            button.addEventListener("click", () => setSearchSourceFilter(button.dataset.searchSource));
-          }
-
-          for (const button of document.querySelectorAll("[data-see-results]")) {
+          for (const button of document.querySelectorAll("[data-onboarding-enable-source]")) {
             button.addEventListener("click", () => {
-              selectedTab = "jobs";
-              setSourceFilter(button.dataset.seeResults);
+              void enableOnboardingSource(button.dataset.onboardingEnableSource);
+            });
+          }
+
+          for (const button of document.querySelectorAll("[data-onboarding-disable-source]")) {
+            button.addEventListener("click", () => {
+              void disableOnboardingSource(button.dataset.onboardingDisableSource);
+            });
+          }
+
+          for (const button of document.querySelectorAll("[data-onboarding-check-source]")) {
+            button.addEventListener("click", () => {
+              void verifySingleOnboardingSource(button.dataset.onboardingCheckSource);
+            });
+          }
+
+          for (const button of document.querySelectorAll("[data-run-source-now]")) {
+            button.addEventListener("click", () => {
+              void runSourceNow(button.dataset.runSourceNow);
+            });
+          }
+
+          for (const button of document.querySelectorAll("[data-search-state]")) {
+            button.addEventListener("click", () => setSearchStateFilter(button.dataset.searchState));
+          }
+
+          for (const button of document.querySelectorAll("[data-search-welcome-dismiss]")) {
+            button.addEventListener("click", () => dismissSearchesWelcomeToast());
+          }
+
+          for (const button of document.querySelectorAll("[data-search-welcome-disabled]")) {
+            button.addEventListener("click", () => goToDisabledFromSearchesWelcomeToast());
+          }
+
+          for (const button of document.querySelectorAll("[data-auth-flow-open-source]")) {
+            button.addEventListener("click", () => {
+              const source = authFlowSourceId ? sourceById(authFlowSourceId) : null;
+              if (!source) {
+                closeAuthFlowModal();
+                return;
+              }
+              openSourceInBrowser(source);
+              authFlowMessage =
+                source.name + " opened. Sign in there, then click I\u2019m logged in.";
+              authFlowError = false;
+              render();
+            });
+          }
+
+          for (const button of document.querySelectorAll("[data-auth-flow-check]")) {
+            button.addEventListener("click", () => {
+              void runAuthFlowCheck();
+            });
+          }
+
+          for (const button of document.querySelectorAll("[data-auth-flow-close]")) {
+            button.addEventListener("click", () => closeAuthFlowModal());
+          }
+
+          const runCadenceSelect = document.getElementById("search-run-cadence");
+          if (runCadenceSelect) {
+            runCadenceSelect.addEventListener("change", () => {
+              setSearchRunCadence(runCadenceSelect.value);
             });
           }
 
@@ -5173,6 +6296,13 @@ export function renderDashboardPage(dashboard, options = {}) {
           if (donateButton) {
             donateButton.addEventListener("click", () => {
               void trackDonationClick();
+            });
+          }
+
+          const saveProfileAnalyticsButton = document.getElementById("save-profile-analytics");
+          if (saveProfileAnalyticsButton) {
+            saveProfileAnalyticsButton.addEventListener("click", () => {
+              saveAnalyticsPreferenceFromProfile();
             });
           }
 
@@ -5215,10 +6345,59 @@ export function renderDashboardPage(dashboard, options = {}) {
 </html>`;
 }
 
+function renderPolicyDocumentPage(title, content) {
+  return [
+    "<!doctype html>",
+    "<html>",
+    "  <head>",
+    '    <meta charset="utf-8" />',
+    '    <meta name="viewport" content="width=device-width,initial-scale=1" />',
+    `    <title>${escapeHtml(title)}</title>`,
+    "    <style>",
+    "      body { margin: 0; padding: 24px; background: #f6f3ea; color: #1f2d2a; font-family: ui-serif, Georgia, serif; }",
+    "      main { max-width: 920px; margin: 0 auto; background: #fffefb; border: 1px solid #d8cfbd; border-radius: 14px; padding: 20px; }",
+    "      h1 { margin: 0 0 14px; font-size: 28px; }",
+    "      pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; line-height: 1.45; }",
+    "    </style>",
+    "  </head>",
+    "  <body>",
+    "    <main>",
+    `      <h1>${escapeHtml(title)}</h1>`,
+    `      <pre>${escapeHtml(content)}</pre>`,
+    "    </main>",
+    "  </body>",
+    "</html>"
+  ].join("\n");
+}
+
 export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
   const server = http.createServer(async (request, response) => {
     try {
       const url = new URL(request.url || "/", `http://${request.headers.host || "127.0.0.1"}`);
+
+      if (request.method === "GET" && url.pathname === "/policy/terms") {
+        if (!fs.existsSync(LEGAL_TERMS_PATH)) {
+          response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+          response.end("TERMS.md not found.");
+          return;
+        }
+        const content = fs.readFileSync(LEGAL_TERMS_PATH, "utf8");
+        response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        response.end(renderPolicyDocumentPage("Terms of Service", content));
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/policy/privacy") {
+        if (!fs.existsSync(LEGAL_PRIVACY_PATH)) {
+          response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+          response.end("PRIVACY.md not found.");
+          return;
+        }
+        const content = fs.readFileSync(LEGAL_PRIVACY_PATH, "utf8");
+        response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        response.end(renderPolicyDocumentPage("Privacy Policy", content));
+        return;
+      }
 
       if (request.method === "GET" && url.pathname === "/api/dashboard") {
         const dashboard = buildDashboardData(limit);
@@ -5238,6 +6417,52 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
         response.end(
           JSON.stringify({ jobs: queue, appliedJobs: appliedQueue, skippedJobs: skippedQueue })
         );
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/onboarding/consent") {
+        const rawBody = await readRequestBody(request);
+        const parsedBody = rawBody ? JSON.parse(rawBody) : {};
+        const consentInput = {
+          termsAccepted: Boolean(parsedBody.termsAccepted),
+          privacyAccepted: Boolean(parsedBody.privacyAccepted),
+          rateLimitPolicyAccepted: Boolean(parsedBody.rateLimitPolicyAccepted),
+          tosRiskAccepted: Boolean(parsedBody.tosRiskAccepted)
+        };
+
+        if (!isConsentComplete(consentInput)) {
+          response.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+          response.end(
+            JSON.stringify({
+              error: "Accept Terms/Privacy and ToS/account risk acknowledgement to continue."
+            })
+          );
+          return;
+        }
+
+        updateInstallConsent(consentInput);
+
+        const settings = loadUserSettings().settings;
+        const effectiveChannel = getEffectiveOnboardingChannel(settings);
+        await recordAnalyticsEvent(
+          buildAnalyticsEvent(
+            "onboarding_consent_updated",
+            {
+              consentAccepted: true
+            },
+            {
+              installId: settings.installId,
+              channel: effectiveChannel.value || effectiveChannel.channel || "unknown"
+            }
+          ),
+          {
+            analyticsEnabled: Boolean(settings?.analytics?.enabled)
+          }
+        );
+
+        const dashboard = buildDashboardData(limit);
+        response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+        response.end(JSON.stringify({ ok: true, onboarding: dashboard.onboarding }));
         return;
       }
 
@@ -5265,10 +6490,6 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
           updateOnboardingChannel(channel, "self_reported");
         }
 
-        if (typeof parsedBody.analyticsEnabled === "boolean") {
-          updateAnalyticsPreference(parsedBody.analyticsEnabled);
-        }
-
         const settings = loadUserSettings().settings;
         const effectiveChannel = getEffectiveOnboardingChannel(settings);
         await recordAnalyticsEvent(
@@ -5294,7 +6515,44 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
         return;
       }
 
+      if (request.method === "POST" && url.pathname === "/api/preferences/analytics") {
+        const rawBody = await readRequestBody(request);
+        const parsedBody = rawBody ? JSON.parse(rawBody) : {};
+        const analyticsEnabled = Boolean(parsedBody.analyticsEnabled);
+
+        updateAnalyticsPreference(analyticsEnabled);
+
+        const settings = loadUserSettings().settings;
+        const effectiveChannel = getEffectiveOnboardingChannel(settings);
+        await recordAnalyticsEvent(
+          buildAnalyticsEvent(
+            "analytics_preference_updated",
+            {
+              analyticsEnabled
+            },
+            {
+              installId: settings.installId,
+              channel: effectiveChannel.value || effectiveChannel.channel || "unknown"
+            }
+          ),
+          {
+            analyticsEnabled
+          }
+        );
+
+        const dashboard = buildDashboardData(limit);
+        response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+        response.end(JSON.stringify({ ok: true, onboarding: dashboard.onboarding }));
+        return;
+      }
+
       if (request.method === "POST" && url.pathname === "/api/onboarding/sources") {
+        const consentSettings = loadUserSettings().settings;
+        if (!isConsentComplete(consentSettings?.onboarding?.consent)) {
+          response.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+          response.end(JSON.stringify({ error: "Complete Step 1 legal consent before source setup." }));
+          return;
+        }
         const rawBody = await readRequestBody(request);
         const parsedBody = rawBody ? JSON.parse(rawBody) : {};
         const sourceIds = Array.isArray(parsedBody.sourceIds)
@@ -5343,6 +6601,12 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
       }
 
       if (request.method === "POST" && url.pathname === "/api/onboarding/check-source") {
+        const consentSettings = loadUserSettings().settings;
+        if (!isConsentComplete(consentSettings?.onboarding?.consent)) {
+          response.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+          response.end(JSON.stringify({ error: "Complete Step 1 legal consent before source verification." }));
+          return;
+        }
         const rawBody = await readRequestBody(request);
         const parsedBody = rawBody ? JSON.parse(rawBody) : {};
         const sourceId =
@@ -5360,12 +6624,36 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
           return;
         }
 
-        const result = normalizeSourceCheckResult(
-          checkSourceAccess(source, {
-            probeLive: parsedBody.probeLive === true,
-            ignoreEnabled: true
-          })
-        );
+        const captureRunFailed = parsedBody.captureRunFailed === true;
+        const authProbe = parsedBody.authProbe === true;
+        let result;
+        if (captureRunFailed) {
+          result = normalizeSourceCheckResult({
+            status: "fail",
+            reasonCode: "auth_check_failed",
+            userMessage:
+              "Sign-in could not be confirmed. Open source site, sign in, then retry.",
+            technicalDetails: {
+              sourceId,
+              sourceType: source.type
+            }
+          });
+        } else if (authProbe && isSourceAuthRequired(source.type)) {
+          try {
+            result = await runSourceAuthProbe(source, {
+              closeWindowAfterProbe: parsedBody.closeWindowAfterProbe === true
+            });
+          } catch (error) {
+            result = buildAuthPreflightFailure(source, error);
+          }
+        } else {
+          result = normalizeSourceCheckResult(
+            checkSourceAccess(source, {
+              probeLive: parsedBody.probeLive === true,
+              ignoreEnabled: true
+            })
+          );
+        }
         updateOnboardingSourceCheck(sourceId, result);
 
         const settings = loadUserSettings().settings;
@@ -5395,6 +6683,12 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
       }
 
       if (request.method === "POST" && url.pathname === "/api/onboarding/complete") {
+        const consentSettings = loadUserSettings().settings;
+        if (!isConsentComplete(consentSettings?.onboarding?.consent)) {
+          response.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+          response.end(JSON.stringify({ error: "Complete Step 1 legal consent before finishing onboarding." }));
+          return;
+        }
         const next = markOnboardingCompleted();
         const settings = next.settings;
         const effectiveChannel = getEffectiveOnboardingChannel(settings);
@@ -5635,10 +6929,35 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
           typeof parsedBody.refreshProfile === "string"
             ? parsedBody.refreshProfile
             : undefined;
+        const normalizedRefreshProfile = normalizeRefreshProfile(refreshProfile || "safe");
+        const cacheTtlHours =
+          Number.isFinite(Number(parsedBody.cacheTtlHours)) && Number(parsedBody.cacheTtlHours) > 0
+            ? Math.round(Number(parsedBody.cacheTtlHours))
+            : undefined;
         const forceRefresh = parsedBody.forceRefresh === true;
+        const skipAuthPreflight =
+          parsedBody.skipAuthPreflight === true || normalizedRefreshProfile === "mock";
+        if (!skipAuthPreflight) {
+          const blockedSources = await runAuthPreflightForEnabledSources({
+            refreshProfile: normalizedRefreshProfile
+          });
+          if (blockedSources.length > 0) {
+            response.writeHead(409, { "Content-Type": "application/json; charset=utf-8" });
+            response.end(
+              JSON.stringify({
+                error:
+                  "Sign-in is required for one or more enabled sources before running searches.",
+                requiresAuthCheck: true,
+                authSources: blockedSources
+              })
+            );
+            return;
+          }
+        }
         const result = await runAllCapturesWithOptions({
-          refreshProfile,
-          forceRefresh
+          refreshProfile: normalizedRefreshProfile,
+          forceRefresh,
+          cacheTtlHours
         });
         const settings = loadUserSettings().settings;
         const effectiveChannel = getEffectiveOnboardingChannel(settings);
@@ -5702,6 +7021,65 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
       }
 
       if (request.method === "POST" && url.pathname.startsWith("/api/sources/")) {
+        const manualMatch = url.pathname.match(/^\/api\/sources\/([^/]+)\/manual-refresh$/);
+        if (manualMatch) {
+          const sourceId = decodeURIComponent(manualMatch[1]);
+          const source = loadSources().sources.find((candidate) => candidate.id === sourceId);
+          if (!source) {
+            response.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });
+            response.end(JSON.stringify({ error: `Source not found: ${sourceId}` }));
+            return;
+          }
+          if (source.enabled !== true) {
+            response.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+            response.end(JSON.stringify({ error: "Enable this source before running it now." }));
+            return;
+          }
+
+          const nowIso = new Date().toISOString();
+          const refreshState = readRefreshState();
+          const manualRefreshesToday = countSourceEventsForUtcDay(
+            refreshState,
+            sourceId,
+            nowIso,
+            { mode: "manual" }
+          );
+          if (manualRefreshesToday >= MANUAL_REFRESH_DAILY_CAP) {
+            response.writeHead(429, { "Content-Type": "application/json; charset=utf-8" });
+            response.end(
+              JSON.stringify({
+                error: `Manual refresh limit reached for today (${MANUAL_REFRESH_DAILY_CAP}/${MANUAL_REFRESH_DAILY_CAP}).`,
+                reason: "manual_daily_cap",
+                nextEligibleAt: nextUtcDayStartIso(Date.now())
+              })
+            );
+            return;
+          }
+
+          const decision = getSourceRefreshDecision(source, {
+            profile: "safe"
+          });
+          if (!decision.allowLive) {
+            response.writeHead(409, { "Content-Type": "application/json; charset=utf-8" });
+            response.end(
+              JSON.stringify({
+                error: "Manual refresh is not available yet.",
+                reason: decision.reason,
+                nextEligibleAt: decision.nextEligibleAt || null
+              })
+            );
+            return;
+          }
+
+          const result = await runSourceCaptureWithOptions(sourceId, {
+            refreshProfile: "safe",
+            runMode: "manual"
+          });
+          response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+          response.end(JSON.stringify({ ok: true, ...result }));
+          return;
+        }
+
         const match = url.pathname.match(/^\/api\/sources\/([^/]+)\/run$/);
         if (!match) {
           response.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });
@@ -5715,6 +7093,11 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
           refreshProfile:
             typeof parsedBody.refreshProfile === "string"
               ? parsedBody.refreshProfile
+              : undefined,
+          cacheTtlHours:
+            Number.isFinite(Number(parsedBody.cacheTtlHours)) &&
+            Number(parsedBody.cacheTtlHours) > 0
+              ? Math.round(Number(parsedBody.cacheTtlHours))
               : undefined,
           forceRefresh: parsedBody.forceRefresh === true,
           skipSync: parsedBody.skipSync === true

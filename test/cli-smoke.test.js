@@ -30,7 +30,7 @@ test("cli doctor exits successfully even without sources config", () => {
   assert.match(result.stdout, /Environment:/i);
 });
 
-test("cli init accepts install channel and analytics consent flags", () => {
+test("cli init accepts install channel and analytics flags", () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-finder-cli-init-"));
   try {
     const result = spawnSync(
@@ -42,9 +42,6 @@ test("cli init accepts install channel and analytics consent flags", () => {
         "codex",
         "--analytics",
         "no",
-        "--accept-terms",
-        "--accept-privacy",
-        "--accept-rate-limit-policy",
         "--non-interactive"
       ],
       {
@@ -59,11 +56,10 @@ test("cli init accepts install channel and analytics consent flags", () => {
     const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
     assert.equal(settings.onboarding.channel.value, "codex");
     assert.equal(settings.analytics.enabled, false);
-    assert.equal(settings.onboarding.consent.termsAccepted, true);
-    assert.equal(settings.onboarding.consent.privacyAccepted, true);
-    assert.equal(settings.onboarding.consent.rateLimitPolicyAccepted, true);
-    assert.match(result.stdout, /Install channel:\s+codex/i);
-    assert.match(result.stdout, /Anonymous metrics:\s+disabled/i);
+    assert.equal(settings.onboarding.consent.termsAccepted, false);
+    assert.equal(settings.onboarding.consent.privacyAccepted, false);
+    assert.equal(settings.onboarding.consent.rateLimitPolicyAccepted, false);
+    assert.match(result.stdout, /Setup complete! To get started:\s*npm run review/i);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
@@ -79,9 +75,6 @@ test("cli init rejects invalid install channel", () => {
         "init",
         "--channel",
         "discord",
-        "--accept-terms",
-        "--accept-privacy",
-        "--accept-rate-limit-policy",
         "--non-interactive"
       ],
       {
@@ -100,8 +93,8 @@ test("cli init rejects invalid install channel", () => {
   }
 });
 
-test("cli init requires install consent in non-interactive mode", () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-finder-cli-init-consent-"));
+test("cli init non-interactive works without legal consent flags", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-finder-cli-init-no-consent-"));
   try {
     const result = spawnSync(
       "node",
@@ -112,15 +105,45 @@ test("cli init requires install consent in non-interactive mode", () => {
         encoding: "utf8"
       }
     );
-    assert.notEqual(result.status, 0, "Expected init to fail without required consent flags.");
-    assert.match(result.stderr, /Install consent required/i);
+    assert.equal(result.status, 0, result.stderr || "Expected init to succeed without consent flags.");
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
 
-test("cli init accepts legacy --accept-tos-risk as terms alias", () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-finder-cli-init-legacy-consent-"));
+test("cli init non-interactive repeat run succeeds without consent flags", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-finder-cli-init-repeat-consent-"));
+  try {
+    const first = spawnSync(
+      "node",
+      [
+        CLI_PATH,
+        "init",
+        "--channel",
+        "npm",
+        "--non-interactive"
+      ],
+      {
+        cwd: tempDir,
+        env: process.env,
+        encoding: "utf8"
+      }
+    );
+    assert.equal(first.status, 0, first.stderr || "Expected initial init to succeed.");
+
+    const second = spawnSync("node", [CLI_PATH, "init", "--channel", "npm", "--non-interactive"], {
+      cwd: tempDir,
+      env: process.env,
+      encoding: "utf8"
+    });
+    assert.equal(second.status, 0, second.stderr || "Expected repeat non-interactive init to succeed.");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("cli init rejects removed legacy --accept-tos-risk flag", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-finder-cli-init-legacy-flag-"));
   try {
     const result = spawnSync(
       "node",
@@ -130,8 +153,6 @@ test("cli init accepts legacy --accept-tos-risk as terms alias", () => {
         "--channel",
         "codex",
         "--accept-tos-risk",
-        "--accept-privacy",
-        "--accept-rate-limit-policy",
         "--non-interactive"
       ],
       {
@@ -140,11 +161,68 @@ test("cli init accepts legacy --accept-tos-risk as terms alias", () => {
         encoding: "utf8"
       }
     );
-    assert.equal(result.status, 0, result.stderr || "Expected legacy consent alias to work");
-    const settingsPath = path.join(tempDir, "data/user-settings.json");
-    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
-    assert.equal(settings.onboarding.consent.termsAccepted, true);
-    assert.equal(settings.onboarding.consent.privacyAccepted, true);
+    assert.equal(result.status, 2, "Expected removed legacy consent flag to fail with misuse exit.");
+    assert.match(result.stderr, /Unknown option\(s\) for init/i);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("cli init rejects conflicting analytics flags", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-finder-cli-init-analytics-conflict-"));
+  try {
+    const result = spawnSync(
+      "node",
+      [
+        CLI_PATH,
+        "init",
+        "--channel",
+        "npm",
+        "--analytics",
+        "yes",
+        "--no-analytics",
+        "--non-interactive"
+      ],
+      {
+        cwd: tempDir,
+        env: process.env,
+        encoding: "utf8"
+      }
+    );
+    assert.equal(result.status, 2, "Expected conflicting analytics flags to fail with misuse exit.");
+    assert.match(result.stderr, /Invalid analytics options/i);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("cli init supports --json output in non-interactive mode", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-finder-cli-init-json-"));
+  try {
+    const result = spawnSync(
+      "node",
+      [
+        CLI_PATH,
+        "init",
+        "--channel",
+        "npm",
+        "--analytics",
+        "yes",
+        "--non-interactive",
+        "--json"
+      ],
+      {
+        cwd: tempDir,
+        env: process.env,
+        encoding: "utf8"
+      }
+    );
+    assert.equal(result.status, 0, result.stderr || "Expected init --json to exit 0");
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.ok, true);
+    assert.equal(payload.channel, "npm");
+    assert.equal(payload.analyticsEnabled, true);
+    assert.equal(payload.nextAction, "npm run review");
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

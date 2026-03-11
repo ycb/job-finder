@@ -43,7 +43,7 @@ Use this if you do not want to run `npm link`. In the rest of this guide, replac
 jf init
 ```
 
-This creates the SQLite database at `data/jobs.db` (relative to your project directory).
+This creates the SQLite database at `data/jobs.db` and runs guided CLI setup (install channel + analytics preference).
 
 ### 2. Start the Dashboard
 
@@ -61,11 +61,10 @@ jf doctor
 
 `jf doctor` reports environment checks and source readiness status. On fresh setup, it warns if `config/sources.json` is missing. The dashboard bootstraps this file automatically on first run.
 
-### 4. Complete Onboarding in Dashboard
+### 4. Complete Source Onboarding in Dashboard
 
 In `Searches`, complete:
-- install channel selection
-- analytics preference
+- legal acceptance (Terms/Privacy + risk acknowledgements)
 - source selection
 - source checks
 

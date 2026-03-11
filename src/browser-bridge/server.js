@@ -9,6 +9,10 @@ import {
   ensureBridgePrimitiveCatalogIntegrity,
   validatePrimitiveSurfaceRegistration
 } from "./primitives.js";
+import { probeSourceAccessWithChromeAppleScript } from "./providers/chrome-applescript.js";
+import { probeSourceAccessWithNoop } from "./providers/noop.js";
+import { probeSourceAccessWithPersistentScaffold } from "./providers/persistent-scaffold.js";
+import { probeSourceAccessWithPlaywrightCli } from "./providers/playwright-cli.js";
 
 function createJsonResponse(response, statusCode, payload) {
   response.writeHead(statusCode, {
@@ -61,27 +65,31 @@ function resolveProvider(providerName = "noop") {
   if (providerName === "chrome_applescript") {
     return {
       name: providerName,
-      captureSource: captureSourceWithChromeAppleScript
+      captureSource: captureSourceWithChromeAppleScript,
+      probeSourceAccess: probeSourceAccessWithChromeAppleScript
     };
   }
 
   if (providerName === "persistent_scaffold") {
     return {
       name: providerName,
-      captureSource: captureSourceWithPersistentScaffold
+      captureSource: captureSourceWithPersistentScaffold,
+      probeSourceAccess: probeSourceAccessWithPersistentScaffold
     };
   }
 
   if (providerName === "playwright_cli") {
     return {
       name: providerName,
-      captureSource: captureSourceWithPlaywrightCli
+      captureSource: captureSourceWithPlaywrightCli,
+      probeSourceAccess: probeSourceAccessWithPlaywrightCli
     };
   }
 
   return {
     name: "noop",
-    captureSource: captureSourceWithNoop
+    captureSource: captureSourceWithNoop,
+    probeSourceAccess: probeSourceAccessWithNoop
   };
 }
 
@@ -177,6 +185,21 @@ export async function startBrowserBridgeServer({
       if (route) {
         const payload = await route.handle(request, response);
         createJsonResponse(response, 200, payload);
+        return;
+      }
+
+      if (request.method === "POST" && request.url === "/probe-source-access") {
+        const body = await readRequestBody(request);
+        const result = provider.probeSourceAccess(
+          body.source,
+          body.options || {}
+        );
+
+        createJsonResponse(response, 200, {
+          ok: true,
+          provider: provider.name,
+          result
+        });
         return;
       }
 

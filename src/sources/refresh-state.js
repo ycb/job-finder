@@ -4,6 +4,7 @@ import path from "node:path";
 const DEFAULT_STATE_PATH = "data/refresh-state.json";
 const MAX_EVENT_HISTORY = 500;
 const SUPPORTED_OUTCOMES = new Set(["success", "transient_error", "challenge"]);
+const SUPPORTED_MODES = new Set(["scheduled", "manual"]);
 const CHALLENGE_PATTERNS = [
   /\bcaptcha\b/i,
   /\bverify (?:you(?:'|’)re|you are) human\b/i,
@@ -34,6 +35,21 @@ function normalizeOutcome(rawOutcome) {
       `Unsupported refresh outcome "${rawOutcome}". Expected one of: success, transient_error, challenge.`
     );
   }
+  return normalized;
+}
+
+function normalizeMode(rawMode) {
+  const normalized = String(rawMode || "").trim().toLowerCase();
+  if (!normalized) {
+    return "scheduled";
+  }
+
+  if (!SUPPORTED_MODES.has(normalized)) {
+    throw new Error(
+      `Unsupported refresh mode "${rawMode}". Expected one of: scheduled, manual.`
+    );
+  }
+
   return normalized;
 }
 
@@ -73,7 +89,8 @@ function normalizeSourceState(rawSourceState) {
         )
         .map((event) => ({
           at: new Date(parseTimestamp(event.at)).toISOString(),
-          outcome: String(event.outcome).trim().toLowerCase()
+          outcome: String(event.outcome).trim().toLowerCase(),
+          mode: normalizeMode(event.mode)
         }))
     : [];
 
@@ -163,10 +180,12 @@ export function resolveSourceRefreshState(state, sourceId) {
   );
 }
 
-export function countSourceEventsForUtcDay(state, sourceId, dayValue = Date.now()) {
+export function countSourceEventsForUtcDay(state, sourceId, dayValue = Date.now(), options = {}) {
   const sourceState = resolveSourceRefreshState(state, sourceId);
   const dayMs = parseTimestamp(dayValue) ?? Number(dayValue);
   const effectiveDayMs = Number.isFinite(dayMs) ? dayMs : Date.now();
+  const requestedMode =
+    options && typeof options.mode === "string" ? normalizeMode(options.mode) : null;
   const day = new Date(effectiveDayMs);
   const startMs = Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate());
   const endMs = startMs + 24 * 60 * 60 * 1000;
@@ -174,6 +193,9 @@ export function countSourceEventsForUtcDay(state, sourceId, dayValue = Date.now(
   return sourceState.events.reduce((count, event) => {
     const eventMs = parseTimestamp(event.at);
     if (eventMs === null) {
+      return count;
+    }
+    if (requestedMode && normalizeMode(event.mode) !== requestedMode) {
       return count;
     }
     return eventMs >= startMs && eventMs < endMs ? count + 1 : count;
@@ -185,6 +207,7 @@ export function recordRefreshEvent({
   sourceId,
   outcome,
   at,
+  mode = "scheduled",
   cooldownMinutes = 0
 }) {
   const normalizedSourceId = String(sourceId || "").trim();
@@ -193,6 +216,7 @@ export function recordRefreshEvent({
   }
 
   const normalizedOutcome = normalizeOutcome(outcome);
+  const normalizedMode = normalizeMode(mode);
   const eventMs = parseTimestamp(at) ?? Date.now();
   const eventAt = new Date(eventMs).toISOString();
 
@@ -200,7 +224,7 @@ export function recordRefreshEvent({
   const sourceState = resolveSourceRefreshState(state, normalizedSourceId);
   const nextSourceState = {
     ...sourceState,
-    events: [...sourceState.events, { at: eventAt, outcome: normalizedOutcome }].slice(
+    events: [...sourceState.events, { at: eventAt, outcome: normalizedOutcome, mode: normalizedMode }].slice(
       -MAX_EVENT_HISTORY
     )
   };

@@ -40,6 +40,17 @@ The observable behavior is:
 - [x] (2026-03-07 22:39Z) Verified full repository test suite passes after onboarding UX + verification updates (`143/143`).
 - [x] (2026-03-07 22:48Z) Corrected onboarding persistence semantics: persist enabled sources only to avoid "my searches" state drift from runtime source enablement.
 - [x] (2026-03-08 05:10Z) Hardened source-library map mode to ignore legacy per-source metadata overrides (name/search URL), preserving canonical source labels in onboarding and searches.
+- [x] (2026-03-09 18:40Z) Overhauled `jf init` to an Ink wizard with interactive channel + analytics setup (legal acceptance moved to dashboard onboarding).
+- [x] (2026-03-09 18:45Z) Enforced CLI output/misuse contract for onboarding (`--quiet`, `--json`, exit code `2` on invalid init invocations).
+- [x] (2026-03-09 18:52Z) Removed legacy `--accept-tos-risk` flag support and simplified non-interactive `jf init` to channel + analytics only.
+- [x] (2026-03-09 18:58Z) Moved analytics preference ownership from Searches onboarding to Profile settings and added `/api/preferences/analytics`.
+- [x] (2026-03-09 19:06Z) Added regression tests for CLI link formatting, npm package legal-file inclusion, and onboarding/profile analytics ownership.
+- [x] (2026-03-09 19:10Z) Verified full repository test suite passes after CLI-to-UI onboarding compliance overhaul (`156/156`).
+- [x] (2026-03-10 04:20Z) Reworked Step 1 source UX into two groups (`Ready by default`, `Sources you can enable`) with one status chip per source (`Ready`, `Not authorized`, `Disabled`) and one-at-a-time auth actions (`Enable`, `Open site`, `Check access`, `Disable`).
+- [x] (2026-03-10 04:25Z) Added run-start auth preflight for enabled auth-required sources in `/api/sources/run-all`; blocked auth now returns actionable payload (`requiresAuthCheck`, `authSources`) instead of silently proceeding.
+- [x] (2026-03-10 04:30Z) Added interactive auth-recovery flow in Find Jobs path: prompt sign-in, open source, run check, and continue run when checks pass.
+- [x] (2026-03-10 04:33Z) Updated source auth classification so Ashby is no-auth and default enabled in source-library and `sources.example`.
+- [x] (2026-03-10 04:36Z) Verified full repository test suite passes after Step 1 auth/state overhaul (`160/160`).
 
 ## Surprises & Discoveries
 
@@ -53,6 +64,8 @@ The observable behavior is:
   Evidence: `getSourceByIdOrName` called metadata derivation with full config object rather than `sources[]`, and URL normalize helpers threw in map mode.
 - Observation: Prior onboarding UI was functionally wired but had low UX clarity (unclear hierarchy, oversized checkbox controls, and non-guided action sequencing).
   Evidence: user QA screenshots showed visually noisy card with weak affordances and unclear completion path.
+- Observation: `npm pack --json --dry-run` can fail in local environments with root-owned default npm cache, which breaks packaging assertions in tests.
+  Evidence: EPERM on `/Users/admin/.npm/_cacache/tmp/*` during `npm pack` invocation in test run.
 
 ## Decision Log
 
@@ -80,21 +93,41 @@ The observable behavior is:
 - Decision: Persist onboarding source state as enabled-only; treat broad selection as temporary UI state.
   Rationale: Aligns onboarding output with actual runtime ingestion behavior and removes conceptual mismatch for users.
   Date/Author: 2026-03-07 / Codex
+- Decision: Source status semantics are fixed to three user-facing states only: green `Ready`, yellow `Not authorized`, grey `Disabled`.
+  Rationale: Removes ambiguity and avoids status/noise redundancy in onboarding.
+  Date/Author: 2026-03-10 / Codex
+- Decision: Treat Ashby as no-auth and include it in default-enabled source group.
+  Rationale: Product uses public Ashby boards/subdomains and does not require user login.
+  Date/Author: 2026-03-10 / Codex
+- Decision: Run auth preflight at start of `Find Jobs` and separate auth failures from structure-check failures.
+  Rationale: Auth expires over time; users need explicit sign-in remediation without conflating with parser/selector drift.
+  Date/Author: 2026-03-10 / Codex
 - Decision: In `sources.json` map mode, ignore legacy metadata overrides and accept enablement only.
   Rationale: Prevents old manual-search names/URLs from leaking into onboarding UI and reintroducing "my searches" semantics.
   Date/Author: 2026-03-08 / Codex
 - Decision: Use live source run verification for auth-required sources (skip sync/score) and probe checks for non-auth sources.
   Rationale: Confirms access realistically without forcing a full pipeline run during onboarding verification.
   Date/Author: 2026-03-07 / Codex
+- Decision: Keep install channel + analytics in CLI `jf init`, but move legal acceptance to dashboard onboarding Step 1 with links to local policy docs.
+  Rationale: UI provides a clearer review-and-accept flow while preserving local policy files as the source of truth.
+  Date/Author: 2026-03-09 / Codex
+- Decision: Playwright is optional/developer-only; default user onboarding does not require Playwright extension setup.
+  Rationale: Standard user path uses browser bridge default (`chrome_applescript`) plus per-source sign-in checks, which reduces install friction.
+  Date/Author: 2026-03-10 / Codex
+
+## Documentation Follow-up
+
+- TODO: Update user-facing docs to remove Playwright as a required onboarding step and position it as optional advanced tooling.
+  Files to update: `README.md`, `INSTALL.md`, onboarding QA checklist docs.
 
 ## Outcomes & Retrospective
 
 The foundation is now in place for dashboard-first onboarding and optional analytics/monetization telemetry. First-run flow no longer requires manual creation of `config/sources.json`; it bootstraps safely. Config boundaries are now explicit across profile/onboarding, search intent, and source enablement. The largest remaining gap is deeper source-specific auth/challenge classification beyond baseline readiness checks. This is intentionally left in backlog as a follow-up so core onboarding can ship without blocking on per-source complexity.
 
-Onboarding UX now follows a guided three-step flow in the `Searches` tab:
-1) choose sources and preferences,
-2) verify source access (auth-aware),
-3) proceed to first search from `Jobs`.
+Onboarding is now split cleanly between CLI and dashboard:
+1) `jf init` handles install channel and analytics preference via an Ink wizard (or non-interactive flags),
+2) `Searches` Step 1 handles legal acceptance and policy review, then source selection and auth verification,
+3) `Jobs` runs first intake with `Find Jobs`.
 
 ## Context and Orientation
 
@@ -182,10 +215,18 @@ Doctor transcript on fresh config:
 
 Onboarding API contract:
 - `GET /api/onboarding/state`
-- `POST /api/onboarding/channel` body: `{ channel?: string, analyticsEnabled?: boolean }`
-- `POST /api/onboarding/sources` body: `{ sourceIds: string[] }`
+- `POST /api/onboarding/consent` body: `{ termsAccepted: boolean, privacyAccepted: boolean, tosRiskAccepted: boolean, rateLimitPolicyAccepted: boolean }`
+- `POST /api/onboarding/channel` body: `{ channel?: string }`
+- `POST /api/onboarding/sources` body: `{ sourceIds: string[], enabledSourceIds?: string[] }`
 - `POST /api/onboarding/check-source` body: `{ sourceId: string, probeLive?: boolean }`
 - `POST /api/onboarding/complete` body: `{}`
+- `POST /api/preferences/analytics` body: `{ analyticsEnabled: boolean }`
+
+CLI init non-interactive contract:
+- channel: `--channel <npm|codex|claude|unknown>`
+- analytics: `--analytics <yes|no>` or `--no-analytics`
+- mode: `--non-interactive`
+- invalid/missing combinations return exit code `2`.
 
 Source check contract:
 
@@ -216,3 +257,4 @@ Feature flags:
 ---
 
 Update note (2026-03-06): Document created after implementation to preserve contracts, decisions, and verification evidence for downstream multi-worktree handoffs.
+Update note (2026-03-09): Expanded to document CLI-to-UI onboarding compliance overhaul (Ink wizard, legal-link packaging, output/exit contracts, and analytics ownership move to Profile).

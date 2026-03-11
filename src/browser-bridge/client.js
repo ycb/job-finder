@@ -36,7 +36,48 @@ export async function captureSourceViaBridge(
         snapshotPath,
         options: {
           sessionName: options.sessionName,
-          timeoutMs: options.timeoutMs
+          timeoutMs: options.timeoutMs,
+          maxPages: options.maxPages,
+          maxScrollSteps: options.maxScrollSteps,
+          maxIdleScrollSteps: options.maxIdleScrollSteps,
+          settleMs: options.settleMs,
+          attemptDelayMs: options.attemptDelayMs,
+          maxAttempts: options.maxAttempts
+        }
+      })
+    });
+  } catch (error) {
+    throw new Error(
+      `Browser bridge unavailable at ${baseUrl}. Start \`node src/cli.js bridge-server\` and try again. (${error.message})`
+    );
+  }
+
+  const payload = await parseJsonResponse(response);
+
+  if (!response.ok || payload.ok === false) {
+    throw new Error(payload.error || `Browser bridge request failed: HTTP ${response.status}`);
+  }
+
+  return payload.result;
+}
+
+export async function probeSourceAccessViaBridge(source, options = {}) {
+  const baseUrl = resolveBrowserBridgeBaseUrl(options.baseUrl);
+
+  let response;
+  try {
+    response = await fetch(`${baseUrl}/probe-source-access`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        source,
+        options: {
+          sessionName: options.sessionName,
+          timeoutMs: options.timeoutMs,
+          settleMs: options.settleMs,
+          closeWindowAfterProbe: options.closeWindowAfterProbe
         }
       })
     });

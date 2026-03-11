@@ -64,10 +64,12 @@ function defaultSettings() {
       completed: false,
       completedAt: null,
       firstRunAt: null,
+      sourcesConfiguredAt: null,
       consent: {
         termsAccepted: false,
         privacyAccepted: false,
         rateLimitPolicyAccepted: false,
+        tosRiskAccepted: false,
         acceptedAt: null,
         updatedAt: nowIso()
       },
@@ -150,13 +152,15 @@ function normalizeSettings(rawSettings) {
         onboardingInput.firstRunAt && String(onboardingInput.firstRunAt).trim()
           ? String(onboardingInput.firstRunAt)
           : null,
+      sourcesConfiguredAt:
+        onboardingInput.sourcesConfiguredAt && String(onboardingInput.sourcesConfiguredAt).trim()
+          ? String(onboardingInput.sourcesConfiguredAt)
+          : null,
       consent: {
-        termsAccepted:
-          typeof consentInput.termsAccepted === "boolean"
-            ? consentInput.termsAccepted
-            : Boolean(consentInput.tosRiskAccepted),
+        termsAccepted: Boolean(consentInput.termsAccepted),
         privacyAccepted: Boolean(consentInput.privacyAccepted),
         rateLimitPolicyAccepted: Boolean(consentInput.rateLimitPolicyAccepted),
+        tosRiskAccepted: Boolean(consentInput.tosRiskAccepted),
         acceptedAt:
           consentInput.acceptedAt && String(consentInput.acceptedAt).trim()
             ? String(consentInput.acceptedAt)
@@ -280,7 +284,8 @@ export function updateOnboardingSources(sourceIds, settingsPath) {
     ...settings,
     onboarding: {
       ...settings.onboarding,
-      selectedSourceIds: normalizedSourceIds
+      selectedSourceIds: normalizedSourceIds,
+      sourcesConfiguredAt: nowIso()
     }
   }), settingsPath);
 }
@@ -334,13 +339,12 @@ export function updateInstallConsent(
   input,
   settingsPath = DEFAULT_SETTINGS_PATH
 ) {
-  const termsAccepted =
-    typeof input?.termsAccepted === "boolean"
-      ? input.termsAccepted
-      : Boolean(input?.tosRiskAccepted);
+  const termsAccepted = Boolean(input?.termsAccepted);
   const privacyAccepted = Boolean(input?.privacyAccepted);
   const rateLimitPolicyAccepted = Boolean(input?.rateLimitPolicyAccepted);
-  const allAccepted = termsAccepted && privacyAccepted && rateLimitPolicyAccepted;
+  const tosRiskAccepted = Boolean(input?.tosRiskAccepted);
+  const allAccepted =
+    termsAccepted && privacyAccepted && rateLimitPolicyAccepted && tosRiskAccepted;
 
   return updateUserSettings((settings) => ({
     ...settings,
@@ -351,6 +355,7 @@ export function updateInstallConsent(
         termsAccepted,
         privacyAccepted,
         rateLimitPolicyAccepted,
+        tosRiskAccepted,
         acceptedAt: allAccepted ? nowIso() : null,
         updatedAt: nowIso()
       }

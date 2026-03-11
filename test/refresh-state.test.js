@@ -49,6 +49,7 @@ test("recordRefreshEvent stores source events and updates lastLiveAt", () => {
     assert.equal(sourceState.lastLiveAt, "2026-03-06T10:00:00.000Z");
     assert.equal(sourceState.events.length, 1);
     assert.equal(sourceState.events[0].outcome, "success");
+    assert.equal(sourceState.events[0].mode, "scheduled");
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
@@ -91,6 +92,43 @@ test("countSourceEventsForUtcDay returns only events for requested UTC day", () 
   }
 });
 
+test("countSourceEventsForUtcDay can filter by refresh mode", () => {
+  const { tempDir, statePath } = createTempStatePath();
+
+  try {
+    recordRefreshEvent({
+      statePath,
+      sourceId: "google-ai",
+      outcome: "success",
+      mode: "manual",
+      at: "2026-03-06T10:00:00.000Z"
+    });
+    recordRefreshEvent({
+      statePath,
+      sourceId: "google-ai",
+      outcome: "success",
+      mode: "scheduled",
+      at: "2026-03-06T12:00:00.000Z"
+    });
+
+    const state = readRefreshState(statePath);
+    assert.equal(
+      countSourceEventsForUtcDay(state, "google-ai", "2026-03-06T23:00:00.000Z", {
+        mode: "manual"
+      }),
+      1
+    );
+    assert.equal(
+      countSourceEventsForUtcDay(state, "google-ai", "2026-03-06T23:00:00.000Z", {
+        mode: "scheduled"
+      }),
+      1
+    );
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("recordRefreshEvent enforces cooldown when challenge outcome is recorded", () => {
   const { tempDir, statePath } = createTempStatePath();
 
@@ -106,6 +144,7 @@ test("recordRefreshEvent enforces cooldown when challenge outcome is recorded", 
     const sourceState = resolveSourceRefreshState(readRefreshState(statePath), "google-ai");
     assert.equal(sourceState.events.length, 1);
     assert.equal(sourceState.events[0].outcome, "challenge");
+    assert.equal(sourceState.events[0].mode, "scheduled");
     assert.equal(sourceState.cooldownUntil, "2026-03-06T12:00:00.000Z");
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });

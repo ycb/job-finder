@@ -92,6 +92,28 @@ function writeSnapshotFile(snapshotPath, snapshotText) {
   fs.writeFileSync(snapshotPath, snapshotText, "utf8");
 }
 
+function authProbeLooksUnauthorized(payload) {
+  if (!payload || typeof payload !== "object") {
+    return true;
+  }
+
+  const href = String(payload.href || "").toLowerCase();
+  const title = String(payload.title || "").toLowerCase();
+  const text = String(payload.textSnippet || "").toLowerCase();
+  const host = String(payload.host || "").toLowerCase();
+  const pathname = String(payload.pathname || "").toLowerCase();
+
+  const hasLoginPath =
+    /(linkedin|indeed|ziprecruiter|wellfound|remoteok)\./.test(host) &&
+    /(login|signin|sign-in|authwall|checkpoint|session)/.test(pathname);
+  const hasLoginInHref = /(login|signin|sign-in|authwall|checkpoint|session)/.test(href);
+  const hasPasswordField = payload.hasPasswordField === true;
+  const likelyLoginTitle = /(sign in|log in|login)/.test(title);
+  const likelyLoginText = /(sign in|log in|login|continue with)/.test(text);
+
+  return hasLoginPath || hasLoginInHref || hasPasswordField || (likelyLoginTitle && likelyLoginText);
+}
+
 export function captureLinkedInSourceWithPlaywrightCli(
   source,
   snapshotPath,
@@ -139,4 +161,45 @@ export function captureSourceWithPlaywrightCli(source, snapshotPath, options = {
   }
 
   return captureLinkedInSourceWithPlaywrightCli(source, snapshotPath, options);
+}
+
+export function probeSourceAccessWithPlaywrightCli(source, options = {}) {
+  if (!source || !source.searchUrl) {
+    throw new Error("Auth probe requires a source with searchUrl.");
+  }
+
+  const sessionName =
+    String(options.sessionName || "").trim() || `job-finder-auth-${source.id || "source"}`;
+  const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 20_000;
+  const settleMs = Number(options.settleMs) > 0 ? Number(options.settleMs) : 1500;
+  const prefix = buildSessionArgs(sessionName);
+
+  runPlaywrightCli([...prefix, "open", source.searchUrl], { timeoutMs });
+  runPlaywrightCli(
+    [...prefix, "run-code", `await page.waitForTimeout(${Math.max(250, settleMs)})`],
+    { timeoutMs }
+  );
+  const probeRaw = runPlaywrightCli(
+    [
+      ...prefix,
+      "run-code",
+      "const r={href:location.href,title:document.title,host:location.host,pathname:location.pathname,hasPasswordField:Boolean(document.querySelector('input[type=\"password\"]')),textSnippet:(document.body?.innerText||'').slice(0,1200)};console.log(JSON.stringify(r));"
+    ],
+    { timeoutMs }
+  );
+
+  const lines = String(probeRaw || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const payload = JSON.parse(lines[lines.length - 1] || "{}");
+  const unauthorized = authProbeLooksUnauthorized(payload);
+
+  return {
+    status: unauthorized ? "unauthorized" : "authorized",
+    reasonCode: unauthorized ? "auth_required" : "auth_ok",
+    pageUrl: String(payload.href || source.searchUrl),
+    pageTitle: String(payload.title || ""),
+    provider: "playwright_cli"
+  };
 }

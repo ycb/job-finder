@@ -98,3 +98,83 @@ As of 2026-03-06.
 
 - When a setup field is moved to CLI ownership (for example install channel), remove the duplicate control from dashboard onboarding to avoid conflicting sources of truth.
 - Dashboard onboarding should only expose preferences that remain editable post-install (for example analytics toggle), and copy should point to CLI where appropriate.
+
+## CLI Design Compliance
+
+- `jf init` UX must follow terminal-native interaction principles:
+  - no "open this file in your editor" instructions for legal review;
+  - show clickable local doc links (OSC 8 fallback-safe) for `TERMS.md` and `PRIVACY.md`;
+  - use guided interactive controls for selection steps rather than raw argument dumps.
+- Keep non-interactive behavior explicit and strict:
+  - require legal acceptance flags;
+  - return exit code `2` for misuse/invalid combinations.
+- Do not rely solely on hyperlink capability auto-detection libraries for legal links; emit OSC 8 sequences directly in TTY mode.
+- In interactive `jf init`, legal doc lines must render as OSC 8 links only (no visible fallback URLs/paths) to preserve a clean click-to-open UX.
+- For Ink link UX, follow Ink docs and use `ink-link` rather than ad-hoc text transforms. The npm `ink` package readme references an `/examples` directory, but examples are not included in the published package, so use readme guidance + the `ink-link` component contract directly.
+- Terminal.app compatibility: even with OSC8 bytes emitted, click behavior may be unavailable for anchors in the default macOS Terminal stack. For this audience, render visible `http://127.0.0.1:<port>/...` links for legal docs so auto-link detection provides click-to-open behavior.
+
+## Legal Consent Ownership
+
+- For this product/audience, legal acceptance should be dashboard-owned (UI Step 1), not CLI-owned.
+- Keep CLI `jf init` focused on install channel + analytics; move policy review/acceptance to Searches onboarding where link behavior and consent UX are reliable.
+- Gate all onboarding source actions (`save sources`, `verify`, `complete`) on accepted legal consent both in UI and server APIs.
+- Legal consent should be a true interstitial gate before accessing the rest of the app, not a nested step users can bypass by switching tabs.
+
+## Lean Init Output
+
+- Keep `jf init` completion output to a single success line for this flow.
+- Do not append extra summaries or immediate Y/N prompts after the Ink wizard; users interpreted post-exit prompt text as shell input and hit `command not found`.
+- In `jf review`, do not lead with warning tone for empty queue on first-run onboarding, and always print a plain local URL string (`http://127.0.0.1:<port>`) instead of label-only links.
+- In the final Ink confirm step, avoid repeating selected values if they were already shown in prior steps; keep confirm text minimal ("Ready to initialize" + Enter/Ctrl+C only).
+- Ensure Ink teardown fully completes before returning to shell. If `waitUntilExit()` is skipped/raced, terminal input can leak escape sequences (`^[[...`) on subsequent interactions.
+- For macOS Terminal.app, do not instruct Option-click for URLs. Option-click sends cursor movement escapes in foreground processes. Use `Command-click` guidance with plain URL output.
+
+## Consent Interstitial Copy/Layout
+
+- In legal consent checkboxes, wrap full sentence copy in a single inline span and keep links inline at the decision point.
+- Avoid rendering loose text/link nodes in checkbox labels; this can create broken line flow and punctuation artifacts.
+- When consent is a hard gate, render only the interstitial surface before acceptance (hide app shell header/tabs until consent is complete).
+- Keep consent-gate messaging minimal: do not render a default success/info banner before user action; show status text only for explicit responses/errors.
+- Avoid double-shell presentation in the consent gate (outer panel + inner card). Flatten the shell while gated so only one container is visible.
+- Keep legal/risk consent copy short and neutral; avoid over-legalized phrasing when user-approved wording is provided.
+- Do not trigger consent-gate re-render on checkbox `change`; only persist checkbox draft state and require explicit `Agree and Continue` action to advance.
+
+## Source Auth State Model
+
+- Use exactly three user-facing source states in setup:
+  - green = ready
+  - yellow = not authorized
+  - grey = disabled
+- Keep yellow strictly auth-related; do not reuse it for selector/page-structure issues.
+- Keep auth checks and page-structure checks as separate pipelines and separate user messages.
+- In Step 1 copy, avoid redundant headers/subheaders and avoid default explanatory filler text for no-auth rows; keep labels single-purpose and terse.
+- Do not render persisted source-check `userMessage` notes for no-auth default rows; stale copy can reappear and conflict with the intended minimal setup UX.
+- In onboarding, "Check access" must run a lightweight auth probe only (URL/authwall/sign-in detection), never the full capture/scroll/pagination pipeline.
+- Show `Re-check` only after a prior failed auth check; do not show `Re-check` for sources already in `Ready` state.
+- On auth probe in onboarding, close the temporary automation window after the check completes to avoid leftover Chrome windows.
+- Keep Step 1 copy and containers minimal: avoid duplicate section labels, remove success-status callouts, and avoid secondary "next step" blocks that repeat Jobs CTA guidance.
+- Source row actions should be consistent across auth/no-auth groups: use a shared overflow menu for disable actions, and avoid redundant post-auth "Open site" CTAs.
+- Overflow is a standard top-right kebab pattern: no outlined button treatment, and it must stay in the same top-right meta rail as the status chip across all row variants.
+- Prefer a shared row renderer for onboarding source lists; avoid separate one-off row implementations and remove supplementary note rows when state labels already communicate readiness.
+- Use two source groups in setup: `Enabled (N)` and `Authentication Required`; once auth passes, the source should move into `Enabled` automatically and update the count.
+- Render `Connect your sources` as its own top-level section on the Searches tab (below page tabs), not nested inside `My Job Searches`.
+- Treat explicit source configuration as its own persisted state (`sourcesConfiguredAt`), separate from selected-count. Without this, first-run defaults can overwrite intentional disables (especially when the user disables all sources).
+
+## QA Fresh-State
+
+- Do not claim "new-user onboarding QA" from an existing dev worktree without a full state reset.
+- Persisted files that must be reset for true first-run validation:
+  - `data/user-settings.json` (consent/channel/check states),
+  - `config/sources.json` (enabled/disabled source map),
+  - `data/captures/*` (prior capture files can make auth/setup appear already ready),
+  - optionally `data/jobs.db` and `data/refresh-state.json` for clean run/cooldown behavior.
+
+## Searches UX Controls
+
+- Scope operational controls to the relevant tab context: show `Search frequency` only in `Enabled`, not `Disabled`.
+- When defaulting users to `Enabled` for orientation, add concise guidance that points to `Disabled` for auth-required enablement.
+- In `Disabled`, `Enable` must be a prominent primary row action; do not hide primary source actions inside overflow.
+- Remove overflow menus from `Disabled` rows entirely to reduce duplicate affordances; keep overflow for `Enabled` row secondary actions only.
+- For auth-required source enablement, enforce one-source-at-a-time with a guided modal flow (`Open source` -> user signs in -> `I'm logged in` auth probe).
+- Use explicit positive-success copy in auth modals: `Success! <Source> is now enabled.` instead of vague readiness text.
+- Orientation guidance should use a true toast pattern: fixed top-right, animated entrance from the right, non-blocking with explicit CTA + dismiss.

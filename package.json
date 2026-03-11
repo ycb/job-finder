@@ -20,9 +20,18 @@
     "bin",
     "src",
     "config/*.example.json",
+    "TERMS.md",
+    "PRIVACY.md",
     "README.md",
     "CLAUDE.md"
   ],
+  "dependencies": {
+    "chalk": "^5.4.1",
+    "figures": "^6.1.0",
+    "ink": "^5.0.1",
+    "is-interactive": "^2.0.0",
+    "react": "^18.3.1"
+  },
   "scripts": {
     "init": "node src/cli.js init",
     "sync": "node src/cli.js sync",

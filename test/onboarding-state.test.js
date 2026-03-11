@@ -50,7 +50,8 @@ test("loadUserSettings initializes defaults and supports onboarding updates", ()
       {
         termsAccepted: true,
         privacyAccepted: true,
-        rateLimitPolicyAccepted: true
+        rateLimitPolicyAccepted: true,
+        tosRiskAccepted: true
       },
       settingsPath
     );
@@ -77,9 +78,11 @@ test("loadUserSettings initializes defaults and supports onboarding updates", ()
     assert.equal(after.onboarding.consent.termsAccepted, true);
     assert.equal(after.onboarding.consent.privacyAccepted, true);
     assert.equal(after.onboarding.consent.rateLimitPolicyAccepted, true);
+    assert.equal(after.onboarding.consent.tosRiskAccepted, true);
     assert.equal(typeof after.onboarding.consent.acceptedAt, "string");
     assert.equal(after.onboarding.channel.value, "codex");
     assert.deepEqual(after.onboarding.selectedSourceIds, ["linkedin", "google"]);
+    assert.equal(typeof after.onboarding.sourcesConfiguredAt, "string");
     assert.equal(after.onboarding.checks.sources.linkedin.status, "pass");
     assert.equal(typeof after.onboarding.firstRunAt, "string");
     assert.equal(after.onboarding.completed, true);
@@ -104,7 +107,7 @@ test("getEffectiveOnboardingChannel prefers persisted channel over inference", (
   assert.equal(effective.confidence, "self_reported");
 });
 
-test("loadUserSettings maps legacy tosRiskAccepted to termsAccepted", () => {
+test("loadUserSettings preserves explicit tosRiskAccepted without legacy remap", () => {
   const { tempDir, settingsPath } = createTempSettingsPath();
   try {
     fs.writeFileSync(
@@ -124,9 +127,23 @@ test("loadUserSettings maps legacy tosRiskAccepted to termsAccepted", () => {
       "utf8"
     );
     const loaded = loadUserSettings(settingsPath).settings;
-    assert.equal(loaded.onboarding.consent.termsAccepted, true);
+    assert.equal(loaded.onboarding.consent.termsAccepted, false);
     assert.equal(loaded.onboarding.consent.privacyAccepted, false);
+    assert.equal(loaded.onboarding.consent.tosRiskAccepted, true);
     assert.equal(loaded.onboarding.consent.acceptedAt, null);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("updateOnboardingSources records explicit empty selection", () => {
+  const { tempDir, settingsPath } = createTempSettingsPath();
+  try {
+    loadUserSettings(settingsPath);
+    updateOnboardingSources([], settingsPath);
+    const loaded = loadUserSettings(settingsPath).settings;
+    assert.deepEqual(loaded.onboarding.selectedSourceIds, []);
+    assert.equal(typeof loaded.onboarding.sourcesConfiguredAt, "string");
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

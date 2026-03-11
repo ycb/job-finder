@@ -21,7 +21,7 @@ const SOURCE_LIBRARY = Object.freeze([
     id: "ashby-pm-roles",
     name: "Ashby",
     type: "ashby_search",
-    enabled: false,
+    enabled: true,
     searchUrl: "https://jobs.ashbyhq.com/",
     maxJobs: 50,
     recencyWindow: "1w",

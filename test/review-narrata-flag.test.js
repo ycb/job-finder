@@ -89,7 +89,7 @@ test("renderDashboardPage makes Find Jobs the primary top-level action", () => {
   assert.equal(html.includes('id="refresh-data"'), false);
 });
 
-test("renderDashboardPage builds searches filters per enabled source kind", () => {
+test("renderDashboardPage builds searches enabled/disabled tabs", () => {
   const html = renderDashboardPage({
     sources: [
       { id: "linkedin-a", name: "LinkedIn A", type: "linkedin_capture_file" },
@@ -97,10 +97,10 @@ test("renderDashboardPage builds searches filters per enabled source kind", () =
       { id: "indeed-a", name: "Indeed A", type: "indeed_search" }
     ]
   });
-  assert.equal(html.includes('data-search-type="li"'), false);
-  assert.equal(html.includes('data-search-source="all"'), true);
-  assert.equal(html.includes("const searchSourcesByKind = new Map();"), true);
-  assert.equal(html.includes("button.dataset.searchSource"), true);
+  assert.equal(html.includes('data-search-state="enabled"'), true);
+  assert.equal(html.includes('data-search-state="disabled"'), true);
+  assert.equal(html.includes("const searchSources = (Array.isArray(dashboard.sources) ? dashboard.sources : [])"), true);
+  assert.equal(html.includes("button.dataset.searchState"), true);
 });
 
 test("renderDashboardPage uses inline criteria status and prominent Find Jobs CTA", () => {
@@ -157,10 +157,20 @@ test("renderDashboardPage hides manual Add Search affordances in automated mode"
   assert.equal(html.includes("Filter by source, review freshness, and focus on where high-signal jobs come from."), false);
 });
 
-test("renderDashboardPage renders onboarding stepper flow with auth badges and clear CTAs", () => {
+test("renderDashboardPage renders searches source-state controls with overflow actions", () => {
   const html = renderDashboardPage({
     featureFlags: { onboardingWizard: true },
-    onboarding: { completed: false, selectedSourceIds: [], checks: { sources: {} } },
+    onboarding: {
+      completed: false,
+      consentComplete: true,
+      consent: {
+        termsAccepted: true,
+        privacyAccepted: true,
+        tosRiskAccepted: true
+      },
+      selectedSourceIds: [],
+      checks: { sources: {} }
+    },
     sources: [
       {
         id: "linkedin-live-capture",
@@ -179,20 +189,137 @@ test("renderDashboardPage renders onboarding stepper flow with auth badges and c
     ]
   });
 
-  assert.equal(html.includes("Set up your first job import"), true);
-  assert.equal(html.includes("Step 1"), true);
-  assert.equal(html.includes("Step 2"), true);
-  assert.equal(html.includes("Step 3"), true);
-  assert.equal(html.includes('id="onboarding-save-setup"'), true);
-  assert.equal(html.includes('id="run-onboarding-checks"'), true);
-  assert.equal(html.includes('id="retry-onboarding-failed-auth"'), true);
-  assert.equal(html.includes('id="onboarding-go-jobs"'), true);
-  assert.equal(html.includes("Auth required"), true);
-  assert.equal(html.includes("No auth"), true);
+  assert.equal(html.includes("Enabled ("), true);
+  assert.equal(html.includes("Disabled ("), true);
+  assert.equal(html.includes("Issue detected"), true);
+  assert.equal(html.includes("Authentication required"), true);
+  assert.equal(
+    html.includes("const searchesPageSections = searchesSection + searchesWelcomeToastMarkup;"),
+    true
+  );
+  assert.equal(html.includes('id="onboarding-save-consent"'), true);
+  assert.equal(html.includes("data-onboarding-enable-source"), true);
+  assert.equal(html.includes('data-onboarding-check-source="'), true);
+  assert.equal(html.includes('data-onboarding-open-source="'), false);
+  assert.equal(html.includes("onboarding-overflow-menu"), true);
+  assert.equal(html.includes("data-onboarding-disable-source"), true);
+  assert.equal(html.includes('id="onboarding-go-jobs"'), false);
+  assert.equal(html.includes("const searchesPageSections ="), true);
+  assert.equal(html.includes("onboardingCard,"), false);
   assert.equal(html.includes("Install Channel"), false);
-  assert.equal(html.includes('id="onboarding-analytics-enabled"'), true);
-  assert.equal(html.includes("Install channel is captured during CLI setup"), true);
-  assert.equal(html.includes("verifyOnboardingSources"), true);
+  assert.equal(html.includes('id="onboarding-analytics-enabled"'), false);
+  assert.equal(html.includes('id="profile-analytics-enabled"'), true);
+  assert.equal(html.includes("captured during CLI setup (jf init)"), false);
+  assert.equal(html.includes("verifySingleOnboardingSource"), true);
+  assert.equal(html.includes("authProbe: authRequired"), true);
+  assert.equal(html.includes("enableOnboardingSource"), true);
+  assert.equal(html.includes("recoverAuthForSources"), true);
+  assert.equal(html.includes('id="search-run-cadence"'), true);
+  assert.equal(html.includes('selectedSearchStateFilter === "enabled"'), true);
+});
+
+test("renderDashboardPage shows enabled-tab onboarding welcome toast with disabled-tab CTA", () => {
+  const html = renderDashboardPage({
+    featureFlags: { onboardingWizard: true },
+    onboarding: {
+      completed: false,
+      consentComplete: true,
+      consent: {
+        termsAccepted: true,
+        privacyAccepted: true,
+        tosRiskAccepted: true
+      },
+      checks: { sources: {} }
+    },
+    sources: [
+      {
+        id: "linkedin-live-capture",
+        name: "LinkedIn",
+        type: "linkedin_capture_file",
+        authRequired: true,
+        enabled: true
+      },
+      {
+        id: "builtin-sf-ai-pm",
+        name: "Built In",
+        type: "builtin_search",
+        authRequired: false,
+        enabled: true
+      }
+    ]
+  });
+
+  assert.equal(
+    html.includes("Welcome to Job Finder!"),
+    true
+  );
+  assert.equal(
+    html.includes("visit the Disabled tab."),
+    true
+  );
+  assert.equal(html.includes('data-search-welcome-disabled="1"'), true);
+  assert.equal(html.includes('data-search-welcome-dismiss="1"'), true);
+});
+
+test("renderDashboardPage keeps overflow menu off disabled rows", () => {
+  const html = renderDashboardPage({
+    featureFlags: { onboardingWizard: true },
+    onboarding: {
+      completed: false,
+      consentComplete: true,
+      consent: {
+        termsAccepted: true,
+        privacyAccepted: true,
+        tosRiskAccepted: true
+      },
+      checks: { sources: {} }
+    },
+    sources: [
+      {
+        id: "linkedin-live-capture",
+        name: "LinkedIn",
+        type: "linkedin_capture_file",
+        authRequired: true,
+        enabled: false
+      }
+    ]
+  });
+
+  assert.equal(
+    html.includes('const overflowMenu = source.enabled'),
+    true
+  );
+});
+
+test("renderDashboardPage blocks access with legal interstitial until consent is complete", () => {
+  const html = renderDashboardPage({
+    featureFlags: { onboardingWizard: true },
+    onboarding: {
+      completed: false,
+      consentComplete: false,
+      consent: {
+        termsAccepted: false,
+        privacyAccepted: false,
+        tosRiskAccepted: false
+      },
+      selectedSourceIds: [],
+      checks: { sources: {} }
+    }
+  });
+
+  assert.equal(
+    html.includes("To access JobFinder, review and accept the following:"),
+    true
+  );
+  assert.equal(html.includes("/policy/terms"), true);
+  assert.equal(html.includes("/policy/privacy"), true);
+  assert.equal(
+    html.includes("I understand some platforms restrict automated access from logged-in users and accept responsibility for my accounts."),
+    true
+  );
+  assert.equal(html.includes("app.innerHTML = consentGateRequired"), true);
+  assert.equal(html.includes('id="onboarding-save-consent"'), true);
+  assert.equal(html.includes("Agree and Continue"), true);
 });
 
 test("renderDashboardPage includes default non-auth onboarding selection fallback", () => {
@@ -204,7 +331,10 @@ test("renderDashboardPage first-run onboarding selection prefers no-auth default
   const html = renderDashboardPage({});
   assert.equal(html.includes("const isFirstRunSelection ="), true);
   assert.equal(html.includes("!onboarding.firstRunAt"), true);
+  assert.equal(html.includes("!hasConfiguredSources"), true);
   assert.equal(html.includes("return defaultOnboardingSelection(onboardingCandidateSources());"), true);
+  assert.equal(html.includes("if (hasConfiguredSources)"), true);
+  assert.equal(html.includes("return [];"), true);
 });
 
 test("renderDashboardPage searches table shows funnel columns", () => {
@@ -240,24 +370,24 @@ test("renderDashboardPage computes Found as imported-over-expected ratio", () =>
   );
 });
 
-test("renderDashboardPage includes bold totals row for all-sources view", () => {
+test("renderDashboardPage includes bold totals row for the active searches tab", () => {
   const html = renderDashboardPage({});
   assert.equal(
-    html.includes('selectedSearchSourceFilter === "all" && filteredSearchSources.length > 0'),
+    html.includes("filteredSearchSources.length > 0"),
     true
   );
   assert.equal(html.includes('class="search-totals-row"'), true);
-  assert.equal(html.includes("All Sources Total"), true);
+  assert.equal(html.includes("Enabled Total"), true);
 });
 
 test("renderDashboardPage computes filtered and deduped as dropped counts", () => {
   const html = renderDashboardPage({});
   assert.equal(
-    html.includes("const sourceFilteredCount = Number(source.droppedByHardFilterCount || 0);"),
+    html.includes("filteredCount: Number(source.droppedByHardFilterCount || 0)"),
     true
   );
   assert.equal(
-    html.includes("const sourceDedupedCount = Number(source.droppedByDedupeCount || 0);"),
+    html.includes("dedupedCount: Number(source.droppedByDedupeCount || 0)"),
     true
   );
 });
@@ -265,35 +395,24 @@ test("renderDashboardPage computes filtered and deduped as dropped counts", () =
 test("renderDashboardPage computes imported from source import totals", () => {
   const html = renderDashboardPage({});
   assert.equal(
-    html.includes("const sourceImportedCount = Number(source.importedCount || 0);"),
+    html.includes("importedCount: Number(source.importedCount || 0)"),
     true
   );
-  assert.equal(html.includes("current.importedCount += sourceImportedCount;"), true);
+  assert.equal(html.includes("accumulator.imported += Number(source.importedCount || 0);"), true);
 });
 
 test("renderDashboardPage weights avg score by imported count", () => {
   const html = renderDashboardPage({});
   assert.equal(
-    html.includes("if (Number.isFinite(sourceAvgScore) && sourceImportedCount > 0) {"),
-    false
-  );
-  assert.equal(
-    html.includes(
-      "source.avgScore === null || source.avgScore === undefined"
-    ),
+    html.includes("source.avgScore === null || source.avgScore === undefined"),
     true
   );
   assert.equal(
-    html.includes(
-      "sourceAvgScore !== null &&"
-    ),
+    html.includes("accumulator.avgScoreTotal +="),
     true
   );
-  assert.equal(
-    html.includes("current.weightedAvgScoreTotal += sourceAvgScore * sourceImportedCount;"),
-    true
-  );
-  assert.equal(html.includes("current.weightedAvgScoreCount += sourceImportedCount;"), true);
+  assert.equal(html.includes("Number(source.avgScore) * Number(source.importedCount || 0)"), true);
+  assert.equal(html.includes("accumulator.avgScoreCount += Number(source.importedCount || 0);"), true);
 });
 
 test("renderDashboardPage groups jobs source filters by source kind", () => {

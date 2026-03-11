@@ -13,7 +13,6 @@ export function isSourceAuthRequired(sourceType) {
   return (
     sourceType === "linkedin_capture_file" ||
     sourceType === "wellfound_search" ||
-    sourceType === "ashby_search" ||
     sourceType === "indeed_search" ||
     sourceType === "ziprecruiter_search" ||
     sourceType === "remoteok_search"

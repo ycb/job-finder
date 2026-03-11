@@ -7,6 +7,7 @@ import path from "node:path";
 import {
   checkEnvironmentReadiness,
   checkSourceAccess,
+  isSourceAuthRequired,
   normalizeSourceCheckResult
 } from "../src/onboarding/source-access.js";
 
@@ -35,6 +36,11 @@ test("checkEnvironmentReadiness reports baseline checks", () => {
   assert.ok(checks.some((check) => check.id === "node"));
   assert.ok(checks.some((check) => check.id === "platform"));
   assert.ok(checks.some((check) => check.id === "chrome-apple-events"));
+});
+
+test("isSourceAuthRequired keeps Ashby in no-auth group", () => {
+  assert.equal(isSourceAuthRequired("ashby_search"), false);
+  assert.equal(isSourceAuthRequired("linkedin_capture_file"), true);
 });
 
 test("checkSourceAccess returns pass when capture file has jobs", () => {

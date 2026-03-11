@@ -8,10 +8,12 @@ test("renderDashboardPage uses capture message for single source run feedback", 
   assert.equal(html.includes("payload.capture && payload.capture.message"), true);
 });
 
-test("renderDashboardPage reports live vs cached counts after run-all", () => {
+test("renderDashboardPage reports simple run-all completion copy", () => {
   const html = renderDashboardPage({});
-  assert.equal(html.includes("live source(s)"), true);
-  assert.equal(html.includes("cached source(s)"), true);
+  assert.equal(html.includes("sources. "), true);
+  assert.equal(html.includes("active ranked jobs."), true);
+  assert.equal(html.includes("live source(s)"), false);
+  assert.equal(html.includes("cached source(s)"), false);
 });
 
 test("renderDashboardPage includes adapter health indicator copy", () => {

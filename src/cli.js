@@ -2,7 +2,6 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import readline from "node:readline/promises";
 import process from "node:process";
 
 import { createAnalyticsClient } from "./analytics/client.js";
@@ -86,9 +85,11 @@ import {
   getEffectiveOnboardingChannel,
   loadUserSettings,
   updateAnalyticsPreference,
-  updateInstallConsent,
   updateOnboardingChannel
 } from "./onboarding/state.js";
+import { runInkInitWizard } from "./cli/ui/init-wizard.js";
+import { CliUsageError, isCliUsageError } from "./cli/ui/errors.js";
+import { createCliOutput, parseGlobalOutputOptions } from "./cli/ui/output.js";
 
 const terminalAnalytics = createAnalyticsClient({ channel: "terminal" });
 
@@ -202,7 +203,7 @@ function normalizeInstallChannelInput(rawValue) {
     return "";
   }
   if (!INSTALL_CHANNEL_CHOICES.has(normalized)) {
-    throw new Error(
+    throw new CliUsageError(
       `Invalid install channel "${rawValue}". Use one of: npm, codex, claude, unknown.`
     );
   }
@@ -220,7 +221,7 @@ function parseAnalyticsInput(rawValue) {
   if (["0", "false", "no", "n", "off", "disabled", "disable"].includes(normalized)) {
     return false;
   }
-  throw new Error(
+  throw new CliUsageError(
     `Invalid analytics value "${rawValue}". Use yes/no (or true/false).`
   );
 }
@@ -238,7 +239,7 @@ function parseOptionValue(args, flag) {
     }
     if (arg === flag) {
       if (index + 1 >= args.length) {
-        throw new Error(`Missing value for ${flag}.`);
+        throw new CliUsageError(`Missing value for ${flag}.`);
       }
       value = args[index + 1];
       index += 1;
@@ -257,212 +258,30 @@ function parseInitOptions(args) {
   const parsedChannel = parseOptionValue(args, "--channel");
   const parsedAnalytics = parseOptionValue(parsedChannel.args, "--analytics");
   const noAnalytics = extractFlag(parsedAnalytics.args, "--no-analytics");
-  const acceptTerms = extractFlag(noAnalytics.args, "--accept-terms");
-  const acceptPrivacy = extractFlag(acceptTerms.args, "--accept-privacy");
-  const acceptTosRisk = extractFlag(acceptPrivacy.args, "--accept-tos-risk");
-  const acceptRateLimitPolicy = extractFlag(
-    acceptTosRisk.args,
-    "--accept-rate-limit-policy"
-  );
-  const nonInteractive = extractFlag(
-    acceptRateLimitPolicy.args,
-    "--non-interactive"
-  );
+  const nonInteractive = extractFlag(noAnalytics.args, "--non-interactive");
 
   if (nonInteractive.args.length > 0) {
-    throw new Error(`Unknown option(s) for init: ${nonInteractive.args.join(" ")}`);
+    throw new CliUsageError(`Unknown option(s) for init: ${nonInteractive.args.join(" ")}`);
   }
 
   const channel = parsedChannel.value ? normalizeInstallChannelInput(parsedChannel.value) : null;
   const analyticsFromArg = parsedAnalytics.value
     ? parseAnalyticsInput(parsedAnalytics.value)
     : null;
+  if (noAnalytics.present && analyticsFromArg !== null) {
+    throw new CliUsageError("Invalid analytics options: use either --analytics <yes|no> or --no-analytics.");
+  }
   const analyticsEnabled = noAnalytics.present ? false : analyticsFromArg;
 
   return {
     channel,
     analyticsEnabled,
-    acceptTerms: acceptTerms.present,
-    acceptPrivacy: acceptPrivacy.present,
-    acceptTosRisk: acceptTosRisk.present,
-    acceptRateLimitPolicy: acceptRateLimitPolicy.present,
     nonInteractive: nonInteractive.present
   };
 }
 
-async function promptInitOptions(defaults, options = {}) {
-  const askChannel = options.askChannel !== false;
-  const askAnalytics = options.askAnalytics !== false;
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
-  });
-
-  try {
-    let channel = defaults.channel;
-    if (askChannel) {
-      const channelAnswer = await rl.question(
-        `Install channel [npm/codex/claude/unknown] (default: ${defaults.channel}): `
-      );
-      channel = channelAnswer.trim()
-        ? normalizeInstallChannelInput(channelAnswer)
-        : defaults.channel;
-    }
-
-    let analyticsEnabled = defaults.analyticsEnabled;
-    if (askAnalytics) {
-      const analyticsPrompt = defaults.analyticsEnabled
-        ? "Share anonymous product-quality metrics? [Y/n]: "
-        : "Share anonymous product-quality metrics? [y/N]: ";
-      const analyticsAnswer = await rl.question(analyticsPrompt);
-      const parsedAnalytics = parseAnalyticsInput(analyticsAnswer);
-      analyticsEnabled =
-        parsedAnalytics === null ? defaults.analyticsEnabled : parsedAnalytics;
-    }
-
-    return {
-      channel,
-      analyticsEnabled
-    };
-  } finally {
-    rl.close();
-  }
-}
-
-function printInstallConsentNotice() {
-  console.log("\nBefore you continue");
-  console.log("Review these documents before accepting:");
-  console.log("- TERMS.md");
-  console.log("- PRIVACY.md");
-  console.log("Open them in your editor and review before continuing.");
-  console.log(
-    "By continuing, you confirm you have read and accept both documents."
-  );
-  console.log(
-    "Job Finder captures data from job platforms using your browser session."
-  );
-  console.log(
-    "Many platforms prohibit automated access in their Terms of Service."
-  );
-  console.log(
-    "While Job Finder is designed to behave like normal browsing, use may still violate platform ToS and could result in account restrictions or termination."
-  );
-  console.log(
-    "You are responsible for your own accounts. Job Finder assumes no liability for ToS violations or account actions taken by third-party platforms."
-  );
-  console.log(
-    "Job Finder's default rate limits are designed to minimize detection risk and protect the broader community."
-  );
-  console.log(
-    "Aggressive configuration increases risk for you and, if patterns become associated with this tool, for other users."
-  );
-}
-
-async function promptInstallConsent() {
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
-  });
-
-  try {
-    const first = await rl.question(
-      "Type 'accept' to confirm you have read TERMS.md (or press Enter to exit): "
-    );
-    const termsAccepted = String(first || "").trim().toLowerCase() === "accept";
-    if (!termsAccepted) {
-      return {
-        termsAccepted: false,
-        privacyAccepted: false,
-        rateLimitPolicyAccepted: false
-      };
-    }
-
-    const second = await rl.question(
-      "Type 'accept' to confirm you have read PRIVACY.md (or press Enter to exit): "
-    );
-    const privacyAccepted = String(second || "").trim().toLowerCase() === "accept";
-    if (!privacyAccepted) {
-      return {
-        termsAccepted,
-        privacyAccepted: false,
-        rateLimitPolicyAccepted: false
-      };
-    }
-
-    const third = await rl.question(
-      "Type 'accept' to confirm ToS/account risk responsibility (or press Enter to exit): "
-    );
-    const tosRiskAccepted = String(third || "").trim().toLowerCase() === "accept";
-    if (!tosRiskAccepted) {
-      return {
-        termsAccepted,
-        privacyAccepted,
-        rateLimitPolicyAccepted: false
-      };
-    }
-
-    const fourth = await rl.question(
-      "Type 'accept' to confirm rate-limit responsibility (or press Enter to exit): "
-    );
-    const rateLimitPolicyAccepted = String(fourth || "").trim().toLowerCase() === "accept";
-
-    return {
-      termsAccepted,
-      privacyAccepted,
-      rateLimitPolicyAccepted
-    };
-  } finally {
-    rl.close();
-  }
-}
-
-async function runInit(options = {}) {
+async function runInit(options = {}, output = createCliOutput()) {
   const settings = loadUserSettings();
-  const existingConsent = settings.settings?.onboarding?.consent || {};
-  const hasAcceptedInstallConsent =
-    Boolean(existingConsent.termsAccepted || existingConsent.tosRiskAccepted) &&
-    Boolean(existingConsent.privacyAccepted) &&
-    Boolean(existingConsent.rateLimitPolicyAccepted);
-
-  if (!hasAcceptedInstallConsent) {
-    const providedConsent = {
-      termsAccepted: Boolean(options.acceptTerms || options.acceptTosRisk),
-      privacyAccepted: Boolean(options.acceptPrivacy),
-      rateLimitPolicyAccepted: Boolean(options.acceptRateLimitPolicy)
-    };
-
-    const hasProvidedConsent =
-      providedConsent.termsAccepted &&
-      providedConsent.privacyAccepted &&
-      providedConsent.rateLimitPolicyAccepted;
-
-    if (hasProvidedConsent) {
-      updateInstallConsent(providedConsent, settings.path);
-    } else {
-      const canPrompt = !options.nonInteractive && process.stdin.isTTY && process.stdout.isTTY;
-      if (!canPrompt) {
-        throw new Error(
-          "Install consent required. Re-run `jf init --accept-terms --accept-privacy --accept-rate-limit-policy` or run interactively."
-        );
-      }
-
-      printInstallConsentNotice();
-      const promptedConsent = await promptInstallConsent();
-      if (
-        !(
-          promptedConsent.termsAccepted &&
-          promptedConsent.privacyAccepted &&
-          promptedConsent.rateLimitPolicyAccepted
-        )
-      ) {
-        throw new Error("Install consent not accepted. Exiting.");
-      }
-      updateInstallConsent(promptedConsent, settings.path);
-    }
-  }
-
-  const { db, dbPath } = withDatabase();
-  db.close();
   const defaultChannel =
     settings.settings?.onboarding?.channel?.value &&
     settings.settings.onboarding.channel.value !== "unknown"
@@ -470,42 +289,46 @@ async function runInit(options = {}) {
       : "unknown";
   const defaultAnalytics = Boolean(settings.settings?.analytics?.enabled);
 
+  const canUseInteractiveWizard =
+    !options.nonInteractive &&
+    output.interactive &&
+    process.stdin.isTTY === true &&
+    process.stdout.isTTY === true;
+
   let channel = options.channel || defaultChannel;
   let analyticsEnabled =
     typeof options.analyticsEnabled === "boolean"
       ? options.analyticsEnabled
       : defaultAnalytics;
 
-  const shouldPrompt =
-    !options.nonInteractive &&
-    process.stdin.isTTY === true &&
-    process.stdout.isTTY === true &&
-    (!options.channel || typeof options.analyticsEnabled !== "boolean");
-
-  if (shouldPrompt) {
-    const prompted = await promptInitOptions({
-      channel,
-      analyticsEnabled
-    }, {
-      askChannel: !options.channel,
-      askAnalytics: typeof options.analyticsEnabled !== "boolean"
+  if (canUseInteractiveWizard) {
+    const wizardResult = await runInkInitWizard({
+      defaultChannel: channel,
+      defaultAnalyticsEnabled: analyticsEnabled
     });
-    channel = prompted.channel;
-    analyticsEnabled = prompted.analyticsEnabled;
+    channel = wizardResult.channel;
+    analyticsEnabled = wizardResult.analyticsEnabled;
   }
 
+  const { db, dbPath } = withDatabase();
+  db.close();
   updateOnboardingChannel(channel, "self_reported", settings.path);
   updateAnalyticsPreference(analyticsEnabled, settings.path);
   const updatedSettings = loadUserSettings(settings.path);
-  console.log(`Database initialized at ${dbPath}`);
-  console.log(`User settings initialized at ${settings.path}`);
-  console.log("Legal consent: TERMS.md and PRIVACY.md accepted");
-  console.log(
-    `Install channel: ${updatedSettings.settings?.onboarding?.channel?.value || "unknown"}`
-  );
-  console.log(
-    `Anonymous metrics: ${updatedSettings.settings?.analytics?.enabled ? "enabled" : "disabled"}`
-  );
+
+  if (output.jsonEnabled) {
+    output.json({
+      ok: true,
+      dbPath,
+      settingsPath: settings.path,
+      channel: updatedSettings.settings?.onboarding?.channel?.value || "unknown",
+      analyticsEnabled: Boolean(updatedSettings.settings?.analytics?.enabled),
+      nextAction: "npm run review"
+    });
+    return;
+  }
+
+  output.success("Setup complete! To get started: npm run review");
 }
 function printDoctorCheck(check) {
   const status = String(check?.status || "warn").toLowerCase();
@@ -2033,7 +1856,7 @@ async function runBridgeServer(portArg, providerArg) {
   console.log("Keep this process running while capture-source-live or capture-all-live are in use.");
 }
 
-async function runReview(portArg) {
+async function runReview(portArg, output = createCliOutput()) {
   const port = portArg ? Number(portArg) : 4311;
   if (!Number.isFinite(port) || port <= 0) {
     throw new Error("Review port must be a positive number.");
@@ -2044,13 +1867,17 @@ async function runReview(portArg) {
   const queue = listReviewQueue(db, reviewLimit);
   db.close();
 
-  if (queue.length === 0) {
-    console.log("No reviewable jobs in queue yet. Opening dashboard onboarding/empty state.");
-  }
+  void queue;
 
   await startReviewServer({ port, limit: reviewLimit });
-  console.log(`Review server running at http://127.0.0.1:${port}`);
-  console.log("Open that URL in your browser. It will keep one reusable job tab in sync.");
+  const dashboardUrl = `http://127.0.0.1:${port}`;
+  const openHint =
+    process.env.TERM_PROGRAM === "Apple_Terminal"
+      ? "Command-click to open"
+      : "Click to open";
+  output.success("Review server running.");
+  output.stdout(`Open Job Finder (${openHint}): ${dashboardUrl}`);
+  output.info("Keep this tab open for Jobs and onboarding.");
 }
 
 async function runPipeline(options = {}) {
@@ -2111,7 +1938,6 @@ QUICK START:
   jf init                       Initialize profile and database
      --channel <npm|codex|claude|unknown>
      --analytics <yes|no> | --no-analytics
-     --accept-terms --accept-privacy --accept-rate-limit-policy
      --non-interactive
   jf run                        Sync jobs from all sources (run daily)
   jf review                     Open dashboard at http://localhost:4311
@@ -2157,6 +1983,8 @@ DEV/FROM SOURCE:
 HELP:
   jf help                     Show this help
   jf --version               Show version
+  (global) --quiet           Reduce non-essential output
+  (global) --json            Emit JSON output when supported
 
 EXAMPLES:
   # First time setup
@@ -2175,7 +2003,9 @@ For detailed docs: https://github.com/ycb/job-finder
 }
 
 async function main() {
-  const [, , command = "help", ...args] = process.argv;
+  const [, , command = "help", ...rawArgs] = process.argv;
+  const { options: globalOutputOptions, args } = parseGlobalOutputOptions(rawArgs);
+  const output = createCliOutput(globalOutputOptions);
 
   switch (command) {
     case "--version":
@@ -2186,7 +2016,7 @@ async function main() {
     case "init":
       {
         const initOptions = parseInitOptions(args);
-        await runInit(initOptions);
+        await runInit(initOptions, output);
       }
       break;
     case "sync":
@@ -2339,7 +2169,7 @@ async function main() {
       runMark(args[0], args[1]);
       break;
     case "review":
-      await runReview(args[0]);
+      await runReview(args[0], output);
       break;
     case "run":
       {
@@ -2372,13 +2202,15 @@ async function main() {
       }
       break;
     case "help":
-    default:
       printHelp();
       break;
+    default:
+      throw new CliUsageError(`Unknown command "${command}". Run "jf help".`);
   }
 }
 
 main().catch((error) => {
-  console.error(error.message);
-  process.exitCode = 1;
+  const message = String(error?.message || "Unknown error");
+  process.stderr.write(`${message}\n`);
+  process.exitCode = isCliUsageError(error) ? 2 : 1;
 });

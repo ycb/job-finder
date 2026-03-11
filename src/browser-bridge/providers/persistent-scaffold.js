@@ -155,3 +155,10 @@ export function captureSourceWithPersistentScaffold(source, snapshotPath, option
 
   return captureLinkedInSourceWithPersistentScaffold(source, snapshotPath, options);
 }
+
+export function probeSourceAccessWithPersistentScaffold(source) {
+  openUrlInBrowser(source?.searchUrl || "");
+  throw new Error(
+    `Persistent scaffold does not support automated auth checks for "${source?.name || "unknown"}". Opened source URL; sign in manually and retry with a bridge provider that supports auth probes.`
+  );
+}

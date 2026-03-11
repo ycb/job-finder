@@ -130,6 +130,16 @@ function readJsonFileWithPath(filePath) {
   const resolvedPath = path.resolve(filePath);
 
   if (!fs.existsSync(resolvedPath)) {
+    if (resolvedPath.endsWith(".json")) {
+      const examplePath = resolvedPath.replace(/\.json$/i, ".example.json");
+      if (fs.existsSync(examplePath)) {
+        fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
+        fs.copyFileSync(examplePath, resolvedPath);
+      }
+    }
+  }
+
+  if (!fs.existsSync(resolvedPath)) {
     throw new Error(
       `Missing config file: ${resolvedPath}. Copy the matching .example.json file first.`
     );
