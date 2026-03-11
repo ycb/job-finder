@@ -1,16 +1,18 @@
 mode=react
 baseUrl=http://127.0.0.1:4422
-review_command=/opt/homebrew/Cellar/node/24.6.0/bin/node /Users/admin/.codex/worktrees/28af/job-finder/src/cli.js review 4422 --quiet
-screenshot_command=npx playwright screenshot --browser=chromium http://127.0.0.1:4422 /Users/admin/.codex/worktrees/28af/job-finder/docs/roadmap/progress-merge/2026-03-11-f1-c-react-dashboard.png
-dashboard_json=/Users/admin/.codex/worktrees/28af/job-finder/docs/roadmap/progress-merge/2026-03-11-f1-c-react-dashboard.json
-screenshot=/Users/admin/.codex/worktrees/28af/job-finder/docs/roadmap/progress-merge/2026-03-11-f1-c-react-dashboard.png
+ui_mode_check=pass
+root_title=Job Finder Dashboard UI
+review_command=/opt/homebrew/Cellar/node/24.6.0/bin/node /Users/admin/.codex/worktrees/51f6/job-finder/src/cli.js review 4422 --quiet
+screenshot_command=/opt/homebrew/Cellar/node/24.6.0/bin/node /Users/admin/.codex/worktrees/51f6/job-finder/node_modules/playwright/cli.js screenshot --browser=chromium http://127.0.0.1:4422 /Users/admin/.codex/worktrees/51f6/job-finder/docs/roadmap/progress-merge/2026-03-11-f1-c-react-dashboard.png
+dashboard_json=/Users/admin/.codex/worktrees/51f6/job-finder/docs/roadmap/progress-merge/2026-03-11-f1-c-react-dashboard.json
+screenshot=/Users/admin/.codex/worktrees/51f6/job-finder/docs/roadmap/progress-merge/2026-03-11-f1-c-react-dashboard.png
 review_stdout:
 
 review_stderr:
-(node:3888) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(node:25565) ExperimentalWarning: SQLite is an experimental feature and might change at any time
 (Use `node --trace-warnings ...` to show where the warning was created)
 playwright_stdout:
 Navigating to http://127.0.0.1:4422
-Capturing screenshot into /Users/admin/.codex/worktrees/28af/job-finder/docs/roadmap/progress-merge/2026-03-11-f1-c-react-dashboard.png
+Capturing screenshot into /Users/admin/.codex/worktrees/51f6/job-finder/docs/roadmap/progress-merge/2026-03-11-f1-c-react-dashboard.png
 playwright_stderr:
 

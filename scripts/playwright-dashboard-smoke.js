@@ -3,9 +3,18 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 
-const REPO_ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CLI_PATH = path.join(REPO_ROOT, "src", "cli.js");
+const REVIEW_WEB_DIST_INDEX_PATH = path.join(
+  REPO_ROOT,
+  "src",
+  "review",
+  "web",
+  "dist",
+  "index.html"
+);
 
 function parseArgs(argv) {
   const options = {
@@ -99,6 +108,79 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function ensureReactBuild(mode) {
+  if (mode !== "react") {
+    return;
+  }
+
+  const buildResult = spawnSync("npm", ["run", "dashboard:web:build"], {
+    cwd: REPO_ROOT,
+    env: process.env,
+    encoding: "utf8"
+  });
+
+  if (buildResult.status !== 0) {
+    throw new Error(
+      `React build failed (${buildResult.status}): ${
+        buildResult.stderr || buildResult.stdout || "unknown error"
+      }`
+    );
+  }
+
+  if (!fs.existsSync(REVIEW_WEB_DIST_INDEX_PATH)) {
+    throw new Error(
+      `React build completed but dist index is missing at ${REVIEW_WEB_DIST_INDEX_PATH}`
+    );
+  }
+}
+
+function resolvePlaywrightCliPath() {
+  const cliPath = path.join(REPO_ROOT, "node_modules", "playwright", "cli.js");
+  if (!fs.existsSync(cliPath)) {
+    throw new Error(
+      `Playwright CLI is unavailable at ${cliPath}. Install project dependencies (includes devDependency 'playwright').`
+    );
+  }
+  return cliPath;
+}
+
+async function fetchRootHtml(baseUrl) {
+  const response = await fetch(baseUrl, {
+    signal: AbortSignal.timeout(2_000)
+  });
+  if (!response.ok) {
+    throw new Error(`GET / returned HTTP ${response.status}`);
+  }
+  return response.text();
+}
+
+function extractTitle(html) {
+  const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
+  return titleMatch ? titleMatch[1].trim() : null;
+}
+
+function assertUiModeFromRootHtml(mode, html) {
+  const title = extractTitle(html);
+  const isLegacy =
+    typeof title === "string" &&
+    title.includes("Job Finder Dashboard") &&
+    html.includes("let dashboard =");
+  const isReact =
+    typeof title === "string" &&
+    title.includes("Job Finder Dashboard UI") &&
+    html.includes('id="root"');
+
+  if (mode === "legacy" && !isLegacy) {
+    throw new Error(`Expected legacy dashboard HTML markers but saw title=${title || "(none)"}`);
+  }
+
+  if (mode === "react" && !isReact) {
+    throw new Error(`Expected react dashboard HTML markers but saw title=${title || "(none)"}`);
+  }
+
+  return title;
+}
+
 async function waitForDashboardJson(baseUrl, timeoutMs) {
   const startedAt = Date.now();
   let lastError = null;
@@ -149,6 +231,8 @@ async function stopProcess(child) {
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   fs.mkdirSync(options.outputDir, { recursive: true });
+  ensureReactBuild(options.mode);
+  const playwrightCliPath = resolvePlaywrightCliPath();
 
   const workspace = createTempWorkspace();
   const baseUrl = `http://127.0.0.1:${options.port}`;
@@ -189,6 +273,8 @@ async function main() {
 
   try {
     const dashboardPayload = await waitForDashboardJson(baseUrl, options.timeoutMs);
+    const rootHtml = await fetchRootHtml(baseUrl);
+    const rootTitle = assertUiModeFromRootHtml(options.mode, rootHtml);
 
     fs.writeFileSync(
       dashboardJsonPath,
@@ -206,8 +292,8 @@ async function main() {
     );
 
     const screenshotResult = spawnSync(
-      "npx",
-      ["playwright", "screenshot", "--browser=chromium", baseUrl, screenshotPath],
+      process.execPath,
+      [playwrightCliPath, "screenshot", "--browser=chromium", baseUrl, screenshotPath],
       {
         cwd: REPO_ROOT,
         env: process.env,
@@ -226,8 +312,10 @@ async function main() {
     const logLines = [
       `mode=${options.mode}`,
       `baseUrl=${baseUrl}`,
+      `ui_mode_check=pass`,
+      `root_title=${rootTitle || "(none)"}`,
       `review_command=${process.execPath} ${reviewCommand.join(" ")}`,
-      `screenshot_command=npx playwright screenshot --browser=chromium ${baseUrl} ${screenshotPath}`,
+      `screenshot_command=${process.execPath} ${playwrightCliPath} screenshot --browser=chromium ${baseUrl} ${screenshotPath}`,
       `dashboard_json=${dashboardJsonPath}`,
       `screenshot=${screenshotPath}`,
       "review_stdout:",

@@ -43,3 +43,8 @@ Lane `F1-C Contracts & Harness` delivered:
 
 - Smoke harness runs in isolated temp workspace fixtures (copied from `config/*.example.json`) to avoid mutating repo runtime data.
 - Mode flag is forwarded through `JOB_FINDER_DASHBOARD_UI=<mode>` for both runs.
+- React mode now builds `src/review/web/dist` before smoke execution so `--mode react` cannot silently fall back to legacy HTML.
+- Smoke logs now include `ui_mode_check=pass` plus root `<title>` evidence to prove mode-specific rendering:
+  - legacy: `Job Finder Dashboard`
+  - react: `Job Finder Dashboard UI`
+- Playwright invocation is now deterministic via local project dependency (`node_modules/playwright/cli.js`) rather than ambient `npx` resolution.

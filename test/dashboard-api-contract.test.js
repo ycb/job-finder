@@ -4,10 +4,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 
 import { startReviewServer } from "../src/review/server.js";
 
-const REPO_ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const EXAMPLE_CONFIGS = [
   ["config/profile.example.json", "config/profile.json"],
   ["config/profile-source.example.json", "config/profile-source.json"],
@@ -42,9 +43,9 @@ function assertStringOrNull(value, pathText) {
 
 function assertNumberOrNull(value, pathText) {
   assertRequiredPath(
-    value === null || Number.isFinite(Number(value)),
+    value === null || (typeof value === "number" && Number.isFinite(value)),
     pathText,
-    "expected finite number or null"
+    "expected number or null"
   );
 }
 
