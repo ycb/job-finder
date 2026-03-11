@@ -55,6 +55,12 @@ Required before moving from F1 to F2:
 2. Legacy mode still works (feature-flag fallback).
 3. Contract tests pass for required dashboard payload fields.
 
+## Planning Precedence (Worker Guardrail)
+
+- For this execution, workers must update the existing ExecPlan at:
+  - `docs/plans/2026-03-11-dashboard-frontend-foundation-execplan.md`
+- `tasks/todo.md` is not a valid destination for feature-level ExecPlan drafting in this repo.
+
 ## Controller Notes
 
 - This dispatch is intentionally front-loaded ahead of full manual QA closeout for Phase 1/1.1 + onboarding.

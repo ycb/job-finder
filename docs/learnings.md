@@ -189,3 +189,4 @@ As of 2026-03-06.
 
 - Never hand off QA instructions assuming code is available in downstream worktrees until the fix is committed and pushed (or explicit local-only scope is stated).
 - Before giving QA refresh commands, verify upstream commit presence with `git log -n 1` and branch sync with `git status --short --branch`.
+- In worker packets, explicitly state planning-file precedence (`PROCESS.md` + `PLANS.md` + repo `AGENTS.md`) and ban `tasks/todo.md` for feature ExecPlans to avoid instruction-layer ambiguity.

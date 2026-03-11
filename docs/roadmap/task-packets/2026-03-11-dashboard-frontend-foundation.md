@@ -9,6 +9,14 @@ Controller context (applies to all lanes):
 - Scope doc: `docs/plans/2026-03-11-dashboard-frontend-foundation-execplan.md`
 - Dispatch board: `docs/roadmap/frontend-foundation-dispatch-board.md`
 
+Planning-file rule (mandatory, all lanes):
+
+- This is non-trivial feature work. Execution plan updates must go to:
+  - `docs/plans/2026-03-11-dashboard-frontend-foundation-execplan.md`
+- Do **not** create or update feature execution plans in `tasks/todo.md`.
+- If any instruction source conflicts, follow repo-local precedence:
+  - `PROCESS.md` -> `PLANS.md` -> `AGENTS.md` (repo) -> lane packet.
+
 ---
 
 ## Packet F1-A: Infra Scaffold + Review Server Integration
