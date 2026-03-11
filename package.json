@@ -61,6 +61,7 @@
     "bridge": "node src/cli.js bridge-server",
     "mark": "node src/cli.js mark",
     "review": "node src/cli.js review",
+    "smoke:dashboard": "node scripts/playwright-dashboard-smoke.js",
     "review:safe": "JOB_FINDER_REFRESH_PROFILE=safe node src/cli.js review",
     "review:probe": "JOB_FINDER_REFRESH_PROFILE=probe node src/cli.js review",
     "review:mock": "JOB_FINDER_REFRESH_PROFILE=mock node src/cli.js review",
