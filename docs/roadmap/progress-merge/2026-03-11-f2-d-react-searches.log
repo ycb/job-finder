@@ -1,0 +1,12 @@
+mode=react
+baseUrl=http://127.0.0.1:4511
+searches_flow_check=pass
+checks=main_tab_active,enabled_tab_active,frequency_present,welcome_toast_first_visit,go_to_disabled_cta,disabled_tab_active,enable_action_present,run_now_action_present,welcome_toast_single_visit
+title=Job Finder Dashboard UI
+screenshot=/Users/admin/.codex/worktrees/309b/job-finder/docs/roadmap/progress-merge/2026-03-11-f2-d-react-searches.png
+review_command=/opt/homebrew/Cellar/node/24.6.0/bin/node /Users/admin/.codex/worktrees/309b/job-finder/src/cli.js review 4511 --quiet
+review_stdout:
+
+review_stderr:
+(node:36033) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)

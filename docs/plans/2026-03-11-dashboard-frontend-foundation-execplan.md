@@ -13,11 +13,12 @@ After this plan, the dashboard UI will run on React components styled with Tailw
 ## Progress
 
 - [x] (2026-03-11) Authored ExecPlan with migration scope, sequencing, and parallel lanes.
-- [ ] Create frontend app scaffold and static-asset serving path in `src/review/server.js` (feature-flagged fallback to legacy renderer).
-- [ ] Implement shared design tokens and shadcn primitives for tabs/cards/table/toast/button/select.
-- [ ] Port `Searches` tab + welcome toast + search-state tabs to React with parity tests.
+- [x] (2026-03-11) F1-A completed scaffold/static serving in `src/review/server.js` with `JOB_FINDER_DASHBOARD_UI=react` fallback switching.
+- [x] (2026-03-11) F1-B completed shared design tokens and shadcn primitives for tabs/cards/table/toast/button/select.
+- [x] (2026-03-11 21:28Z) Started lane `F2-D Searches Slice` in worktree `/Users/admin/.codex/worktrees/309b/job-finder` on branch `codex/worktrees/frontend-f2-d-searches`; verified F1-A/F1-B/F1-C baseline merge commit (`678ab70`) before implementation.
+- [x] (2026-03-11 22:07Z) Ported `Searches` shell/state tabs/search-frequency/source rows-actions/first-visit welcome toast to React (`src/review/web/src/App.jsx`) with behavior helpers tested in `test/review-searches-react-logic.test.js`.
 - [ ] Port onboarding source readiness/auth UX used from `Searches` into React.
-- [ ] Add Playwright smoke + visual regression evidence as release gate.
+- [x] (2026-03-11 22:07Z) Added and ran React Searches Playwright smoke (`scripts/playwright-searches-flow-smoke.js`) with screenshot+log artifacts under `docs/roadmap/progress-merge/`.
 - [ ] Run full QA checklist for Phase 1/1.1 + onboarding on React UI and update backlog/roadmap status.
 
 ## Surprises & Discoveries
@@ -26,6 +27,8 @@ After this plan, the dashboard UI will run on React components styled with Tailw
   Evidence: Recent regressions around active tab color and toast visibility passed Node tests but failed manual QA screenshots.
 - Observation: One-time toast behavior is sensitive to localStorage key history and gating predicates.
   Evidence: Toast did not appear in QA when gate depended on auth-source conditions or stale localStorage state.
+- Observation: Local port `4432` returned `listen EPERM` in this environment while `4511` was available.
+  Evidence: Searches smoke failed on `4432` with timeout + `listen EPERM`; rerun on `4511` succeeded and produced artifacts.
 
 ## Decision Log
 
@@ -38,10 +41,13 @@ After this plan, the dashboard UI will run on React components styled with Tailw
 - Decision: Prioritize `Searches` + onboarding UX first, then jobs/profile parity.
   Rationale: `Searches` and onboarding are current blocker surfaces for trust and activation.
   Date/Author: 2026-03-11 / Codex.
+- Decision: Keep `F2-D` limited to `Searches` shell/state/actions/toast parity and defer onboarding modal flow parity to lane `F2-E`.
+  Rationale: Task packets split these behaviors into independent lanes and allow smaller reviewable diffs while keeping API contracts stable.
+  Date/Author: 2026-03-11 / Codex.
 
 ## Outcomes & Retrospective
 
-Not started yet. Update after each milestone and at plan completion with delivered scope, defects found, and remaining risks.
+- (2026-03-11, lane `F2-D`) Delivered React Searches parity slice with active-tab semantics, frequency control gating to Enabled tab, source row actions (`Enable`/`Run now`/`Check access`/overflow `Disable`), and first-visit welcome toast (dismiss + `Go to Disabled`). Added pure-logic tests and a dedicated Playwright Searches flow smoke. Remaining scope for this milestone is onboarding auth modal flow parity, explicitly deferred to lane `F2-E`.
 
 ## Context and Orientation
 
