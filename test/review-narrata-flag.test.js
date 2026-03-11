@@ -99,6 +99,8 @@ test("renderDashboardPage builds searches enabled/disabled tabs", () => {
   });
   assert.equal(html.includes('data-search-state="enabled"'), true);
   assert.equal(html.includes('data-search-state="disabled"'), true);
+  assert.equal(html.includes('class="searches-tabs-row"'), true);
+  assert.equal(html.includes('class="card searches-card"'), true);
   assert.equal(html.includes('class="search-state-tabs"'), true);
   assert.equal(html.includes('class="search-state-tab\' +'), true);
   assert.equal(html.includes("const searchSources = (Array.isArray(dashboard.sources) ? dashboard.sources : [])"), true);
@@ -286,8 +288,12 @@ test("renderDashboardPage persists first-visit state key for searches welcome to
   });
 
   assert.equal(
-    html.includes("jobFinder.searchesWelcomeToastSeen"),
+    html.includes("jobFinder.searchesWelcomeToastSeen.v2"),
     true
+  );
+  assert.equal(
+    html.includes("onboardingIncomplete &&"),
+    false
   );
   assert.equal(html.includes('data-search-welcome-dismiss="1"'), true);
 });

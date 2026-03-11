@@ -2322,10 +2322,8 @@ export function renderDashboardPage(dashboard, options = {}) {
 
       .search-header {
         display: flex;
-        justify-content: space-between;
         align-items: center;
         gap: 12px;
-        flex-wrap: wrap;
       }
 
       .search-controls-row {
@@ -2441,8 +2439,18 @@ export function renderDashboardPage(dashboard, options = {}) {
         color: var(--error);
       }
 
+      .searches-shell {
+        margin-top: 18px;
+      }
+
+      .searches-tabs-row {
+        display: flex;
+        justify-content: flex-end;
+        padding: 0 14px;
+        margin-bottom: -1px;
+      }
+
       .search-state-tabs {
-        margin-left: auto;
         display: inline-flex;
         align-items: flex-end;
         gap: 6px;
@@ -3115,8 +3123,12 @@ export function renderDashboardPage(dashboard, options = {}) {
           width: calc(100vw - 24px);
         }
 
+        .searches-tabs-row {
+          padding: 0;
+          justify-content: flex-start;
+        }
+
         .search-state-tabs {
-          margin-left: 0;
           width: 100%;
           overflow-x: auto;
         }
@@ -3192,7 +3204,7 @@ export function renderDashboardPage(dashboard, options = {}) {
 
       const app = document.getElementById("app");
       const JOBS_PAGE_SIZE = 10;
-      const SEARCHES_WELCOME_TOAST_SEEN_KEY = "jobFinder.searchesWelcomeToastSeen";
+      const SEARCHES_WELCOME_TOAST_SEEN_KEY = "jobFinder.searchesWelcomeToastSeen.v2";
 
       if (onboardingEnabled && dashboard.onboarding && dashboard.onboarding.completed !== true) {
         selectedTab = "searches";
@@ -6011,13 +6023,12 @@ export function renderDashboardPage(dashboard, options = {}) {
               "</div>"
             ].join("")
           : "";
-        const hasAuthSourcesInDisabled = onboardingNotEnabledSources.some((source) =>
-          sourceRequiresAuth(source)
+        const hasAuthSourcesInDisabled = disabledSearchSources.some(
+          (source) => source.authRequired
         );
         const showSearchWelcomeToast =
-          onboardingIncomplete &&
           selectedSearchStateFilter === "enabled" &&
-          (onboardingAuthPendingSources.length > 0 || hasAuthSourcesInDisabled) &&
+          hasAuthSourcesInDisabled &&
           !searchesWelcomeToastDismissed;
         if (showSearchWelcomeToast) {
           searchesWelcomeToastDismissed = true;
@@ -6078,10 +6089,13 @@ export function renderDashboardPage(dashboard, options = {}) {
             : "";
 
         const searchesSection = [
-          '<section class="card" style="margin-top: 18px;">',
+          '<div class="searches-shell">',
+          '  <div class="searches-tabs-row">',
+          '    <div class="search-state-tabs">' + searchFilterTabs + "</div>",
+          "  </div>",
+          '  <section class="card searches-card">',
           '  <div class="search-header">',
           '    <p class="section-label">My Job Searches</p>',
-          '    <div class="search-state-tabs">' + searchFilterTabs + "</div>",
           "  </div>",
           (selectedSearchStateFilter === "enabled"
             ? '  <div class="search-controls-row">' +
@@ -6103,7 +6117,8 @@ export function renderDashboardPage(dashboard, options = {}) {
             ? '  <div class="subhead search-empty">No sources in this tab.</div>'
             : ""),
           '  <div class="feedback' + (feedbackError ? " error" : "") + '">' + escapeHtml(feedback) + "</div>",
-          "</section>",
+          "  </section>",
+          "</div>",
           authFlowModalMarkup
         ].join("");
         const searchesPageSections = searchesSection + searchesWelcomeToastMarkup;
