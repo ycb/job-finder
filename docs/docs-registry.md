@@ -101,6 +101,7 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/roadmap/progress-daily/README.md` | Stakeholders, contributors | Daily roadmap update artifact conventions | Daily progress process changes |
 | `docs/roadmap/progress-daily/2026-03-08.md` | Stakeholders, contributors | Daily kickoff update for Phase 1 orchestration setup | Daily roadmap update cycle |
 | `docs/roadmap/progress-daily/2026-03-09.md` | Stakeholders, contributors | Daily update covering Phase 1.1 closeout scope and verification-gate changes | Daily roadmap update cycle |
+| `docs/roadmap/progress-daily/2026-03-10.md` | Stakeholders, contributors | Daily update covering onboarding branch integration rebase, QA, and merge readiness | Daily roadmap update cycle |
 | `docs/roadmap/progress-merge/README.md` | Stakeholders, contributors | Merge-to-main roadmap update artifact conventions | Merge update process changes |
 | `docs/roadmap/progress-merge/2026-03-09-lane-a-w2-03-playwright-smoke.md` | Stakeholders, contributors | Lane A smoke-check evidence for search-controls completion | Merge verification evidence refresh |
 | `docs/roadmap/progress-merge/2026-03-09-lane-b-w2-04.md` | Stakeholders, contributors | Lane B merge report for run-delta persistence and surfacing | Merge verification evidence refresh |

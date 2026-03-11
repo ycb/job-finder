@@ -2,6 +2,12 @@
 
 As of 2026-03-06.
 
+## Onboarding Integration Rebase Hygiene
+
+- After rebasing a branch that introduces new runtime deps (for example Ink/React CLI UI), run `npm install` before interpreting CLI smoke failures. Missing-module errors can mask real behavior regressions.
+- Resolve large conflict blocks in `src/review/server.js` with deterministic chunk rules and immediate `node -c` verification after each pass. Broad regex replacements can corrupt unrelated blocks that share repeated tokens.
+- During manual QA, bind review-server runs to an explicit port to avoid accidentally validating another running worktree instance.
+
 ## Search-Driven Scoring Scope
 
 - Current product scope: scoring is derived from `source-criteria.json` (with legacy fallback to `search-criteria.json`), not from goals/profile files.

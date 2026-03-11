@@ -1,6 +1,6 @@
 # Backlog
 
-As of 2026-03-08.
+As of 2026-03-10.
 
 ## Execution Snapshot
 
@@ -14,6 +14,8 @@ As of 2026-03-08.
 **Phase 1.1 In Progress:** Full-JD page-level verification, Full-JD extraction gap closure, Search controls (hard filter / include-exclude / cache).
 **Phase 1.1 Planned:** Onboarding source auth readiness, Value metrics + caps + donation verification.
 **Launch Readiness Planned:** CLI design implementation, "Runs" label decision, Legal review (TERMS.md / PRIVACY.md), Monetization variable wiring into caps enforcement.
+
+Onboarding integration status: `codex/3b-worker-2-onboarding` rebased/validated on `onboarding-integration-qa`; pending merge to `main`.
 
 
 
