@@ -2458,20 +2458,20 @@ export function renderDashboardPage(dashboard, options = {}) {
       }
 
       .search-state-tab {
-        border: 1px solid rgba(27, 58, 51, 0.38);
+        border: 1px solid var(--line);
         border-bottom: 0;
         border-radius: 10px 10px 0 0;
-        background: rgba(30, 42, 38, 0.92);
-        color: #f0ebdd;
+        background: rgba(255, 252, 245, 0.96);
+        color: var(--ink);
         padding: 8px 14px;
         font-weight: 700;
         white-space: nowrap;
       }
 
       .search-state-tab.active {
-        background: var(--panel);
-        color: var(--ink);
-        border-color: var(--line);
+        background: var(--accent);
+        color: var(--button-ink);
+        border-color: var(--accent);
       }
 
       .run-cadence-control {

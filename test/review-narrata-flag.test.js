@@ -103,6 +103,9 @@ test("renderDashboardPage builds searches enabled/disabled tabs", () => {
   assert.equal(html.includes('class="card searches-card"'), true);
   assert.equal(html.includes('class="search-state-tabs"'), true);
   assert.equal(html.includes('class="search-state-tab\' +'), true);
+  assert.equal(html.includes(".search-state-tab.active {"), true);
+  assert.equal(html.includes("background: var(--accent);"), true);
+  assert.equal(html.includes("color: var(--button-ink);"), true);
   assert.equal(html.includes("const searchSources = (Array.isArray(dashboard.sources) ? dashboard.sources : [])"), true);
   assert.equal(html.includes("button.dataset.searchState"), true);
 });
