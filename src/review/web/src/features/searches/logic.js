@@ -261,6 +261,103 @@ export function computeSearchTotals(searchRows = [], searchState = "enabled") {
   };
 }
 
+export function presentSearchStatus(row) {
+  const healthStatus = row?.adapterHealthStatus || "unknown";
+  const healthTone =
+    healthStatus === "failing"
+      ? "error"
+      : healthStatus === "degraded"
+        ? "warn"
+        : null;
+  const isDisabled = row?.enabled !== true;
+
+  const tone = isDisabled
+    ? "muted"
+    : healthTone ||
+      (row?.captureStatus === "capture_error"
+        ? "error"
+        : row?.hasCacheState
+          ? "warn"
+          : "ok");
+
+  const statusLabelRaw =
+    row?.captureStatus === "ready"
+      ? "ready"
+      : row?.captureStatus === "capture_error"
+        ? "capture error"
+        : row?.captureStatus === "live_source"
+          ? "live source"
+          : "never run";
+
+  const label = isDisabled
+    ? "disabled"
+    : healthStatus === "failing" || healthStatus === "degraded"
+      ? "needs attention"
+      : tone === "warn"
+        ? "cache"
+        : tone === "error"
+          ? "error"
+          : statusLabelRaw;
+
+  const healthScore =
+    Number.isFinite(Number(row?.adapterHealthScore))
+      ? Math.round(Number(row.adapterHealthScore) * 100)
+      : null;
+
+  const healthUpdatedAtText =
+    typeof row?.adapterHealthUpdatedAt === "string" && row.adapterHealthUpdatedAt.trim()
+      ? formatRelativeTimestamp(row.adapterHealthUpdatedAt)
+      : null;
+
+  const statusDetail =
+    healthStatus === "failing" || healthStatus === "degraded"
+      ? `${row?.adapterHealthReason || "adapter needs attention"}${
+          healthUpdatedAtText ? ` · last signal ${healthUpdatedAtText}` : ""
+        }`
+      : row?.captureFunnelError ||
+        (healthStatus === "ok" && healthScore !== null
+          ? `health score ${healthScore}%`
+          : null);
+
+  const refreshStatusReason =
+    typeof row?.refreshStatusReason === "string" && row.refreshStatusReason.trim()
+      ? row.refreshStatusReason.replaceAll("_", " ")
+      : "unknown";
+
+  const refreshServedFrom =
+    typeof row?.refreshServedFrom === "string" && row.refreshServedFrom.trim()
+      ? row.refreshServedFrom
+      : "unknown";
+
+  const refreshContextDetail = isDisabled
+    ? "refresh: disabled (not enabled)"
+    : `refresh: ${refreshStatusReason} (${refreshServedFrom})`;
+  const runDeltaDetail = row?.hasRunDelta
+    ? `run delta: new ${row.runNewCount} · updated ${row.runUpdatedCount} · unchanged ${row.runUnchangedCount}`
+    : "run delta: unavailable";
+
+  const formatterDetailParts = [];
+  if (Array.isArray(row?.formatterUnsupported) && row.formatterUnsupported.length > 0) {
+    formatterDetailParts.push(`unsupported ${row.formatterUnsupported.join(", ")}`);
+  }
+  if (Array.isArray(row?.formatterNotes) && row.formatterNotes.length > 0) {
+    formatterDetailParts.push(...row.formatterNotes);
+  }
+
+  return {
+    tone,
+    label,
+    statusDetail,
+    refreshContextDetail,
+    runDeltaDetail,
+    formatterDetail: formatterDetailParts.join(" · "),
+    foundLabel:
+      row?.hasUnknownExpectedCount || !Number.isFinite(Number(row?.expectedFoundCount))
+        ? `${Number(row?.importedCount || 0)}/?`
+        : `${Number(row?.importedCount || 0)}/${Math.max(0, Math.round(Number(row.expectedFoundCount)))}`,
+  };
+}
+
 export function shouldShowSearchesWelcomeToast({
   mainTab,
   searchState,

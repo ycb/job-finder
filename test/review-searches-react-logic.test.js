@@ -14,6 +14,7 @@ import {
   normalizeSearchState,
   onboardingReadinessState,
   persistSearchRunCadence,
+  presentSearchStatus,
   readSearchRunCadence,
   resolveSearchesWelcomeToastScope,
   shouldShowSearchesWelcomeToast,
@@ -139,6 +140,26 @@ test("computeSearchTotals rolls up counts and weighted avg score", () => {
   assert.equal(totals.deduped, 3);
   assert.equal(totals.imported, 8);
   assert.equal(totals.avgScore, 73);
+});
+
+test("presentSearchStatus prioritizes disabled state over capture readiness", () => {
+  const disabledStatus = presentSearchStatus({
+    enabled: false,
+    captureStatus: "ready",
+    refreshStatusReason: "eligible",
+    refreshServedFrom: "live",
+    importedCount: 0,
+    expectedFoundCount: 0,
+    hasUnknownExpectedCount: false,
+    hasRunDelta: true,
+    runNewCount: 0,
+    runUpdatedCount: 0,
+    runUnchangedCount: 0,
+  });
+
+  assert.equal(disabledStatus.label, "disabled");
+  assert.equal(disabledStatus.tone, "muted");
+  assert.equal(disabledStatus.refreshContextDetail, "refresh: disabled (not enabled)");
 });
 
 test("welcome toast + run cadence storage helpers persist values", () => {
