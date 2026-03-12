@@ -145,6 +145,7 @@ As of 2026-03-06.
 - Keep legal/risk consent copy short and neutral; avoid over-legalized phrasing when user-approved wording is provided.
 - Do not trigger consent-gate re-render on checkbox `change`; only persist checkbox draft state and require explicit `Agree and Continue` action to advance.
 - Consent is a true interstitial: while gate is active, do not render app navigation/tabs/content behind or around it. Render consent surface only, then reveal shell after acceptance.
+- Keep consent interstitial flat: avoid nesting it inside a second outer app-shell container/card while gated.
 
 ## Source Auth State Model
 
