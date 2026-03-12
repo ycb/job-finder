@@ -622,7 +622,7 @@ export default function App() {
                     </TabsList>
                   </Tabs>
                 </div>
-                <Card className="searches-card">
+                <Card className="searches-card rounded-tr-none">
                   <CardHeader className="pb-4">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <CardTitle className="pt-1 text-base">My Job Searches</CardTitle>
