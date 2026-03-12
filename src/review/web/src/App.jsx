@@ -606,9 +606,19 @@ export default function App() {
                     onValueChange={setSearchState}
                     className="-mb-px"
                   >
-                    <TabsList>
-                      <TabsTrigger value="enabled">Enabled ({enabledRows.length})</TabsTrigger>
-                      <TabsTrigger value="disabled">Disabled ({disabledRows.length})</TabsTrigger>
+                    <TabsList className="h-auto gap-0 rounded-t-xl rounded-b-none border border-border/80 border-b-0 bg-transparent p-0">
+                      <TabsTrigger
+                        value="enabled"
+                        className="rounded-none rounded-tl-xl border-r border-border/80 px-6 py-3 data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=inactive]:bg-secondary/20"
+                      >
+                        Enabled ({enabledRows.length})
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="disabled"
+                        className="rounded-none rounded-tr-xl px-6 py-3 data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=inactive]:bg-secondary/20"
+                      >
+                        Disabled ({disabledRows.length})
+                      </TabsTrigger>
                     </TabsList>
                   </Tabs>
                 </div>
