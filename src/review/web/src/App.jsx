@@ -693,7 +693,7 @@ export default function App() {
                               <TableCell>{row.importedCount}</TableCell>
                               <TableCell>{row.avgScore === null ? "n/a" : row.avgScore}</TableCell>
                               <TableCell className="w-[116px] py-2 pl-1 pr-1">
-                                <div className="flex items-center justify-end whitespace-nowrap">
+                                <div className="flex items-center justify-start whitespace-nowrap">
                                   {!row.enabled ? (
                                     <Button
                                       size="sm"
