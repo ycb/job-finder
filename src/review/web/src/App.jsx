@@ -637,8 +637,8 @@ export default function App() {
                           <TableHead>Dupes</TableHead>
                           <TableHead>Imported</TableHead>
                           <TableHead>Avg Score</TableHead>
-                          <TableHead className="w-[116px] pr-1 text-right">Action</TableHead>
-                          <TableHead className="w-[44px] pl-1 pr-2 text-right">
+                          <TableHead className="w-[116px] pr-1">Action</TableHead>
+                          <TableHead className="w-[44px] pl-1 pr-2">
                             <span className="sr-only">More actions</span>
                           </TableHead>
                         </TableRow>
