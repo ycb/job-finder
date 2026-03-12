@@ -181,6 +181,7 @@ As of 2026-03-06.
 - In the Searches table, `enabled=false` must take precedence over capture/refresh signals in status presentation. Disabled rows should render `disabled`, muted tone, and disabled refresh copy (never `ready`).
 - After React refactors, run a production build and load-path sanity check for table helpers (`formatRelativeTimestamp` etc.); missing imports can pass unit tests but still white-screen at runtime.
 - Keep the Searches `Actions` column non-wrapping with a minimum width and right-aligned controls; wrapping CTA + overflow into a narrow cell creates compressed/touch-hostile UI.
+- Preserve action hierarchy in table design: primary CTA belongs in the `Action` column, overflow belongs in a dedicated `More` column/module to avoid mixed semantics and crowded controls.
 - When defaulting users to `Enabled` for orientation, add concise guidance that points to `Disabled` for auth-required enablement.
 - In `Disabled`, `Enable` must be a prominent primary row action; do not hide primary source actions inside overflow.
 - Remove overflow menus from `Disabled` rows entirely to reduce duplicate affordances; keep overflow for `Enabled` row secondary actions only.
