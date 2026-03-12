@@ -761,16 +761,14 @@ export default function App() {
                                       </Button>
                                     </div>
                                   </details>
-                                ) : (
-                                  <span className="text-muted-foreground">—</span>
-                                )}
+                                ) : null}
                               </TableCell>
                             </TableRow>
                           );
                         })}
 
                         {filteredRows.length > 0 ? (
-                          <TableRow className="search-totals-row bg-secondary/50 font-semibold">
+                          <TableRow className="search-totals-row border-t-2 border-border bg-primary/10 font-semibold hover:bg-primary/10">
                             <TableCell>{totals.stateLabel}</TableCell>
                             <TableCell>—</TableCell>
                             <TableCell>—</TableCell>
@@ -780,7 +778,7 @@ export default function App() {
                             <TableCell>{totals.imported}</TableCell>
                             <TableCell>{totals.avgScore}</TableCell>
                             <TableCell>—</TableCell>
-                            <TableCell>—</TableCell>
+                            <TableCell />
                           </TableRow>
                         ) : null}
                       </TableBody>

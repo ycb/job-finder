@@ -187,6 +187,8 @@ As of 2026-03-06.
 - Keep table header alignment consistent by default; if action cells are right-aligned for affordance, don't force just one header label right unless the full header row follows that pattern.
 - Keep primary CTA alignment consistent with column reading flow: when table headers are left-aligned, left-align row CTAs unless there is an explicit right-aligned action pattern across the full table.
 - In tall rows with multiline status content, keep compact control columns (`...`) on `align-middle` so icon actions stay visually centered with primary row actions.
+- In Disabled tab rows, do not render overflow placeholders (`—`) in the overflow column; keep the cell empty so disabled rows clearly expose only the primary `Enable` action.
+- Totals rows must have a dedicated non-hover visual style (own background + fixed hover state), never the same tonal treatment as interactive row hover.
 - When defaulting users to `Enabled` for orientation, add concise guidance that points to `Disabled` for auth-required enablement.
 - In `Disabled`, `Enable` must be a prominent primary row action; do not hide primary source actions inside overflow.
 - Remove overflow menus from `Disabled` rows entirely to reduce duplicate affordances; keep overflow for `Enabled` row secondary actions only.
