@@ -182,12 +182,20 @@ export default function App() {
       markSearchesWelcomeToastSeen(window.localStorage, welcomeToastScope);
       toast({
         title: "Welcome to Job Finder",
-        description:
-          "The Enabled tab shows websites with public job postings. To enable sources like LinkedIn (where login is required), visit Disabled.",
-        action: (
-          <ToastAction altText="Switch to disabled sources" onClick={() => setSearchState("disabled")}>
-            Go to Disabled
-          </ToastAction>
+        description: (
+          <div className="space-y-3">
+            <p>
+              The Enabled tab shows websites with public job postings. To enable sources like
+              LinkedIn (where login is required), visit Disabled.
+            </p>
+            <ToastAction
+              altText="Switch to disabled sources"
+              className="w-fit"
+              onClick={() => setSearchState("disabled")}
+            >
+              Go to Disabled
+            </ToastAction>
+          </div>
         ),
       });
     }
