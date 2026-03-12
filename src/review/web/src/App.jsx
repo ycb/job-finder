@@ -638,7 +638,9 @@ export default function App() {
                           <TableHead>Imported</TableHead>
                           <TableHead>Avg Score</TableHead>
                           <TableHead className="w-[116px] pr-1 text-right">Action</TableHead>
-                          <TableHead className="w-[44px] pl-1 pr-2 text-right">More</TableHead>
+                          <TableHead className="w-[44px] pl-1 pr-2 text-right">
+                            <span className="sr-only">More actions</span>
+                          </TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -724,13 +726,13 @@ export default function App() {
                                 {row.enabled ? (
                                   <details className="relative inline-block shrink-0">
                                     <summary
-                                      className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-border text-sm"
+                                      className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-border text-sm [&::-webkit-details-marker]:hidden"
                                       aria-label="Source actions"
                                       title="Source actions"
                                     >
                                       ⋯
                                     </summary>
-                                    <div className="absolute bottom-full right-0 z-20 mb-1 min-w-[128px] rounded-md border border-border bg-card p-1 shadow-panel">
+                                    <div className="absolute right-full top-1/2 z-20 mr-2 min-w-[128px] -translate-y-1/2 rounded-md border border-border bg-card p-1 shadow-panel">
                                       {row.authRequired && row.readiness.tone === "warn" ? (
                                         <Button
                                           size="sm"

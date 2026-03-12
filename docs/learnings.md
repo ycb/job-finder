@@ -183,6 +183,7 @@ As of 2026-03-06.
 - Keep the Searches `Actions` column non-wrapping with a minimum width and right-aligned controls; wrapping CTA + overflow into a narrow cell creates compressed/touch-hostile UI.
 - Preserve action hierarchy in table design: primary CTA belongs in the `Action` column, overflow belongs in a dedicated `More` column/module to avoid mixed semantics and crowded controls.
 - In dense tables, keep `Action/More` columns compact (`w-*` + reduced cell padding) and prefer opening overflow menus upward to avoid overlapping the next row's CTA hit area.
+- If overflow overlap is acceptable, open the menu sideways/overlaying the row action region rather than between rows; this avoids visual competition from two simultaneous row CTAs.
 - When defaulting users to `Enabled` for orientation, add concise guidance that points to `Disabled` for auth-required enablement.
 - In `Disabled`, `Enable` must be a prominent primary row action; do not hide primary source actions inside overflow.
 - Remove overflow menus from `Disabled` rows entirely to reduce duplicate affordances; keep overflow for `Enabled` row secondary actions only.
