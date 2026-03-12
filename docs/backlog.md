@@ -189,6 +189,10 @@ The current backlog has strong item-level specs, but we need explicit epic-level
   - WHY: We need visible user value and enforceable usage controls to support a donation-backed early monetization model.
   - IMPACT: Clear value communication, configurable free-tier enforcement, and validated donation unlock flow.
   - NOTE: Specific variable values and tier definitions are in `docs/monetization.md`. Implementation must wire to those values: `FREE_RUNS_PER_MONTH=10`, `FREE_JOBS_IN_DB=500`, `DONATION_MINIMUM_USD=5`, `DONATION_UNLOCK_PERIOD_DAYS=30`, `SUPPORTER_RUNS_PER_MONTH=40`, `SUBSCRIPTION_MONTHLY_USD=9`. All values must be runtime-configurable without code changes.
+- `P1` Add owner-only alerting for non-actionable source drift (schema/parser/formatter), while keeping user status UI actionable-only. [Detailed spec](./backlog-specs/p1-operations-source-drift-owner-alerting.md)
+  - STATUS: Planned
+  - WHY: Users cannot remediate parser/schema drift and should not be asked to.
+  - IMPACT: Cleaner user UX with faster internal detection/remediation of source breakage.
 
 **Theme: Launch Readiness**
 - `P1` Implement CLI design system per `docs/cli-design.md`.
