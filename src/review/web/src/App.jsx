@@ -722,7 +722,7 @@ export default function App() {
                                   )}
                                 </div>
                               </TableCell>
-                              <TableCell className="w-[44px] py-2 pl-1 pr-2 text-right align-top">
+                              <TableCell className="w-[44px] py-2 pl-1 pr-2 text-right align-middle">
                                 {row.enabled ? (
                                   <details className="relative inline-block shrink-0">
                                     <summary
