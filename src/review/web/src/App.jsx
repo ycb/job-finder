@@ -182,6 +182,7 @@ export default function App() {
       markSearchesWelcomeToastSeen(window.localStorage, welcomeToastScope);
       toast({
         title: "Welcome to Job Finder",
+        duration: 2147483647,
         description: (
           <div className="space-y-3">
             <p>
@@ -434,7 +435,6 @@ export default function App() {
         body: JSON.stringify(payload),
       });
       await loadDashboard({ quiet: true });
-      toast({ title: "Consent saved", description: "You can now use Job Finder." });
     } catch (error) {
       toast({
         title: "Consent save failed",
