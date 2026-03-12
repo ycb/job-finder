@@ -637,7 +637,7 @@ export default function App() {
                           <TableHead>Dupes</TableHead>
                           <TableHead>Imported</TableHead>
                           <TableHead>Avg Score</TableHead>
-                          <TableHead>Actions</TableHead>
+                          <TableHead className="min-w-[180px] text-right">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -689,11 +689,12 @@ export default function App() {
                               <TableCell>{row.dedupedCount}</TableCell>
                               <TableCell>{row.importedCount}</TableCell>
                               <TableCell>{row.avgScore === null ? "n/a" : row.avgScore}</TableCell>
-                              <TableCell>
-                                <div className="flex flex-wrap items-center gap-2">
+                              <TableCell className="min-w-[180px]">
+                                <div className="flex items-center justify-end gap-2 whitespace-nowrap">
                                   {!row.enabled ? (
                                     <Button
                                       size="sm"
+                                      className="shrink-0"
                                       data-onboarding-enable-source={row.id}
                                       disabled={controlsDisabled}
                                       onClick={() => {
@@ -706,6 +707,7 @@ export default function App() {
                                     <>
                                       <Button
                                         size="sm"
+                                        className="shrink-0"
                                         variant="secondary"
                                         disabled={runNowDisabled}
                                         title={`Manual refreshes remaining today: ${row.manualRefreshRemaining}`}
@@ -718,6 +720,7 @@ export default function App() {
                                       {row.authRequired && row.readiness.tone === "warn" ? (
                                         <Button
                                           size="sm"
+                                          className="shrink-0"
                                           variant="secondary"
                                           data-onboarding-check-source={row.id}
                                           disabled={controlsDisabled}
@@ -728,7 +731,7 @@ export default function App() {
                                           Check access
                                         </Button>
                                       ) : null}
-                                      <details className="relative">
+                                      <details className="relative shrink-0">
                                         <summary
                                           className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-md border border-border text-sm"
                                           aria-label="Source actions"
