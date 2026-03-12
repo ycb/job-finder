@@ -637,8 +637,8 @@ export default function App() {
                           <TableHead>Dupes</TableHead>
                           <TableHead>Imported</TableHead>
                           <TableHead>Avg Score</TableHead>
-                          <TableHead className="min-w-[140px] text-right">Action</TableHead>
-                          <TableHead className="w-[56px] text-right">More</TableHead>
+                          <TableHead className="w-[116px] pr-1 text-right">Action</TableHead>
+                          <TableHead className="w-[44px] pl-1 pr-2 text-right">More</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -690,12 +690,12 @@ export default function App() {
                               <TableCell>{row.dedupedCount}</TableCell>
                               <TableCell>{row.importedCount}</TableCell>
                               <TableCell>{row.avgScore === null ? "n/a" : row.avgScore}</TableCell>
-                              <TableCell className="min-w-[140px]">
+                              <TableCell className="w-[116px] py-2 pl-1 pr-1">
                                 <div className="flex items-center justify-end whitespace-nowrap">
                                   {!row.enabled ? (
                                     <Button
                                       size="sm"
-                                      className="shrink-0"
+                                      className="h-8 shrink-0 px-3"
                                       data-onboarding-enable-source={row.id}
                                       disabled={controlsDisabled}
                                       onClick={() => {
@@ -707,7 +707,7 @@ export default function App() {
                                   ) : (
                                     <Button
                                       size="sm"
-                                      className="shrink-0"
+                                      className="h-8 shrink-0 px-3"
                                       variant="secondary"
                                       disabled={runNowDisabled}
                                       title={`Manual refreshes remaining today: ${row.manualRefreshRemaining}`}
@@ -720,17 +720,17 @@ export default function App() {
                                   )}
                                 </div>
                               </TableCell>
-                              <TableCell className="w-[56px] text-right">
+                              <TableCell className="w-[44px] py-2 pl-1 pr-2 text-right align-top">
                                 {row.enabled ? (
                                   <details className="relative inline-block shrink-0">
                                     <summary
-                                      className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-md border border-border text-sm"
+                                      className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-border text-sm"
                                       aria-label="Source actions"
                                       title="Source actions"
                                     >
                                       ⋯
                                     </summary>
-                                    <div className="absolute right-0 z-20 mt-1 min-w-[140px] rounded-md border border-border bg-card p-1 shadow-panel">
+                                    <div className="absolute bottom-full right-0 z-20 mb-1 min-w-[128px] rounded-md border border-border bg-card p-1 shadow-panel">
                                       {row.authRequired && row.readiness.tone === "warn" ? (
                                         <Button
                                           size="sm"
