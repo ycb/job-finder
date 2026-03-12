@@ -204,6 +204,7 @@ As of 2026-03-06.
 - Orientation guidance should use a true toast pattern: fixed top-right, animated entrance from the right, non-blocking with explicit CTA + dismiss.
 - For row-level status diagnostics, use on-demand toasts instead of persistent inline sub-status blocks/popovers so the primary status cell stays scannable.
 - For onboarding orientation toasts, use standard shadcn toast primitives (`Toaster` + `ToastAction`) and avoid one-off custom toast containers/styles.
+- Surface only actionable status issues to users (currently auth-required). Route formatter/schema drift diagnostics to internal alerts instead of user-facing row details.
 
 ## Dispatch and QA Commit Discipline
 

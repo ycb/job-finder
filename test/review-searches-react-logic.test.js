@@ -172,6 +172,31 @@ test("presentSearchStatus does not expose cache as a user-facing status label", 
   assert.equal(cachedReadyStatus.tone, "ok");
 });
 
+test("presentSearchStatus only exposes actionable auth-required details", () => {
+  const authRequiredStatus = presentSearchStatus({
+    enabled: true,
+    authRequired: true,
+    readiness: { key: "not_authorized" },
+    captureStatus: "ready",
+  });
+  assert.equal(authRequiredStatus.label, "not authorized");
+  assert.equal(authRequiredStatus.tone, "warn");
+  assert.equal(authRequiredStatus.statusDetail, "Sign in to this source, then run Check access from More.");
+
+  const nonActionableStatus = presentSearchStatus({
+    enabled: true,
+    authRequired: false,
+    captureStatus: "ready",
+    adapterHealthStatus: "failing",
+    adapterHealthReason: "selector changed",
+    formatterUnsupported: ["include_terms"],
+    formatterNotes: ["stubbed"],
+  });
+  assert.equal(nonActionableStatus.label, "ready");
+  assert.equal(nonActionableStatus.statusDetail, null);
+  assert.equal(nonActionableStatus.formatterDetail, "");
+});
+
 test("welcome toast + run cadence storage helpers persist values", () => {
   const storage = makeStorage();
   const scopeA = "scope-a";

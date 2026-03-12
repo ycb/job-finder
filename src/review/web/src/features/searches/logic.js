@@ -262,18 +262,17 @@ export function computeSearchTotals(searchRows = [], searchState = "enabled") {
 }
 
 export function presentSearchStatus(row) {
-  const healthStatus = row?.adapterHealthStatus || "unknown";
-  const healthTone =
-    healthStatus === "failing"
-      ? "error"
-      : healthStatus === "degraded"
-        ? "warn"
-        : null;
   const isDisabled = row?.enabled !== true;
+  const authActionRequired =
+    row?.enabled === true &&
+    row?.authRequired === true &&
+    row?.readiness?.key === "not_authorized";
 
   const tone = isDisabled
     ? "muted"
-    : healthTone ||
+    : authActionRequired
+      ? "warn"
+      :
       (row?.captureStatus === "capture_error"
         ? "error"
         : "ok");
@@ -289,45 +288,21 @@ export function presentSearchStatus(row) {
 
   const label = isDisabled
     ? "disabled"
-    : healthStatus === "failing" || healthStatus === "degraded"
-      ? "needs attention"
+    : authActionRequired
+      ? "not authorized"
       : tone === "error"
           ? "error"
           : statusLabelRaw;
 
-  const healthScore =
-    Number.isFinite(Number(row?.adapterHealthScore))
-      ? Math.round(Number(row.adapterHealthScore) * 100)
-      : null;
-
-  const healthUpdatedAtText =
-    typeof row?.adapterHealthUpdatedAt === "string" && row.adapterHealthUpdatedAt.trim()
-      ? formatRelativeTimestamp(row.adapterHealthUpdatedAt)
-      : null;
-
-  const statusDetail =
-    healthStatus === "failing" || healthStatus === "degraded"
-      ? `${row?.adapterHealthReason || "adapter needs attention"}${
-          healthUpdatedAtText ? ` · last signal ${healthUpdatedAtText}` : ""
-        }`
-      : row?.captureFunnelError ||
-        (healthStatus === "ok" && healthScore !== null
-          ? `health score ${healthScore}%`
-          : null);
-
-  const formatterDetailParts = [];
-  if (Array.isArray(row?.formatterUnsupported) && row.formatterUnsupported.length > 0) {
-    formatterDetailParts.push(`unsupported ${row.formatterUnsupported.join(", ")}`);
-  }
-  if (Array.isArray(row?.formatterNotes) && row.formatterNotes.length > 0) {
-    formatterDetailParts.push(...row.formatterNotes);
-  }
+  const statusDetail = authActionRequired
+    ? "Sign in to this source, then run Check access from More."
+    : null;
 
   return {
     tone,
     label,
     statusDetail,
-    formatterDetail: formatterDetailParts.join(" · "),
+    formatterDetail: "",
     foundLabel:
       row?.hasUnknownExpectedCount || !Number.isFinite(Number(row?.expectedFoundCount))
         ? `${Number(row?.importedCount || 0)}/?`
