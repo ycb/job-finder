@@ -600,38 +600,37 @@ export default function App() {
 
             <TabsContent value="searches">
               <div className="space-y-4">
-                <div className="searches-tabs-row">
-                  <Tabs value={selectedSearchState} onValueChange={setSearchState}>
-                    <TabsList>
-                      <TabsTrigger value="enabled">Enabled ({enabledRows.length})</TabsTrigger>
-                      <TabsTrigger value="disabled">Disabled ({disabledRows.length})</TabsTrigger>
-                    </TabsList>
-                  </Tabs>
-                </div>
-
-                  <Card className="searches-card">
+                <Card className="searches-card">
                   <CardHeader className="pb-4">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <CardTitle className="pt-1 text-base">My Job Searches</CardTitle>
-                      {selectedSearchState === "enabled" ? (
-                        <label className="w-full text-sm font-medium text-foreground sm:ml-auto sm:max-w-64">
-                          Search frequency
-                          <Select value={searchRunCadence} onValueChange={setSearchRunCadence}>
-                            <SelectTrigger id="search-run-cadence" className="mt-2 w-full">
-                              <SelectValue placeholder="Select search frequency" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectGroup>
-                                <SelectLabel>Run cadence</SelectLabel>
-                                <SelectItem value="12h">12h (recommended)</SelectItem>
-                                <SelectItem value="daily">Daily</SelectItem>
-                                <SelectItem value="weekly">Weekly</SelectItem>
-                                <SelectItem value="cached">Use cached results (dev)</SelectItem>
-                              </SelectGroup>
-                            </SelectContent>
-                          </Select>
-                        </label>
-                      ) : null}
+                      <div className="flex w-full flex-col gap-3 sm:w-auto sm:items-end">
+                        <Tabs value={selectedSearchState} onValueChange={setSearchState}>
+                          <TabsList>
+                            <TabsTrigger value="enabled">Enabled ({enabledRows.length})</TabsTrigger>
+                            <TabsTrigger value="disabled">Disabled ({disabledRows.length})</TabsTrigger>
+                          </TabsList>
+                        </Tabs>
+                        {selectedSearchState === "enabled" ? (
+                          <label className="w-full text-sm font-medium text-foreground sm:w-64">
+                            Search frequency
+                            <Select value={searchRunCadence} onValueChange={setSearchRunCadence}>
+                              <SelectTrigger id="search-run-cadence" className="mt-2 w-full">
+                                <SelectValue placeholder="Select search frequency" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectGroup>
+                                  <SelectLabel>Run cadence</SelectLabel>
+                                  <SelectItem value="12h">12h (recommended)</SelectItem>
+                                  <SelectItem value="daily">Daily</SelectItem>
+                                  <SelectItem value="weekly">Weekly</SelectItem>
+                                  <SelectItem value="cached">Use cached results (dev)</SelectItem>
+                                </SelectGroup>
+                              </SelectContent>
+                            </Select>
+                          </label>
+                        ) : null}
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
@@ -818,7 +817,7 @@ export default function App() {
                     ) : null}
 
                   </CardContent>
-                  </Card>
+                </Card>
               </div>
             </TabsContent>
 
