@@ -276,9 +276,7 @@ export function presentSearchStatus(row) {
     : healthTone ||
       (row?.captureStatus === "capture_error"
         ? "error"
-        : row?.hasCacheState
-          ? "warn"
-          : "ok");
+        : "ok");
 
   const statusLabelRaw =
     row?.captureStatus === "ready"
@@ -293,9 +291,7 @@ export function presentSearchStatus(row) {
     ? "disabled"
     : healthStatus === "failing" || healthStatus === "degraded"
       ? "needs attention"
-      : tone === "warn"
-        ? "cache"
-        : tone === "error"
+      : tone === "error"
           ? "error"
           : statusLabelRaw;
 
@@ -319,23 +315,6 @@ export function presentSearchStatus(row) {
           ? `health score ${healthScore}%`
           : null);
 
-  const refreshStatusReason =
-    typeof row?.refreshStatusReason === "string" && row.refreshStatusReason.trim()
-      ? row.refreshStatusReason.replaceAll("_", " ")
-      : "unknown";
-
-  const refreshServedFrom =
-    typeof row?.refreshServedFrom === "string" && row.refreshServedFrom.trim()
-      ? row.refreshServedFrom
-      : "unknown";
-
-  const refreshContextDetail = isDisabled
-    ? "refresh: disabled (not enabled)"
-    : `refresh: ${refreshStatusReason} (${refreshServedFrom})`;
-  const runDeltaDetail = row?.hasRunDelta
-    ? `run delta: new ${row.runNewCount} · updated ${row.runUpdatedCount} · unchanged ${row.runUnchangedCount}`
-    : "run delta: unavailable";
-
   const formatterDetailParts = [];
   if (Array.isArray(row?.formatterUnsupported) && row.formatterUnsupported.length > 0) {
     formatterDetailParts.push(`unsupported ${row.formatterUnsupported.join(", ")}`);
@@ -348,8 +327,6 @@ export function presentSearchStatus(row) {
     tone,
     label,
     statusDetail,
-    refreshContextDetail,
-    runDeltaDetail,
     formatterDetail: formatterDetailParts.join(" · "),
     foundLabel:
       row?.hasUnknownExpectedCount || !Number.isFinite(Number(row?.expectedFoundCount))

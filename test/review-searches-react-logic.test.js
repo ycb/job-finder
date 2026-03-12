@@ -159,7 +159,17 @@ test("presentSearchStatus prioritizes disabled state over capture readiness", ()
 
   assert.equal(disabledStatus.label, "disabled");
   assert.equal(disabledStatus.tone, "muted");
-  assert.equal(disabledStatus.refreshContextDetail, "refresh: disabled (not enabled)");
+});
+
+test("presentSearchStatus does not expose cache as a user-facing status label", () => {
+  const cachedReadyStatus = presentSearchStatus({
+    enabled: true,
+    captureStatus: "ready",
+    hasCacheState: true,
+  });
+
+  assert.equal(cachedReadyStatus.label, "ready");
+  assert.equal(cachedReadyStatus.tone, "ok");
 });
 
 test("welcome toast + run cadence storage helpers persist values", () => {

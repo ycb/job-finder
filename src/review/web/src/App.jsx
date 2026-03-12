@@ -645,6 +645,9 @@ export default function App() {
                       <TableBody>
                         {filteredRows.map((row) => {
                           const statusPresentation = presentSearchStatus(row);
+                          const hasStatusDetails =
+                            Boolean(statusPresentation.statusDetail) ||
+                            Boolean(statusPresentation.formatterDetail);
                           const runNowDisabled = controlsDisabled || !row.manualRefreshAllowed;
                           const runNowLabel = runNowDisabled
                             ? row.manualRefreshNextEligibleAt
@@ -692,22 +695,22 @@ export default function App() {
                                     />
                                     <span>{statusPresentation.label}</span>
                                   </div>
-                                  <details className="relative">
-                                    <summary
-                                      className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground [&::-webkit-details-marker]:hidden"
-                                      aria-label="Show status details"
-                                    >
-                                      i
-                                    </summary>
-                                    <div className="absolute left-0 top-full z-20 mt-2 w-64 rounded-md border border-border bg-card p-2 text-xs text-muted-foreground shadow-panel">
-                                      <p>{statusPresentation.refreshContextDetail}</p>
-                                      <p>{statusPresentation.runDeltaDetail}</p>
-                                      {statusPresentation.statusDetail ? <p>{statusPresentation.statusDetail}</p> : null}
-                                      {statusPresentation.formatterDetail ? (
-                                        <p>formatter: {statusPresentation.formatterDetail}</p>
-                                      ) : null}
-                                    </div>
-                                  </details>
+                                  {hasStatusDetails ? (
+                                    <details className="relative">
+                                      <summary
+                                        className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground [&::-webkit-details-marker]:hidden"
+                                        aria-label="Show status details"
+                                      >
+                                        i
+                                      </summary>
+                                      <div className="absolute left-0 top-full z-20 mt-2 w-64 rounded-md border border-border bg-card p-2 text-xs text-muted-foreground shadow-panel">
+                                        {statusPresentation.statusDetail ? <p>{statusPresentation.statusDetail}</p> : null}
+                                        {statusPresentation.formatterDetail ? (
+                                          <p>formatter: {statusPresentation.formatterDetail}</p>
+                                        ) : null}
+                                      </div>
+                                    </details>
+                                  ) : null}
                                 </div>
                               </TableCell>
                               <TableCell>{statusPresentation.foundLabel}</TableCell>
