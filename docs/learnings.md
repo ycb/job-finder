@@ -189,6 +189,7 @@ As of 2026-03-06.
 - In tall rows with multiline status content, keep compact control columns (`...`) on `align-middle` so icon actions stay visually centered with primary row actions.
 - In Disabled tab rows, do not render overflow placeholders (`—`) in the overflow column; keep the cell empty so disabled rows clearly expose only the primary `Enable` action.
 - Totals rows must have a dedicated non-hover visual style (own background + fixed hover state), never the same tonal treatment as interactive row hover.
+- For dense dashboard cards, move persistent controls (like `Search frequency`) into the card header rail aligned with the title to reduce vertical dead space above the table.
 - When defaulting users to `Enabled` for orientation, add concise guidance that points to `Disabled` for auth-required enablement.
 - In `Disabled`, `Enable` must be a prominent primary row action; do not hide primary source actions inside overflow.
 - Remove overflow menus from `Disabled` rows entirely to reduce duplicate affordances; keep overflow for `Enabled` row secondary actions only.

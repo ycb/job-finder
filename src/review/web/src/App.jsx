@@ -601,15 +601,13 @@ export default function App() {
                 {!consentGateRequired ? (
                   <Card className="searches-card">
                   <CardHeader className="pb-4">
-                    <CardTitle className="text-base">My Job Searches</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {selectedSearchState === "enabled" ? (
-                      <div className="search-controls-row">
-                        <label className="text-sm font-medium text-foreground">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <CardTitle className="pt-1 text-base">My Job Searches</CardTitle>
+                      {selectedSearchState === "enabled" ? (
+                        <label className="w-full text-sm font-medium text-foreground sm:ml-auto sm:max-w-64">
                           Search frequency
                           <Select value={searchRunCadence} onValueChange={setSearchRunCadence}>
-                            <SelectTrigger id="search-run-cadence" className="mt-2 w-full sm:w-64">
+                            <SelectTrigger id="search-run-cadence" className="mt-2 w-full">
                               <SelectValue placeholder="Select search frequency" />
                             </SelectTrigger>
                             <SelectContent>
@@ -623,9 +621,10 @@ export default function App() {
                             </SelectContent>
                           </Select>
                         </label>
-                      </div>
-                    ) : null}
-
+                      ) : null}
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
                     <Table>
                       <TableHeader>
                         <TableRow>
