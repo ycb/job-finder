@@ -25,6 +25,7 @@ import {
   buildSearchRows,
   computeSearchTotals,
   formatDurationFromNow,
+  formatRelativeTimestamp,
   hasSeenSearchesWelcomeToast,
   markSearchesWelcomeToastSeen,
   normalizeSearchState,

@@ -179,6 +179,7 @@ As of 2026-03-06.
 
 - Scope operational controls to the relevant tab context: show `Search frequency` only in `Enabled`, not `Disabled`.
 - In the Searches table, `enabled=false` must take precedence over capture/refresh signals in status presentation. Disabled rows should render `disabled`, muted tone, and disabled refresh copy (never `ready`).
+- After React refactors, run a production build and load-path sanity check for table helpers (`formatRelativeTimestamp` etc.); missing imports can pass unit tests but still white-screen at runtime.
 - When defaulting users to `Enabled` for orientation, add concise guidance that points to `Disabled` for auth-required enablement.
 - In `Disabled`, `Enable` must be a prominent primary row action; do not hide primary source actions inside overflow.
 - Remove overflow menus from `Disabled` rows entirely to reduce duplicate affordances; keep overflow for `Enabled` row secondary actions only.
