@@ -191,6 +191,7 @@ As of 2026-03-06.
 - Totals rows must have a dedicated non-hover visual style (own background + fixed hover state), never the same tonal treatment as interactive row hover.
 - For dense dashboard cards, move persistent controls (like `Search frequency`) into the card header rail aligned with the title to reduce vertical dead space above the table.
 - Keep table rows scannable with one primary status value in-cell; push secondary diagnostics (refresh context, run delta, formatter notes) into an on-demand hover/click popover.
+- For custom popovers/tooltips, do not combine browser-native `title` with custom overlays; it creates double-tooltips and visual noise.
 - When defaulting users to `Enabled` for orientation, add concise guidance that points to `Disabled` for auth-required enablement.
 - In `Disabled`, `Enable` must be a prominent primary row action; do not hide primary source actions inside overflow.
 - Remove overflow menus from `Disabled` rows entirely to reduce duplicate affordances; keep overflow for `Enabled` row secondary actions only.

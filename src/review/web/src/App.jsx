@@ -696,7 +696,6 @@ export default function App() {
                                     <summary
                                       className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground [&::-webkit-details-marker]:hidden"
                                       aria-label="Show status details"
-                                      title="Show status details"
                                     >
                                       i
                                     </summary>
