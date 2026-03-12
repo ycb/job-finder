@@ -670,20 +670,45 @@ export default function App() {
                               </TableCell>
                               <TableCell>{formatRelativeTimestamp(row.capturedAt)}</TableCell>
                               <TableCell className="max-w-[260px]">
-                                <div className="inline-flex items-center gap-2 rounded-full bg-secondary/60 px-2 py-1 text-xs font-semibold">
-                                  <span
-                                    aria-hidden="true"
-                                    className={cn("h-2 w-2 rounded-full", toneClassName(statusPresentation.tone))}
-                                  />
-                                  <span>{statusPresentation.label}</span>
-                                </div>
-                                <div className="mt-1 space-y-1 text-xs text-muted-foreground">
-                                  <p>{statusPresentation.refreshContextDetail}</p>
-                                  <p>{statusPresentation.runDeltaDetail}</p>
-                                  {statusPresentation.statusDetail ? <p>{statusPresentation.statusDetail}</p> : null}
-                                  {statusPresentation.formatterDetail ? (
-                                    <p>formatter: {statusPresentation.formatterDetail}</p>
-                                  ) : null}
+                                <div
+                                  className="inline-flex items-center gap-2"
+                                  onMouseEnter={(event) => {
+                                    const details = event.currentTarget.querySelector("details");
+                                    if (details instanceof HTMLDetailsElement) {
+                                      details.open = true;
+                                    }
+                                  }}
+                                  onMouseLeave={(event) => {
+                                    const details = event.currentTarget.querySelector("details");
+                                    if (details instanceof HTMLDetailsElement) {
+                                      details.open = false;
+                                    }
+                                  }}
+                                >
+                                  <div className="inline-flex items-center gap-2 rounded-full bg-secondary/60 px-2 py-1 text-xs font-semibold">
+                                    <span
+                                      aria-hidden="true"
+                                      className={cn("h-2 w-2 rounded-full", toneClassName(statusPresentation.tone))}
+                                    />
+                                    <span>{statusPresentation.label}</span>
+                                  </div>
+                                  <details className="relative">
+                                    <summary
+                                      className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground [&::-webkit-details-marker]:hidden"
+                                      aria-label="Show status details"
+                                      title="Show status details"
+                                    >
+                                      i
+                                    </summary>
+                                    <div className="absolute left-0 top-full z-20 mt-2 w-64 rounded-md border border-border bg-card p-2 text-xs text-muted-foreground shadow-panel">
+                                      <p>{statusPresentation.refreshContextDetail}</p>
+                                      <p>{statusPresentation.runDeltaDetail}</p>
+                                      {statusPresentation.statusDetail ? <p>{statusPresentation.statusDetail}</p> : null}
+                                      {statusPresentation.formatterDetail ? (
+                                        <p>formatter: {statusPresentation.formatterDetail}</p>
+                                      ) : null}
+                                    </div>
+                                  </details>
                                 </div>
                               </TableCell>
                               <TableCell>{statusPresentation.foundLabel}</TableCell>
