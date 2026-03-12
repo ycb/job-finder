@@ -144,6 +144,7 @@ As of 2026-03-06.
 - Avoid double-shell presentation in the consent gate (outer panel + inner card). Flatten the shell while gated so only one container is visible.
 - Keep legal/risk consent copy short and neutral; avoid over-legalized phrasing when user-approved wording is provided.
 - Do not trigger consent-gate re-render on checkbox `change`; only persist checkbox draft state and require explicit `Agree and Continue` action to advance.
+- Consent is a true interstitial: while gate is active, do not render app navigation/tabs/content behind or around it. Render consent surface only, then reveal shell after acceptance.
 
 ## Source Auth State Model
 

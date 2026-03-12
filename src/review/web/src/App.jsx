@@ -503,6 +503,80 @@ export default function App() {
             Manage saved searches, run intake, and review ranked jobs in one place.
           </CardDescription>
 
+          {consentGateRequired ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-xl">To access JobFinder, review and accept the following:</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <label className="flex items-start gap-3 text-sm text-foreground">
+                  <input
+                    id="onboarding-consent-legal"
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4"
+                    checked={consentDraft.legalAccepted}
+                    onChange={(event) => {
+                      setConsentDraft((current) => ({
+                        ...current,
+                        legalAccepted: event.target.checked,
+                      }));
+                    }}
+                  />
+                  <span>
+                    I have read and accept the{" "}
+                    <a
+                      className="underline"
+                      href={dashboard?.onboarding?.legalDocs?.termsUrl || "/policy/terms"}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                    >
+                      Terms of Service
+                    </a>{" "}
+                    and{" "}
+                    <a
+                      className="underline"
+                      href={dashboard?.onboarding?.legalDocs?.privacyUrl || "/policy/privacy"}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                    >
+                      Privacy Policy
+                    </a>.
+                  </span>
+                </label>
+
+                <label className="flex items-start gap-3 text-sm text-foreground">
+                  <input
+                    id="onboarding-consent-tos-risk"
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4"
+                    checked={consentDraft.tosRiskAccepted}
+                    onChange={(event) => {
+                      setConsentDraft((current) => ({
+                        ...current,
+                        tosRiskAccepted: event.target.checked,
+                      }));
+                    }}
+                  />
+                  <span>
+                    I understand some platforms restrict automated access from logged-in users and accept
+                    responsibility for my accounts.
+                  </span>
+                </label>
+
+                <div>
+                  <Button
+                    id="onboarding-save-consent"
+                    disabled={controlsDisabled}
+                    onClick={() => {
+                      void handleSaveConsent();
+                    }}
+                  >
+                    Agree and Continue
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
           <Tabs value={mainTab} onValueChange={setMainTab} className="w-full">
             <TabsList className="w-full justify-start">
               {MAIN_TABS.map((tab) => (
@@ -523,82 +597,6 @@ export default function App() {
                   </Tabs>
                 </div>
 
-                {consentGateRequired ? (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-xl">To access JobFinder, review and accept the following:</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <label className="flex items-start gap-3 text-sm text-foreground">
-                        <input
-                          id="onboarding-consent-legal"
-                          type="checkbox"
-                          className="mt-0.5 h-4 w-4"
-                          checked={consentDraft.legalAccepted}
-                          onChange={(event) => {
-                            setConsentDraft((current) => ({
-                              ...current,
-                              legalAccepted: event.target.checked,
-                            }));
-                          }}
-                        />
-                        <span>
-                          I have read and accept the{" "}
-                          <a
-                            className="underline"
-                            href={dashboard?.onboarding?.legalDocs?.termsUrl || "/policy/terms"}
-                            target="_blank"
-                            rel="noreferrer noopener"
-                          >
-                            Terms of Service
-                          </a>{" "}
-                          and{" "}
-                          <a
-                            className="underline"
-                            href={dashboard?.onboarding?.legalDocs?.privacyUrl || "/policy/privacy"}
-                            target="_blank"
-                            rel="noreferrer noopener"
-                          >
-                            Privacy Policy
-                          </a>.
-                        </span>
-                      </label>
-
-                      <label className="flex items-start gap-3 text-sm text-foreground">
-                        <input
-                          id="onboarding-consent-tos-risk"
-                          type="checkbox"
-                          className="mt-0.5 h-4 w-4"
-                          checked={consentDraft.tosRiskAccepted}
-                          onChange={(event) => {
-                            setConsentDraft((current) => ({
-                              ...current,
-                              tosRiskAccepted: event.target.checked,
-                            }));
-                          }}
-                        />
-                        <span>
-                          I understand some platforms restrict automated access from logged-in users and accept
-                          responsibility for my accounts.
-                        </span>
-                      </label>
-
-                      <div>
-                        <Button
-                          id="onboarding-save-consent"
-                          disabled={controlsDisabled}
-                          onClick={() => {
-                            void handleSaveConsent();
-                          }}
-                        >
-                          Agree and Continue
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ) : null}
-
-                {!consentGateRequired ? (
                   <Card className="searches-card">
                   <CardHeader className="pb-4">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -826,7 +824,6 @@ export default function App() {
                     ) : null}
                   </CardContent>
                   </Card>
-                ) : null}
               </div>
             </TabsContent>
 
@@ -846,6 +843,7 @@ export default function App() {
               </Card>
             </TabsContent>
           </Tabs>
+          )}
         </CardHeader>
       </Card>
 
