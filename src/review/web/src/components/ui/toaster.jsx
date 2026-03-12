@@ -1,6 +1,5 @@
 import {
   Toast,
-  ToastAction,
   ToastClose,
   ToastDescription,
   ToastProvider,
@@ -20,7 +19,7 @@ export function Toaster() {
             {title ? <ToastTitle>{title}</ToastTitle> : null}
             {description ? <ToastDescription>{description}</ToastDescription> : null}
           </div>
-          {action ? <ToastAction altText="Toast action">{action}</ToastAction> : null}
+          {action}
           <ToastClose />
         </Toast>
       ))}

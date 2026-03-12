@@ -19,6 +19,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ToastAction } from "@/components/ui/toast";
+import { Toaster } from "@/components/ui/toaster";
+import { useToast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
 import { buildConsentPayload } from "@/lib/onboarding";
 import {
@@ -98,8 +101,6 @@ export default function App() {
     }
     return readSearchRunCadence(window.localStorage);
   });
-  const [welcomeToastVisible, setWelcomeToastVisible] = useState(false);
-  const [feedback, setFeedback] = useState({ message: "", error: false });
   const [consentDraft, setConsentDraft] = useState({
     legalAccepted: false,
     tosRiskAccepted: false,
@@ -110,6 +111,7 @@ export default function App() {
     error: false,
     busy: false,
   });
+  const { toast } = useToast();
 
   const loadDashboard = useCallback(async (options = {}) => {
     const quiet = options.quiet === true;
@@ -120,28 +122,20 @@ export default function App() {
     try {
       const payload = await requestJson("/api/dashboard");
       setDashboard(payload);
-      if (!quiet) {
-        setFeedback({ message: "", error: false });
-      }
     } catch (error) {
-      setFeedback({
-        message: typeof error?.message === "string" ? error.message : "Unable to load dashboard.",
-        error: true,
+      toast({
+        title: "Dashboard unavailable",
+        description: typeof error?.message === "string" ? error.message : "Unable to load dashboard.",
+        variant: "destructive",
       });
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     void loadDashboard();
   }, [loadDashboard]);
-
-  useEffect(() => {
-    if (mainTab !== "searches" || normalizeSearchState(searchState) !== "enabled") {
-      setWelcomeToastVisible(false);
-    }
-  }, [mainTab, searchState]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -186,9 +180,18 @@ export default function App() {
 
     if (shouldShow) {
       markSearchesWelcomeToastSeen(window.localStorage, welcomeToastScope);
-      setWelcomeToastVisible(true);
+      toast({
+        title: "Welcome to Job Finder",
+        description:
+          "The Enabled tab shows websites with public job postings. To enable sources like LinkedIn (where login is required), visit Disabled.",
+        action: (
+          <ToastAction altText="Switch to disabled sources" onClick={() => setSearchState("disabled")}>
+            Go to Disabled
+          </ToastAction>
+        ),
+      });
     }
-  }, [consentGateRequired, dashboard, mainTab, searchState, welcomeToastScope]);
+  }, [consentGateRequired, dashboard, mainTab, searchState, toast, welcomeToastScope]);
 
   const searchRows = useMemo(
     () => buildSearchRows(rawSources, onboardingChecksBySourceId),
@@ -219,11 +222,15 @@ export default function App() {
 
   const ensureConsentAccepted = useCallback(() => {
     if (consentGateRequired) {
-      setFeedback({ message: CONSENT_REQUIRED_MESSAGE, error: true });
+      toast({
+        title: "Consent required",
+        description: CONSENT_REQUIRED_MESSAGE,
+        variant: "destructive",
+      });
       return false;
     }
     return true;
-  }, [consentGateRequired]);
+  }, [consentGateRequired, toast]);
 
   const persistEnabledSources = useCallback(
     async (enabledSourceIds) => {
@@ -247,11 +254,10 @@ export default function App() {
         return;
       }
       setBusyAction(`enable:${sourceId}`);
-      setFeedback({ message: `Enabling ${sourceName}...`, error: false });
       try {
         const nextEnabledIds = [...currentEnabledSourceIds(), sourceId];
         await persistEnabledSources(nextEnabledIds);
-        setFeedback({ message: `${sourceName} enabled.`, error: false });
+        toast({ title: "Source enabled", description: `${sourceName} is now enabled.` });
         const source = sourceById[sourceId];
         if (source?.authRequired === true) {
           setAuthFlow({
@@ -262,15 +268,16 @@ export default function App() {
           });
         }
       } catch (error) {
-        setFeedback({
-          message: typeof error?.message === "string" ? error.message : "Unable to enable source.",
-          error: true,
+        toast({
+          title: "Enable failed",
+          description: typeof error?.message === "string" ? error.message : "Unable to enable source.",
+          variant: "destructive",
         });
       } finally {
         setBusyAction("");
       }
     },
-    [currentEnabledSourceIds, ensureConsentAccepted, persistEnabledSources, sourceById],
+    [currentEnabledSourceIds, ensureConsentAccepted, persistEnabledSources, sourceById, toast],
   );
 
   const handleDisableSource = useCallback(
@@ -279,26 +286,26 @@ export default function App() {
         return;
       }
       setBusyAction(`disable:${sourceId}`);
-      setFeedback({ message: `Disabling ${sourceName}...`, error: false });
       try {
         const nextEnabledIds = currentEnabledSourceIds().filter((id) => id !== sourceId);
         await persistEnabledSources(nextEnabledIds);
-        setFeedback({ message: `${sourceName} disabled.`, error: false });
+        toast({ title: "Source disabled", description: `${sourceName} is now disabled.` });
         setAuthFlow((current) =>
           current.sourceId === sourceId
             ? { sourceId: null, message: "", error: false, busy: false }
             : current,
         );
       } catch (error) {
-        setFeedback({
-          message: typeof error?.message === "string" ? error.message : "Unable to disable source.",
-          error: true,
+        toast({
+          title: "Disable failed",
+          description: typeof error?.message === "string" ? error.message : "Unable to disable source.",
+          variant: "destructive",
         });
       } finally {
         setBusyAction("");
       }
     },
-    [currentEnabledSourceIds, ensureConsentAccepted, persistEnabledSources],
+    [currentEnabledSourceIds, ensureConsentAccepted, persistEnabledSources, toast],
   );
 
   const handleRunSourceNow = useCallback(
@@ -307,7 +314,6 @@ export default function App() {
         return;
       }
       setBusyAction(`run:${sourceId}`);
-      setFeedback({ message: "Running source now...", error: false });
       try {
         const payload = await requestJson(`/api/sources/${encodeURIComponent(sourceId)}/manual-refresh`, {
           method: "POST",
@@ -318,30 +324,30 @@ export default function App() {
           payload?.capture && typeof payload.capture.message === "string"
             ? payload.capture.message
             : "Manual refresh completed.";
-        setFeedback({ message: captureMessage, error: false });
+        toast({ title: "Run complete", description: captureMessage });
       } catch (error) {
         const nextEligibleAt =
           typeof error?.payload?.nextEligibleAt === "string"
             ? error.payload.nextEligibleAt
             : "";
         if (nextEligibleAt) {
-          setFeedback(
-            {
-              message: `Manual refresh unavailable. Available in ${formatDurationFromNow(nextEligibleAt)}.`,
-              error: true,
-            },
-          );
+          toast({
+            title: "Run unavailable",
+            description: `Available in ${formatDurationFromNow(nextEligibleAt)}.`,
+            variant: "destructive",
+          });
         } else {
-          setFeedback({
-            message: typeof error?.message === "string" ? error.message : "Unable to run source now.",
-            error: true,
+          toast({
+            title: "Run failed",
+            description: typeof error?.message === "string" ? error.message : "Unable to run source now.",
+            variant: "destructive",
           });
         }
       } finally {
         setBusyAction("");
       }
     },
-    [ensureConsentAccepted, loadDashboard],
+    [ensureConsentAccepted, loadDashboard, toast],
   );
 
   const handleCheckAccess = useCallback(
@@ -350,7 +356,6 @@ export default function App() {
         return false;
       }
       setBusyAction(`check:${sourceId}`);
-      setFeedback({ message: `Checking access for ${sourceName}...`, error: false });
       try {
         const source = sourceById[sourceId];
         const authRequired = source?.authRequired === true;
@@ -370,42 +375,32 @@ export default function App() {
             ? payload.result.status.toLowerCase()
             : "";
         if (status === "pass") {
-          setFeedback({ message: `${sourceName} is ready.`, error: false });
+          toast({ title: "Access check passed", description: `${sourceName} is ready.` });
           return true;
         } else {
-          setFeedback({ message: `${sourceName} is not authorized. Sign in and retry.`, error: true });
+          toast({
+            title: "Access check failed",
+            description: `${sourceName} is not authorized. Sign in and retry.`,
+            variant: "destructive",
+          });
           if (options.openSourceOnFail !== false && source?.searchUrl && authRequired) {
             window.open(source.searchUrl, "_blank", "noopener,noreferrer");
           }
           return false;
         }
       } catch (error) {
-        setFeedback({
-          message: typeof error?.message === "string" ? error.message : "Unable to check source access.",
-          error: true,
+        toast({
+          title: "Access check failed",
+          description: typeof error?.message === "string" ? error.message : "Unable to check source access.",
+          variant: "destructive",
         });
         return false;
       } finally {
         setBusyAction("");
       }
     },
-    [ensureConsentAccepted, loadDashboard, sourceById],
+    [ensureConsentAccepted, loadDashboard, sourceById, toast],
   );
-
-  const dismissWelcomeToast = useCallback(() => {
-    if (typeof window !== "undefined") {
-      markSearchesWelcomeToastSeen(window.localStorage, welcomeToastScope);
-    }
-    setWelcomeToastVisible(false);
-  }, [welcomeToastScope]);
-
-  const goToDisabledFromToast = useCallback(() => {
-    if (typeof window !== "undefined") {
-      markSearchesWelcomeToastSeen(window.localStorage, welcomeToastScope);
-    }
-    setWelcomeToastVisible(false);
-    setSearchState("disabled");
-  }, [welcomeToastScope]);
 
   const handleSaveConsent = useCallback(async () => {
     const payload = buildConsentPayload(consentDraft);
@@ -415,15 +410,15 @@ export default function App() {
       !payload.rateLimitPolicyAccepted ||
       !payload.tosRiskAccepted
     ) {
-      setFeedback({
-        message: "Accept all required acknowledgements in Step 1 before continuing.",
-        error: true,
+      toast({
+        title: "Consent required",
+        description: "Accept all required acknowledgements before continuing.",
+        variant: "destructive",
       });
       return;
     }
 
     setBusyAction("consent:save");
-    setFeedback({ message: "Saving legal consent...", error: false });
     try {
       await requestJson("/api/onboarding/consent", {
         method: "POST",
@@ -431,16 +426,17 @@ export default function App() {
         body: JSON.stringify(payload),
       });
       await loadDashboard({ quiet: true });
-      setFeedback({ message: "Saved. Next: choose sources in Step 1.", error: false });
+      toast({ title: "Consent saved", description: "You can now use Job Finder." });
     } catch (error) {
-      setFeedback({
-        message: typeof error?.message === "string" ? error.message : "Failed to save legal consent.",
-        error: true,
+      toast({
+        title: "Consent save failed",
+        description: typeof error?.message === "string" ? error.message : "Failed to save legal consent.",
+        variant: "destructive",
       });
     } finally {
       setBusyAction("");
     }
-  }, [consentDraft, loadDashboard]);
+  }, [consentDraft, loadDashboard, toast]);
 
   const authFlowSource =
     authFlow.sourceId && sourceById[authFlow.sourceId] ? sourceById[authFlow.sourceId] : null;
@@ -679,21 +675,7 @@ export default function App() {
                               </TableCell>
                               <TableCell>{formatRelativeTimestamp(row.capturedAt)}</TableCell>
                               <TableCell className="max-w-[260px]">
-                                <div
-                                  className="inline-flex items-center gap-2"
-                                  onMouseEnter={(event) => {
-                                    const details = event.currentTarget.querySelector("details");
-                                    if (details instanceof HTMLDetailsElement) {
-                                      details.open = true;
-                                    }
-                                  }}
-                                  onMouseLeave={(event) => {
-                                    const details = event.currentTarget.querySelector("details");
-                                    if (details instanceof HTMLDetailsElement) {
-                                      details.open = false;
-                                    }
-                                  }}
-                                >
+                                <div className="inline-flex items-center gap-2">
                                   <div className="inline-flex items-center gap-2 rounded-full bg-secondary/60 px-2 py-1 text-xs font-semibold">
                                     <span
                                       aria-hidden="true"
@@ -702,20 +684,27 @@ export default function App() {
                                     <span>{statusPresentation.label}</span>
                                   </div>
                                   {hasStatusDetails ? (
-                                    <details className="relative">
-                                      <summary
-                                        className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground [&::-webkit-details-marker]:hidden"
-                                        aria-label="Show status details"
-                                      >
-                                        i
-                                      </summary>
-                                      <div className="absolute left-0 top-full z-20 mt-2 w-64 rounded-md border border-border bg-card p-2 text-xs text-muted-foreground shadow-panel">
-                                        {statusPresentation.statusDetail ? <p>{statusPresentation.statusDetail}</p> : null}
-                                        {statusPresentation.formatterDetail ? (
-                                          <p>formatter: {statusPresentation.formatterDetail}</p>
-                                        ) : null}
-                                      </div>
-                                    </details>
+                                    <button
+                                      type="button"
+                                      className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground"
+                                      aria-label="Show status details"
+                                      onClick={() => {
+                                        const details = [
+                                          statusPresentation.statusDetail,
+                                          statusPresentation.formatterDetail
+                                            ? `formatter: ${statusPresentation.formatterDetail}`
+                                            : "",
+                                        ]
+                                          .filter(Boolean)
+                                          .join(" ");
+                                        toast({
+                                          title: `${row.label}: status details`,
+                                          description: details,
+                                        });
+                                      }}
+                                    >
+                                      i
+                                    </button>
                                   ) : null}
                                 </div>
                               </TableCell>
@@ -820,16 +809,6 @@ export default function App() {
                       <p className="text-sm text-muted-foreground">No sources in this tab.</p>
                     ) : null}
 
-                    {feedback.message ? (
-                      <p
-                        className={cn(
-                          "text-sm",
-                          feedback.error ? "text-destructive" : "text-muted-foreground",
-                        )}
-                      >
-                        {feedback.message}
-                      </p>
-                    ) : null}
                   </CardContent>
                   </Card>
               </div>
@@ -916,27 +895,7 @@ export default function App() {
         </div>
       ) : null}
 
-      {welcomeToastVisible && mainTab === "searches" && selectedSearchState === "enabled" ? (
-        <aside className="fixed right-4 top-4 z-50 w-[min(420px,calc(100vw-2rem))] rounded-lg border border-border bg-card p-4 shadow-panel animate-fade-in">
-          <button
-            type="button"
-            aria-label="Close welcome message"
-            className="absolute right-2 top-2 rounded-md p-1 text-sm text-muted-foreground hover:text-foreground"
-            onClick={dismissWelcomeToast}
-          >
-            ×
-          </button>
-          <p className="pr-6 text-sm text-foreground">
-            Welcome to Job Finder! The Enabled tab shows websites with public job postings. To
-            enable sources like LinkedIn (where login is required) visit the Disabled tab.
-          </p>
-          <div className="mt-3 flex items-center gap-2">
-            <Button size="sm" variant="secondary" onClick={goToDisabledFromToast}>
-              Go to Disabled
-            </Button>
-          </div>
-        </aside>
-      ) : null}
+      <Toaster />
     </main>
   );
 }

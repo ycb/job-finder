@@ -202,6 +202,8 @@ As of 2026-03-06.
 - For auth-required source enablement, enforce one-source-at-a-time with a guided modal flow (`Open source` -> user signs in -> `I'm logged in` auth probe).
 - Use explicit positive-success copy in auth modals: `Success! <Source> is now enabled.` instead of vague readiness text.
 - Orientation guidance should use a true toast pattern: fixed top-right, animated entrance from the right, non-blocking with explicit CTA + dismiss.
+- For row-level status diagnostics, use on-demand toasts instead of persistent inline sub-status blocks/popovers so the primary status cell stays scannable.
+- For onboarding orientation toasts, use standard shadcn toast primitives (`Toaster` + `ToastAction`) and avoid one-off custom toast containers/styles.
 
 ## Dispatch and QA Commit Discipline
 
