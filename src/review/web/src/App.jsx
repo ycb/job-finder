@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import { buildConsentPayload, getCheckButtonLabel, groupOnboardingSources } from "@/lib/onboarding";
+import { buildConsentPayload } from "@/lib/onboarding";
 import {
   buildSearchRows,
   computeSearchTotals,
@@ -31,6 +31,7 @@ import {
   normalizeSearchState,
   persistSearchRunCadence,
   readSearchRunCadence,
+  resolveSearchesWelcomeToastScope,
   shouldShowSearchesWelcomeToast,
   splitSearchRows,
 } from "@/features/searches/logic";
@@ -44,34 +45,6 @@ const MAIN_TABS = [
 const AUTH_FLOW_HELP_TEXT = "Step 1: Open source. Step 2: Sign in. Step 3: Click I'm logged in.";
 const CONSENT_REQUIRED_MESSAGE =
   "Before continuing, review Terms + Privacy and accept the consent checkboxes in Step 1.";
-
-function StatusChip({ readiness }) {
-  const toneClass =
-    readiness.tone === "ok"
-      ? "border-emerald-200 bg-emerald-100 text-emerald-900"
-      : readiness.tone === "warn"
-        ? "border-amber-200 bg-amber-100 text-amber-900"
-        : "border-slate-200 bg-slate-100 text-slate-700";
-
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium",
-        toneClass,
-      )}
-    >
-      {readiness.label}
-    </span>
-  );
-}
-
-function EmptyGroupState({ children }) {
-  return (
-    <div className="rounded-lg border border-dashed border-border/80 px-3 py-2 text-sm text-muted-foreground">
-      {children}
-    </div>
-  );
-}
 
 function statusPresentationForRow(row) {
   const healthStatus = row.adapterHealthStatus || "unknown";
@@ -256,24 +229,6 @@ export default function App() {
   }, [loadDashboard]);
 
   useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    const hasSeenToast = hasSeenSearchesWelcomeToast(window.localStorage);
-    const shouldShow = shouldShowSearchesWelcomeToast({
-      mainTab,
-      searchState,
-      hasSeenToast,
-    });
-
-    if (shouldShow) {
-      markSearchesWelcomeToastSeen(window.localStorage);
-      setWelcomeToastVisible(true);
-    }
-  }, [mainTab, searchState]);
-
-  useEffect(() => {
     if (mainTab !== "searches" || normalizeSearchState(searchState) !== "enabled") {
       setWelcomeToastVisible(false);
     }
@@ -300,15 +255,31 @@ export default function App() {
     }
     return lookup;
   }, [rawSources]);
-  const onboardingGroups = useMemo(
-    () => groupOnboardingSources(rawSources, onboardingChecksBySourceId),
-    [rawSources, onboardingChecksBySourceId],
-  );
-  const onboardingEnabledCount = onboardingGroups.enabled.length;
-  const onboardingDisabledCount = onboardingGroups.notEnabled.length;
   const consentGateRequired =
     dashboard?.onboarding?.enabled === true &&
     dashboard?.onboarding?.consentComplete !== true;
+  const welcomeToastScope = useMemo(
+    () => resolveSearchesWelcomeToastScope(dashboard),
+    [dashboard],
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !dashboard || consentGateRequired) {
+      return;
+    }
+
+    const hasSeenToast = hasSeenSearchesWelcomeToast(window.localStorage, welcomeToastScope);
+    const shouldShow = shouldShowSearchesWelcomeToast({
+      mainTab,
+      searchState,
+      hasSeenToast,
+    });
+
+    if (shouldShow) {
+      markSearchesWelcomeToastSeen(window.localStorage, welcomeToastScope);
+      setWelcomeToastVisible(true);
+    }
+  }, [consentGateRequired, dashboard, mainTab, searchState, welcomeToastScope]);
 
   const searchRows = useMemo(
     () => buildSearchRows(rawSources, onboardingChecksBySourceId),
@@ -514,18 +485,18 @@ export default function App() {
 
   const dismissWelcomeToast = useCallback(() => {
     if (typeof window !== "undefined") {
-      markSearchesWelcomeToastSeen(window.localStorage);
+      markSearchesWelcomeToastSeen(window.localStorage, welcomeToastScope);
     }
     setWelcomeToastVisible(false);
-  }, []);
+  }, [welcomeToastScope]);
 
   const goToDisabledFromToast = useCallback(() => {
     if (typeof window !== "undefined") {
-      markSearchesWelcomeToastSeen(window.localStorage);
+      markSearchesWelcomeToastSeen(window.localStorage, welcomeToastScope);
     }
     setWelcomeToastVisible(false);
     setSearchState("disabled");
-  }, []);
+  }, [welcomeToastScope]);
 
   const handleSaveConsent = useCallback(async () => {
     const payload = buildConsentPayload(consentDraft);
@@ -603,90 +574,6 @@ export default function App() {
         : `${authFlowSource.name} is not authorized. Sign in and retry.`,
     }));
   }, [authFlow.busy, authFlowSource, handleCheckAccess]);
-
-  const renderOnboardingSourceRow = useCallback((source) => {
-    const readiness = onboardingGroups.readinessBySourceId[source.id] || {
-      key: "disabled",
-      label: "Disabled",
-      tone: "muted",
-    };
-    const sourceCheck = onboardingChecksBySourceId[source.id];
-    const checkStatus =
-      sourceCheck && sourceCheck.status ? String(sourceCheck.status).toLowerCase() : "";
-    const hasPriorFailedCheck = Boolean(checkStatus) && checkStatus !== "pass";
-    const isBusyRow = busyAction === `check:${source.id}`;
-    const disableControls =
-      controlsDisabled || (Boolean(authFlow.sourceId) && authFlow.sourceId !== source.id);
-    const canEnable = readiness.key === "disabled";
-    const canCheck = source.authRequired === true && readiness.key === "not_authorized";
-    const checkButtonLabel = getCheckButtonLabel({
-      isBusy: isBusyRow,
-      hasPriorFailedCheck,
-    });
-
-    return (
-      <div key={source.id} className="rounded-xl border border-border/80 bg-card/60 p-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="space-y-1">
-            <div className="font-medium text-foreground">{source.name}</div>
-            <div className="text-xs text-muted-foreground">{source.id}</div>
-          </div>
-          <StatusChip readiness={readiness} />
-        </div>
-
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          {canEnable ? (
-            <Button
-              size="sm"
-              data-onboarding-enable-source={source.id}
-              disabled={disableControls}
-              onClick={() => {
-                void handleEnableSource(source.id, source.name);
-              }}
-            >
-              Enable
-            </Button>
-          ) : null}
-
-          {canCheck ? (
-            <Button
-              size="sm"
-              data-onboarding-check-source={source.id}
-              disabled={disableControls}
-              onClick={() => {
-                void handleCheckAccess(source.id, source.name);
-              }}
-            >
-              {checkButtonLabel}
-            </Button>
-          ) : null}
-
-          {!canEnable ? (
-            <Button
-              size="sm"
-              variant="outline"
-              data-onboarding-disable-source={source.id}
-              disabled={disableControls}
-              onClick={() => {
-                void handleDisableSource(source.id, source.name);
-              }}
-            >
-              Disable
-            </Button>
-          ) : null}
-        </div>
-      </div>
-    );
-  }, [
-    authFlow.sourceId,
-    busyAction,
-    controlsDisabled,
-    handleCheckAccess,
-    handleDisableSource,
-    handleEnableSource,
-    onboardingChecksBySourceId,
-    onboardingGroups.readinessBySourceId,
-  ]);
 
   if (loading && !dashboard) {
     return (
@@ -800,52 +687,10 @@ export default function App() {
                       </div>
                     </CardContent>
                   </Card>
-                ) : (
-                  <Card data-onboarding-section="sources">
-                    <CardHeader>
-                      <CardTitle className="text-xl">Connect your sources</CardTitle>
-                      <CardDescription>
-                        Enabled and auth-required groups update automatically after each access check.
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-6">
-                      <section data-onboarding-group="enabled" className="space-y-3">
-                        <h3 className="text-base font-semibold">Enabled ({onboardingEnabledCount})</h3>
-                        {onboardingGroups.enabled.length > 0 ? (
-                          <div className="grid gap-3">
-                            {onboardingGroups.enabled.map((source) => renderOnboardingSourceRow(source))}
-                          </div>
-                        ) : (
-                          <EmptyGroupState>No enabled sources yet.</EmptyGroupState>
-                        )}
-                      </section>
+                ) : null}
 
-                      <section data-onboarding-group="auth-required" className="space-y-3">
-                        <h3 className="text-base font-semibold">Authentication Required</h3>
-                        {onboardingGroups.authRequired.length > 0 ? (
-                          <div className="grid gap-3">
-                            {onboardingGroups.authRequired.map((source) => renderOnboardingSourceRow(source))}
-                          </div>
-                        ) : (
-                          <EmptyGroupState>No sources currently need authentication.</EmptyGroupState>
-                        )}
-                      </section>
-
-                      <section data-onboarding-group="not-enabled" className="space-y-3">
-                        <h3 className="text-base font-semibold">Not Enabled ({onboardingDisabledCount})</h3>
-                        {onboardingGroups.notEnabled.length > 0 ? (
-                          <div className="grid gap-3">
-                            {onboardingGroups.notEnabled.map((source) => renderOnboardingSourceRow(source))}
-                          </div>
-                        ) : (
-                          <EmptyGroupState>No disabled sources.</EmptyGroupState>
-                        )}
-                      </section>
-                    </CardContent>
-                  </Card>
-                )}
-
-                <Card className="searches-card">
+                {!consentGateRequired ? (
+                  <Card className="searches-card">
                   <CardHeader className="pb-4">
                     <CardTitle className="text-base">My Job Searches</CardTitle>
                   </CardHeader>
@@ -940,6 +785,7 @@ export default function App() {
                                   {!row.enabled ? (
                                     <Button
                                       size="sm"
+                                      data-onboarding-enable-source={row.id}
                                       disabled={controlsDisabled}
                                       onClick={() => {
                                         void handleEnableSource(row.id, row.label);
@@ -964,6 +810,7 @@ export default function App() {
                                         <Button
                                           size="sm"
                                           variant="secondary"
+                                          data-onboarding-check-source={row.id}
                                           disabled={controlsDisabled}
                                           onClick={() => {
                                             void handleCheckAccess(row.id, row.label);
@@ -985,6 +832,7 @@ export default function App() {
                                             size="sm"
                                             variant="ghost"
                                             className="w-full justify-start"
+                                            data-onboarding-disable-source={row.id}
                                             disabled={controlsDisabled}
                                             onClick={() => {
                                               void handleDisableSource(row.id, row.label);
@@ -1033,7 +881,8 @@ export default function App() {
                       </p>
                     ) : null}
                   </CardContent>
-                </Card>
+                  </Card>
+                ) : null}
               </div>
             </TabsContent>
 

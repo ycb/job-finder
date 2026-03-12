@@ -273,17 +273,29 @@ export function shouldShowSearchesWelcomeToast({
   );
 }
 
-export function hasSeenSearchesWelcomeToast(storage) {
+export function resolveSearchesWelcomeToastScope(dashboard) {
+  const sourcesConfiguredAt =
+    typeof dashboard?.onboarding?.sourcesConfiguredAt === "string"
+      ? dashboard.onboarding.sourcesConfiguredAt.trim()
+      : "";
+  const startedAt =
+    typeof dashboard?.onboarding?.startedAt === "string"
+      ? dashboard.onboarding.startedAt.trim()
+      : "";
+  return sourcesConfiguredAt || startedAt || "global";
+}
+
+export function hasSeenSearchesWelcomeToast(storage, scope = "global") {
   try {
-    return storage?.getItem(SEARCHES_WELCOME_TOAST_SEEN_KEY) === "1";
+    return storage?.getItem(SEARCHES_WELCOME_TOAST_SEEN_KEY) === String(scope);
   } catch {
     return false;
   }
 }
 
-export function markSearchesWelcomeToastSeen(storage) {
+export function markSearchesWelcomeToastSeen(storage, scope = "global") {
   try {
-    storage?.setItem(SEARCHES_WELCOME_TOAST_SEEN_KEY, "1");
+    storage?.setItem(SEARCHES_WELCOME_TOAST_SEEN_KEY, String(scope));
   } catch {
     // no-op
   }

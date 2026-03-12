@@ -15,6 +15,7 @@ import {
   onboardingReadinessState,
   persistSearchRunCadence,
   readSearchRunCadence,
+  resolveSearchesWelcomeToastScope,
   shouldShowSearchesWelcomeToast,
   splitSearchRows,
 } from "../src/review/web/src/features/searches/logic.js";
@@ -142,17 +143,43 @@ test("computeSearchTotals rolls up counts and weighted avg score", () => {
 
 test("welcome toast + run cadence storage helpers persist values", () => {
   const storage = makeStorage();
+  const scopeA = "scope-a";
+  const scopeB = "scope-b";
 
-  assert.equal(hasSeenSearchesWelcomeToast(storage), false);
-  markSearchesWelcomeToastSeen(storage);
-  assert.equal(hasSeenSearchesWelcomeToast(storage), true);
-  assert.equal(storage.getItem(SEARCHES_WELCOME_TOAST_SEEN_KEY), "1");
+  assert.equal(hasSeenSearchesWelcomeToast(storage, scopeA), false);
+  markSearchesWelcomeToastSeen(storage, scopeA);
+  assert.equal(hasSeenSearchesWelcomeToast(storage, scopeA), true);
+  assert.equal(hasSeenSearchesWelcomeToast(storage, scopeB), false);
+  assert.equal(storage.getItem(SEARCHES_WELCOME_TOAST_SEEN_KEY), scopeA);
+
+  markSearchesWelcomeToastSeen(storage, scopeB);
+  assert.equal(hasSeenSearchesWelcomeToast(storage, scopeB), true);
+  assert.equal(storage.getItem(SEARCHES_WELCOME_TOAST_SEEN_KEY), scopeB);
 
   assert.equal(readSearchRunCadence(storage), "12h");
   const persisted = persistSearchRunCadence(storage, "daily");
   assert.equal(persisted, "daily");
   assert.equal(readSearchRunCadence(storage), "daily");
   assert.equal(storage.getItem(SEARCH_RUN_CADENCE_KEY), "daily");
+});
+
+test("resolveSearchesWelcomeToastScope uses onboarding timestamps", () => {
+  assert.equal(resolveSearchesWelcomeToastScope(null), "global");
+  assert.equal(
+    resolveSearchesWelcomeToastScope({
+      onboarding: { startedAt: "2026-03-11T10:00:00.000Z" },
+    }),
+    "2026-03-11T10:00:00.000Z",
+  );
+  assert.equal(
+    resolveSearchesWelcomeToastScope({
+      onboarding: {
+        startedAt: "2026-03-11T10:00:00.000Z",
+        sourcesConfiguredAt: "2026-03-11T11:00:00.000Z",
+      },
+    }),
+    "2026-03-11T11:00:00.000Z",
+  );
 });
 
 test("shouldShowSearchesWelcomeToast only allows first enabled searches visit", () => {

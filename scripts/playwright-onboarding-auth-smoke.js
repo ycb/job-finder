@@ -151,6 +151,17 @@ async function runSmoke(options) {
       timeout: options.timeoutMs
     });
 
+    const disabledTab = page.getByRole("tab", { name: /^Disabled \(/ });
+    await disabledTab.click();
+    await page.waitForFunction(() => {
+      const activeTab = document.querySelector('[role="tab"][data-state="active"]');
+      if (!activeTab) {
+        return false;
+      }
+      const text = (activeTab.textContent || "").trim();
+      return text.startsWith("Disabled");
+    });
+
     const enableSelector = `[data-onboarding-enable-source='${authCandidate.id}']`;
     await page.waitForSelector(enableSelector, { timeout: options.timeoutMs });
     await page.click(enableSelector);
