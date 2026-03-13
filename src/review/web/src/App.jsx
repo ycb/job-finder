@@ -1172,10 +1172,11 @@ export default function App() {
                   <CardContent className="space-y-4">
                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                       <label className="block text-sm font-medium text-foreground">
-                        Title
+                        Job title
                         <input
                           className={FIELD_CLASSNAME}
                           data-jobs-criteria-title="1"
+                          placeholder="Product manager"
                           value={criteriaDraft.title}
                           onChange={(event) =>
                             setCriteriaDraft((current) => ({ ...current, title: event.target.value }))
