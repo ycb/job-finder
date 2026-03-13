@@ -1377,8 +1377,8 @@ export default function App() {
             </TabsContent>
 
             <TabsContent value="jobs">
-              <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,360px)_minmax(0,1fr)]">
-                <Card className="xl:sticky xl:top-6 xl:self-start">
+              <div className="space-y-4">
+                <Card>
                   <CardHeader>
                     <CardTitle className="text-base">Find Jobs</CardTitle>
                     <CardDescription>
@@ -1386,151 +1386,157 @@ export default function App() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <label className="block text-sm font-medium text-foreground">
-                      Title
-                      <input
-                        className={FIELD_CLASSNAME}
-                        data-jobs-criteria-title="1"
-                        value={criteriaDraft.title}
-                        onChange={(event) =>
-                          setCriteriaDraft((current) => ({ ...current, title: event.target.value }))
-                        }
-                      />
-                    </label>
+                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                      <label className="block text-sm font-medium text-foreground">
+                        Title
+                        <input
+                          className={FIELD_CLASSNAME}
+                          data-jobs-criteria-title="1"
+                          value={criteriaDraft.title}
+                          onChange={(event) =>
+                            setCriteriaDraft((current) => ({ ...current, title: event.target.value }))
+                          }
+                        />
+                      </label>
 
-                    <label className="block text-sm font-medium text-foreground">
-                      Keywords
-                      <input
-                        className={FIELD_CLASSNAME}
-                        data-jobs-criteria-keywords="1"
-                        value={criteriaDraft.keywords}
-                        onChange={(event) =>
-                          setCriteriaDraft((current) => ({ ...current, keywords: event.target.value }))
-                        }
-                      />
-                    </label>
+                      <label className="block text-sm font-medium text-foreground">
+                        Keywords
+                        <input
+                          className={FIELD_CLASSNAME}
+                          data-jobs-criteria-keywords="1"
+                          value={criteriaDraft.keywords}
+                          onChange={(event) =>
+                            setCriteriaDraft((current) => ({ ...current, keywords: event.target.value }))
+                          }
+                        />
+                      </label>
 
-                    <label className="block text-sm font-medium text-foreground">
-                      Keyword mode
-                      <select
-                        className={FIELD_CLASSNAME}
-                        data-jobs-criteria-keyword-mode="1"
-                        value={criteriaDraft.keywordMode}
-                        onChange={(event) =>
-                          setCriteriaDraft((current) => ({
-                            ...current,
-                            keywordMode: event.target.value,
-                          }))
-                        }
+                      <label className="block text-sm font-medium text-foreground">
+                        Keyword mode
+                        <select
+                          className={FIELD_CLASSNAME}
+                          data-jobs-criteria-keyword-mode="1"
+                          value={criteriaDraft.keywordMode}
+                          onChange={(event) =>
+                            setCriteriaDraft((current) => ({
+                              ...current,
+                              keywordMode: event.target.value,
+                            }))
+                          }
+                        >
+                          <option value="and">Match all keywords</option>
+                          <option value="or">Match any keyword</option>
+                        </select>
+                      </label>
+
+                      <label className="block text-sm font-medium text-foreground">
+                        Location
+                        <input
+                          className={FIELD_CLASSNAME}
+                          data-jobs-criteria-location="1"
+                          value={criteriaDraft.location}
+                          onChange={(event) =>
+                            setCriteriaDraft((current) => ({ ...current, location: event.target.value }))
+                          }
+                        />
+                      </label>
+
+                      <label className="block text-sm font-medium text-foreground md:col-span-2 xl:col-span-2">
+                        Include terms
+                        <input
+                          className={FIELD_CLASSNAME}
+                          data-jobs-criteria-include-terms="1"
+                          placeholder="ai, platform, growth"
+                          value={criteriaDraft.includeTerms}
+                          onChange={(event) =>
+                            setCriteriaDraft((current) => ({
+                              ...current,
+                              includeTerms: event.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+
+                      <label className="block text-sm font-medium text-foreground md:col-span-2 xl:col-span-2">
+                        Exclude terms
+                        <input
+                          className={FIELD_CLASSNAME}
+                          data-jobs-criteria-exclude-terms="1"
+                          placeholder="staffing, internship"
+                          value={criteriaDraft.excludeTerms}
+                          onChange={(event) =>
+                            setCriteriaDraft((current) => ({
+                              ...current,
+                              excludeTerms: event.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+
+                      <label className="block text-sm font-medium text-foreground">
+                        Minimum salary
+                        <input
+                          className={FIELD_CLASSNAME}
+                          data-jobs-criteria-min-salary="1"
+                          inputMode="numeric"
+                          placeholder="200000"
+                          value={criteriaDraft.minSalary}
+                          onChange={(event) =>
+                            setCriteriaDraft((current) => ({
+                              ...current,
+                              minSalary: event.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+
+                      <label className="block text-sm font-medium text-foreground">
+                        Date posted
+                        <select
+                          className={FIELD_CLASSNAME}
+                          data-jobs-criteria-date-posted="1"
+                          value={criteriaDraft.datePosted}
+                          onChange={(event) =>
+                            setCriteriaDraft((current) => ({
+                              ...current,
+                              datePosted: event.target.value,
+                            }))
+                          }
+                        >
+                          <option value="">Not set</option>
+                          <option value="any">Any time</option>
+                          <option value="1d">Past 24 hours</option>
+                          <option value="3d">Past 3 days</option>
+                          <option value="1w">Past week</option>
+                          <option value="2w">Past 2 weeks</option>
+                          <option value="1m">Past month</option>
+                        </select>
+                      </label>
+                    </div>
+
+                    <div className="flex flex-col gap-3 rounded-lg border border-border/70 bg-secondary/30 p-3 md:flex-row md:items-center md:justify-between">
+                      <div className="text-sm text-muted-foreground">
+                        <p>Enabled sources: {visibleJobSources.length}</p>
+                        <p>
+                          Active queue: {activeJobs.length}. Applied: {appliedJobs.length}.
+                        </p>
+                      </div>
+                      <Button
+                        className="w-full md:w-auto"
+                        data-jobs-find="1"
+                        disabled={jobsControlsDisabled}
+                        onClick={() => {
+                          void handleFindJobs();
+                        }}
                       >
-                        <option value="and">Match all keywords</option>
-                        <option value="or">Match any keyword</option>
-                      </select>
-                    </label>
-
-                    <label className="block text-sm font-medium text-foreground">
-                      Include terms
-                      <input
-                        className={FIELD_CLASSNAME}
-                        data-jobs-criteria-include-terms="1"
-                        placeholder="ai, platform, growth"
-                        value={criteriaDraft.includeTerms}
-                        onChange={(event) =>
-                          setCriteriaDraft((current) => ({
-                            ...current,
-                            includeTerms: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-
-                    <label className="block text-sm font-medium text-foreground">
-                      Exclude terms
-                      <input
-                        className={FIELD_CLASSNAME}
-                        data-jobs-criteria-exclude-terms="1"
-                        placeholder="staffing, internship"
-                        value={criteriaDraft.excludeTerms}
-                        onChange={(event) =>
-                          setCriteriaDraft((current) => ({
-                            ...current,
-                            excludeTerms: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-
-                    <label className="block text-sm font-medium text-foreground">
-                      Location
-                      <input
-                        className={FIELD_CLASSNAME}
-                        data-jobs-criteria-location="1"
-                        value={criteriaDraft.location}
-                        onChange={(event) =>
-                          setCriteriaDraft((current) => ({ ...current, location: event.target.value }))
-                        }
-                      />
-                    </label>
-
-                    <label className="block text-sm font-medium text-foreground">
-                      Minimum salary
-                      <input
-                        className={FIELD_CLASSNAME}
-                        data-jobs-criteria-min-salary="1"
-                        inputMode="numeric"
-                        placeholder="200000"
-                        value={criteriaDraft.minSalary}
-                        onChange={(event) =>
-                          setCriteriaDraft((current) => ({
-                            ...current,
-                            minSalary: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-
-                    <label className="block text-sm font-medium text-foreground">
-                      Date posted
-                      <select
-                        className={FIELD_CLASSNAME}
-                        data-jobs-criteria-date-posted="1"
-                        value={criteriaDraft.datePosted}
-                        onChange={(event) =>
-                          setCriteriaDraft((current) => ({
-                            ...current,
-                            datePosted: event.target.value,
-                          }))
-                        }
-                      >
-                        <option value="">Not set</option>
-                        <option value="any">Any time</option>
-                        <option value="1d">Past 24 hours</option>
-                        <option value="3d">Past 3 days</option>
-                        <option value="1w">Past week</option>
-                        <option value="2w">Past 2 weeks</option>
-                        <option value="1m">Past month</option>
-                      </select>
-                    </label>
-
-                    <Button
-                      className="w-full"
-                      data-jobs-find="1"
-                      disabled={jobsControlsDisabled}
-                      onClick={() => {
-                        void handleFindJobs();
-                      }}
-                    >
-                      {criteriaBusy ? "Finding jobs..." : "Find Jobs"}
-                    </Button>
-
-                    <div className="rounded-lg border border-border/70 bg-secondary/30 p-3 text-sm text-muted-foreground">
-                      Enabled sources: {visibleJobSources.length}. Active queue: {activeJobs.length}. Applied:{" "}
-                      {appliedJobs.length}.
+                        {criteriaBusy ? "Finding jobs..." : "Find Jobs"}
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>
 
-                <Card>
+                <div className="grid gap-4 xl:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
+                  <Card>
                   <CardHeader className="space-y-4">
                     <div className="flex flex-col gap-3">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1877,6 +1883,7 @@ export default function App() {
                     )}
                   </CardContent>
                 </Card>
+                </div>
               </div>
             </TabsContent>
 
