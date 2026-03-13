@@ -1167,15 +1167,16 @@ export default function App() {
                         <CardTitle className="text-base">Find Jobs</CardTitle>
                       </div>
                       <div className="w-full lg:w-auto">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-auto w-full justify-start px-3 py-2 lg:w-auto"
-                          data-jobs-open-searches="1"
-                          onClick={() => setSearchesDialogOpen(true)}
-                        >
-                          <span className="flex flex-wrap items-center gap-2">
-                            <span className="text-xs font-medium text-muted-foreground">Job sources</span>
+                        <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                          <h3 className="text-sm font-semibold text-foreground">Job sources</h3>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-auto w-full justify-start px-3 py-2 sm:w-auto"
+                            data-jobs-open-searches="1"
+                            onClick={() => setSearchesDialogOpen(true)}
+                          >
+                            <span className="flex flex-wrap items-center gap-2">
                             <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-1 text-xs font-semibold text-secondary-foreground">
                               <span className="h-2 w-2 rounded-full bg-emerald-600" aria-hidden="true" />
                               Ready ({sourceReadinessRollup.ready})
@@ -1192,8 +1193,9 @@ export default function App() {
                                 Disabled ({sourceReadinessRollup.disabled})
                               </span>
                             ) : null}
-                          </span>
-                        </Button>
+                            </span>
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   </CardHeader>
@@ -1265,149 +1267,150 @@ export default function App() {
                       </label>
                     </div>
 
-                    <div className="rounded-lg border border-border/70 bg-secondary/20 p-4">
-                      <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
-                        <span>Hard filter</span>
-                        <TooltipProvider delayDuration={150}>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <button
-                                type="button"
-                                className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground"
-                                aria-label="Hard filter info"
-                                onClick={() =>
-                                  toast({
-                                    title: "Hard filter",
-                                    description: "Only jobs with these words will be imported.",
-                                  })
-                                }
-                              >
-                                i
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>Only jobs with these words will be imported.</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      </div>
-                      <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-                        <label className="block text-sm font-medium text-foreground">
-                          Must include
-                          <input
-                            className={FIELD_CLASSNAME}
-                            data-jobs-criteria-hard-include-terms="1"
-                            placeholder="ml platform, healthcare"
-                            value={criteriaDraft.hardIncludeTerms}
-                            onChange={(event) =>
-                              setCriteriaDraft((current) => ({
-                                ...current,
-                                hardIncludeTerms: event.target.value,
-                              }))
-                            }
-                          />
-                        </label>
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <div className="rounded-lg border border-border/70 bg-secondary/20 p-4">
+                        <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
+                          <span>Hard filter</span>
+                          <TooltipProvider delayDuration={150}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground"
+                                  aria-label="Hard filter info"
+                                  onClick={() =>
+                                    toast({
+                                      title: "Hard filter",
+                                      description: "Only jobs with these words will be imported.",
+                                    })
+                                  }
+                                >
+                                  i
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Only jobs with these words will be imported.</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+                          <label className="block text-sm font-medium text-foreground">
+                            Must include
+                            <input
+                              className={FIELD_CLASSNAME}
+                              data-jobs-criteria-hard-include-terms="1"
+                              placeholder="ml platform, healthcare"
+                              value={criteriaDraft.hardIncludeTerms}
+                              onChange={(event) =>
+                                setCriteriaDraft((current) => ({
+                                  ...current,
+                                  hardIncludeTerms: event.target.value,
+                                }))
+                              }
+                            />
+                          </label>
 
-                        <label className="block text-sm font-medium text-foreground">
-                          Match mode
-                          <select
-                            className={FIELD_CLASSNAME}
-                            data-jobs-criteria-hard-include-mode="1"
-                            value={criteriaDraft.hardIncludeMode}
-                            onChange={(event) =>
-                              setCriteriaDraft((current) => ({
-                                ...current,
-                                hardIncludeMode: event.target.value,
-                              }))
-                            }
-                          >
-                            <option value="and">All required terms</option>
-                            <option value="or">Any required term</option>
-                          </select>
-                        </label>
-                      </div>
+                          <label className="block text-sm font-medium text-foreground">
+                            Match mode
+                            <select
+                              className={FIELD_CLASSNAME}
+                              data-jobs-criteria-hard-include-mode="1"
+                              value={criteriaDraft.hardIncludeMode}
+                              onChange={(event) =>
+                                setCriteriaDraft((current) => ({
+                                  ...current,
+                                  hardIncludeMode: event.target.value,
+                                }))
+                              }
+                            >
+                              <option value="and">All required terms</option>
+                              <option value="or">Any required term</option>
+                            </select>
+                          </label>
+                        </div>
 
-                      <div className="mt-3">
-                        <label className="block text-sm font-medium text-foreground">
-                          Must not include
-                          <input
-                            className={FIELD_CLASSNAME}
-                            data-jobs-criteria-hard-exclude-terms="1"
-                            placeholder="intern, contract"
-                            value={criteriaDraft.hardExcludeTerms}
-                            onChange={(event) =>
-                              setCriteriaDraft((current) => ({
-                                ...current,
-                                hardExcludeTerms: event.target.value,
-                              }))
-                            }
-                          />
-                        </label>
-                      </div>
-                    </div>
-
-                    <div className="rounded-lg border border-border/70 bg-secondary/10 p-4">
-                      <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
-                        <span>Additional keywords</span>
-                        <TooltipProvider delayDuration={150}>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <button
-                                type="button"
-                                className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground"
-                                aria-label="Additional keywords info"
-                                onClick={() =>
-                                  toast({
-                                    title: "Additional keywords",
-                                    description: "Jobs with these keywords will receive higher scores.",
-                                  })
-                                }
-                              >
-                                i
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>Jobs with these keywords will receive higher scores.</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      </div>
-                      <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-                        <label className="block text-sm font-medium text-foreground">
-                          Keywords
-                          <input
-                            className={FIELD_CLASSNAME}
-                            data-jobs-criteria-additional-keywords="1"
-                            placeholder="ai tooling, growth, marketplace"
-                            value={criteriaDraft.additionalKeywords}
-                            onChange={(event) =>
-                              setCriteriaDraft((current) => ({
-                                ...current,
-                                additionalKeywords: event.target.value,
-                              }))
-                            }
-                          />
-                        </label>
-
-                        <label className="block text-sm font-medium text-foreground">
-                          Match mode
-                          <select
-                            className={FIELD_CLASSNAME}
-                            data-jobs-criteria-additional-keyword-mode="1"
-                            value={criteriaDraft.additionalKeywordMode}
-                            onChange={(event) =>
-                              setCriteriaDraft((current) => ({
-                                ...current,
-                                additionalKeywordMode: event.target.value,
-                              }))
-                            }
-                          >
-                            <option value="and">Match all keywords</option>
-                            <option value="or">Match any keyword</option>
-                          </select>
-                        </label>
+                        <div className="mt-3">
+                          <label className="block text-sm font-medium text-foreground">
+                            Must not include
+                            <input
+                              className={FIELD_CLASSNAME}
+                              data-jobs-criteria-hard-exclude-terms="1"
+                              placeholder="intern, contract"
+                              value={criteriaDraft.hardExcludeTerms}
+                              onChange={(event) =>
+                                setCriteriaDraft((current) => ({
+                                  ...current,
+                                  hardExcludeTerms: event.target.value,
+                                }))
+                              }
+                            />
+                          </label>
+                        </div>
                       </div>
 
+                      <div className="rounded-lg border border-border/70 bg-secondary/10 p-4">
+                        <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
+                          <span>Additional keywords</span>
+                          <TooltipProvider delayDuration={150}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground"
+                                  aria-label="Additional keywords info"
+                                  onClick={() =>
+                                    toast({
+                                      title: "Additional keywords",
+                                      description: "Jobs with these keywords will receive higher scores.",
+                                    })
+                                  }
+                                >
+                                  i
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Jobs with these keywords will receive higher scores.</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+                          <label className="block text-sm font-medium text-foreground">
+                            Keywords
+                            <input
+                              className={FIELD_CLASSNAME}
+                              data-jobs-criteria-additional-keywords="1"
+                              placeholder="ai tooling, growth, marketplace"
+                              value={criteriaDraft.additionalKeywords}
+                              onChange={(event) =>
+                                setCriteriaDraft((current) => ({
+                                  ...current,
+                                  additionalKeywords: event.target.value,
+                                }))
+                              }
+                            />
+                          </label>
+
+                          <label className="block text-sm font-medium text-foreground">
+                            Match mode
+                            <select
+                              className={FIELD_CLASSNAME}
+                              data-jobs-criteria-additional-keyword-mode="1"
+                              value={criteriaDraft.additionalKeywordMode}
+                              onChange={(event) =>
+                                setCriteriaDraft((current) => ({
+                                  ...current,
+                                  additionalKeywordMode: event.target.value,
+                                }))
+                              }
+                            >
+                              <option value="and">Match all keywords</option>
+                              <option value="or">Match any keyword</option>
+                            </select>
+                          </label>
+                        </div>
+                      </div>
                     </div>
 
                     <div className="flex justify-end border-t border-border/70 pt-3">
