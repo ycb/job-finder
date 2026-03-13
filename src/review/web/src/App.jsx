@@ -1166,16 +1166,16 @@ export default function App() {
                       <div>
                         <CardTitle className="text-base">Find Jobs</CardTitle>
                       </div>
-                      <div className="flex flex-col gap-1 sm:items-end">
-                        <span className="text-xs font-medium text-muted-foreground">Job sources</span>
+                      <div className="w-full lg:w-auto">
                         <Button
                           variant="outline"
                           size="sm"
-                          className="h-auto px-3 py-2"
+                          className="h-auto w-full justify-start px-3 py-2 lg:w-auto"
                           data-jobs-open-searches="1"
                           onClick={() => setSearchesDialogOpen(true)}
                         >
                           <span className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs font-medium text-muted-foreground">Job sources</span>
                             <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-1 text-xs font-semibold text-secondary-foreground">
                               <span className="h-2 w-2 rounded-full bg-emerald-600" aria-hidden="true" />
                               Ready ({sourceReadinessRollup.ready})
