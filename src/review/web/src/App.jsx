@@ -29,6 +29,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToastAction } from "@/components/ui/toast";
 import { Toaster } from "@/components/ui/toaster";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
 import { buildConsentPayload } from "@/lib/onboarding";
@@ -1155,17 +1156,31 @@ export default function App() {
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                       <div>
                         <CardTitle className="text-base">Find Jobs</CardTitle>
-                        <CardDescription>
-                          Define hard import gates and ranking keywords for your target vertical.
-                        </CardDescription>
                       </div>
                       <Button
                         variant="outline"
                         size="sm"
+                        className="h-auto items-center gap-2 px-3 py-2"
                         data-jobs-open-searches="1"
                         onClick={() => setSearchesDialogOpen(true)}
                       >
-                        Sources: {sourceReadinessRollup.ready} ready | {sourceReadinessRollup.actionNeeded} action needed
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-foreground">
+                          <span className="h-2 w-2 rounded-full bg-emerald-600" aria-hidden="true" />
+                          Ready ({sourceReadinessRollup.ready})
+                        </span>
+                        <span className="text-muted-foreground" aria-hidden="true">
+                          |
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-foreground">
+                          <span
+                            className={cn(
+                              "h-2 w-2 rounded-full",
+                              sourceReadinessRollup.actionNeeded > 0 ? "bg-amber-600" : "bg-emerald-600",
+                            )}
+                            aria-hidden="true"
+                          />
+                          Action needed ({sourceReadinessRollup.actionNeeded})
+                        </span>
                       </Button>
                     </div>
                   </CardHeader>
@@ -1240,13 +1255,28 @@ export default function App() {
                     <div className="rounded-lg border border-border/70 bg-secondary/20 p-4">
                       <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
                         <span>Hard filter</span>
-                        <span
-                          className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground"
-                          title="Only jobs with these words will be imported."
-                          aria-label="Hard filter info: Only jobs with these words will be imported."
-                        >
-                          i
-                        </span>
+                        <TooltipProvider delayDuration={150}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground"
+                                aria-label="Hard filter info"
+                                onClick={() =>
+                                  toast({
+                                    title: "Hard filter",
+                                    description: "Only jobs with these words will be imported.",
+                                  })
+                                }
+                              >
+                                i
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Only jobs with these words will be imported.</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       </div>
                       <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
                         <label className="block text-sm font-medium text-foreground">
@@ -1306,13 +1336,28 @@ export default function App() {
                     <div className="rounded-lg border border-border/70 bg-secondary/10 p-4">
                       <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
                         <span>Additional keywords</span>
-                        <span
-                          className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground"
-                          title="Jobs with these keywords will receive higher scores."
-                          aria-label="Additional keywords info: Jobs with these keywords will receive higher scores."
-                        >
-                          i
-                        </span>
+                        <TooltipProvider delayDuration={150}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground"
+                                aria-label="Additional keywords info"
+                                onClick={() =>
+                                  toast({
+                                    title: "Additional keywords",
+                                    description: "Jobs with these keywords will receive higher scores.",
+                                  })
+                                }
+                              >
+                                i
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Jobs with these keywords will receive higher scores.</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       </div>
                       <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
                         <label className="block text-sm font-medium text-foreground">
@@ -1350,18 +1395,19 @@ export default function App() {
                         </label>
                       </div>
 
-                      <div className="mt-3 flex justify-end">
-                        <Button
-                          className="w-full md:w-auto"
-                          data-jobs-find="1"
-                          disabled={jobsControlsDisabled}
-                          onClick={() => {
-                            void handleFindJobs();
-                          }}
-                        >
-                          {criteriaBusy ? "Finding jobs..." : "Find Jobs"}
-                        </Button>
-                      </div>
+                    </div>
+
+                    <div className="flex justify-end border-t border-border/70 pt-3">
+                      <Button
+                        className="w-full md:w-auto"
+                        data-jobs-find="1"
+                        disabled={jobsControlsDisabled}
+                        onClick={() => {
+                          void handleFindJobs();
+                        }}
+                      >
+                        {criteriaBusy ? "Finding jobs..." : "Find Jobs"}
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>
