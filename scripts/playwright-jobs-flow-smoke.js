@@ -857,6 +857,16 @@ async function runReactFlow(page, baseUrl, timeoutMs) {
     `React Jobs queue did not render ${JOB_TITLES[ACTIVE_JOB_IDS[1]]}`
   );
   await initialJob.click();
+  const openInitialJobButton = await waitForAnyLocator(
+    [
+      () => page.getByRole("button", { name: /^Open Job$/i }),
+      () => page.getByRole("button", { name: /^Open Search$/i }),
+      () => page.getByRole("button", { name: /^Open/i })
+    ],
+    timeoutMs,
+    "Open Job action did not render for viewed transition"
+  );
+  await openInitialJobButton.click();
   await waitForJobStatus(baseUrl, ACTIVE_JOB_IDS[1], "viewed", timeoutMs);
   checks.push("mark_viewed");
 
@@ -882,6 +892,16 @@ async function runReactFlow(page, baseUrl, timeoutMs) {
     `React Jobs queue did not render ${JOB_TITLES[ACTIVE_JOB_IDS[3]]}`
   );
   await rejectedJob.click();
+  const openRejectedJobButton = await waitForAnyLocator(
+    [
+      () => page.getByRole("button", { name: /^Open Job$/i }),
+      () => page.getByRole("button", { name: /^Open Search$/i }),
+      () => page.getByRole("button", { name: /^Open/i })
+    ],
+    timeoutMs,
+    "Open Job action did not render before reject flow"
+  );
+  await openRejectedJobButton.click();
   await waitForJobStatus(baseUrl, ACTIVE_JOB_IDS[3], "viewed", timeoutMs);
 
   const rejectButton = await waitForAnyLocator(
@@ -917,6 +937,7 @@ async function runReactFlow(page, baseUrl, timeoutMs) {
   const confirmRejectButton = await waitForAnyLocator(
     [
       () => rejectionDialog.getByRole("button", { name: /^Reject$/i }),
+      () => rejectionDialog.getByRole("button", { name: /^Reject job$/i }),
       () => rejectionDialog.getByRole("button", { name: /^Save$/i }),
       () => rejectionDialog.getByRole("button", { name: /^Confirm$/i })
     ],

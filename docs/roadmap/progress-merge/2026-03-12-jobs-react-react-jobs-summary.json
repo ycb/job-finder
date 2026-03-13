@@ -1,0 +1,47 @@
+{
+  "ok": true,
+  "mode": "react",
+  "baseUrl": "http://127.0.0.1:4514",
+  "pageTitle": "Job Finder Dashboard UI",
+  "seedSummary": {
+    "activeJobIds": [
+      "jobs-smoke-new-01",
+      "jobs-smoke-new-02",
+      "jobs-smoke-new-03",
+      "jobs-smoke-new-04",
+      "jobs-smoke-new-05",
+      "jobs-smoke-new-06",
+      "jobs-smoke-new-07",
+      "jobs-smoke-new-08",
+      "jobs-smoke-new-09",
+      "jobs-smoke-new-10",
+      "jobs-smoke-new-11",
+      "jobs-smoke-new-12"
+    ],
+    "appliedJobId": "jobs-smoke-applied",
+    "skippedJobId": "jobs-smoke-skipped",
+    "rejectedJobId": "jobs-smoke-rejected"
+  },
+  "initialCounts": {
+    "active": 12,
+    "applied": 1,
+    "skipped": 1,
+    "rejected": 1
+  },
+  "finalCounts": {
+    "active": 10,
+    "applied": 2,
+    "skipped": 1,
+    "rejected": 2
+  },
+  "checks": [
+    "jobs_tab_render",
+    "find_jobs_render",
+    "mark_viewed",
+    "mark_applied",
+    "mark_rejected"
+  ],
+  "screenshotPath": "/Users/admin/.codex/worktrees/51f6/job-finder/docs/roadmap/progress-merge/2026-03-12-jobs-react-react-jobs.png",
+  "dashboardJsonPath": "/Users/admin/.codex/worktrees/51f6/job-finder/docs/roadmap/progress-merge/2026-03-12-jobs-react-react-jobs-dashboard.json",
+  "logPath": "/Users/admin/.codex/worktrees/51f6/job-finder/docs/roadmap/progress-merge/2026-03-12-jobs-react-react-jobs-smoke.log"
+}

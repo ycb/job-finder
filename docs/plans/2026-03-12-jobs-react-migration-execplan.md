@@ -12,11 +12,11 @@ This plan follows [PLANS.md](../../PLANS.md).
 
 - [x] (2026-03-12) Baseline audit complete: backend contracts for Jobs already exist (`/api/dashboard`, `/api/search-criteria`, `/api/sources/run-all`, `/api/jobs/:id/status`).
 - [x] (2026-03-12) J2 presentational Jobs UI landed in React: mocked/fallback Jobs shell renders queue, detail, controls rail, and criteria form from props in `src/review/web/src/features/jobs/`, with minimal state wiring in `src/review/web/src/App.jsx`.
-- [ ] Create parallel lane branches/worktrees (`J1`–`J4`).
+- [x] (2026-03-12) Created parallel lane branches/worktrees (`J1`–`J4`) and merged J1/J2/J3 into `main`.
 - [x] (2026-03-12) Implemented Jobs logic module + targeted tests for view selection, source filters, sort, pagination, selected-job reconciliation, and optimistic viewed semantics.
 - [x] (2026-03-12) Implemented Jobs UI components + state wiring in React.
 - [x] (2026-03-12) Implement Jobs action wiring + status transitions + reject-reason dialog in React (`App.jsx`, `features/jobs/api.js`, `components/ui/dialog.jsx`, `test/review-jobs-api.test.js`).
-- [ ] Run Playwright Jobs smoke and full verification.
+- [x] (2026-03-12) J4 verification complete: legacy + react Playwright smoke passed with artifacts (`2026-03-12-jobs-react-*-jobs.{png,json,log}`), plus full suite green (`npm test`).
 
 ## Surprises & Discoveries
 
@@ -24,6 +24,7 @@ This plan follows [PLANS.md](../../PLANS.md).
 - No new backend endpoint is required for MVP parity; migration risk is frontend behavior parity and state coordination.
 - The React worktree had no existing `src/review/web/src/features/jobs/` surface, so J2 added a mock-backed presentational model to keep the tab renderable before J1/J3 land.
 - Fresh worktrees may not have `node_modules` bootstrapped; `npm install` was required before the React build and CLI smoke tests could execute.
+- J4 React smoke initially failed because row-click in React does not mark viewed (only `Open Job/Open Search` does) and reject confirm label is `Reject job`; harness selectors were updated to match shipped UX semantics.
 
 ## Decision Log
 
@@ -190,3 +191,10 @@ node scripts/playwright-jobs-flow-smoke.js --artifact-prefix 2026-03-12-jobs-rea
   - `npm run dashboard:web:build`
   - `npm test`
 - Result: Jobs tab now saves criteria, runs captures, refreshes the dashboard, marks jobs viewed/applied/skipped/rejected, and collects rejection reasons in a dialog with toast feedback.
+- 2026-03-12 J4 verification:
+  - `node --test test/playwright-jobs-flow-smoke.test.js`
+  - `node --test test/dashboard-api-contract.test.js`
+  - `node scripts/playwright-jobs-flow-smoke.js --mode legacy ...`
+  - `node scripts/playwright-jobs-flow-smoke.js --mode react ...`
+  - `npm test`
+- Result: verification harness now passes in both legacy and react modes with evidence files in `docs/roadmap/progress-merge/`.
