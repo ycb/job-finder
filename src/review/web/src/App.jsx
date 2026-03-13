@@ -1187,8 +1187,8 @@ export default function App() {
                               </span>
                             ) : null}
                             {sourceReadinessRollup.disabled > 0 ? (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-1 text-xs font-semibold text-secondary-foreground">
-                                <span className="h-2 w-2 rounded-full bg-muted-foreground" aria-hidden="true" />
+                              <span className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-muted px-2 py-1 text-xs font-semibold text-muted-foreground">
+                                <span className="h-2 w-2 rounded-full bg-muted-foreground/80" aria-hidden="true" />
                                 Disabled ({sourceReadinessRollup.disabled})
                               </span>
                             ) : null}
