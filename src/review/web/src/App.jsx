@@ -22,6 +22,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToastAction } from "@/components/ui/toast";
 import { Toaster } from "@/components/ui/toaster";
 import { useToast } from "@/components/ui/use-toast";
+import { JobsWorkspace } from "@/features/jobs";
+import { DEFAULT_CRITERIA, buildJobsPresentationalModel, normalizeCriteria } from "@/features/jobs/presentational-model";
 import { cn } from "@/lib/utils";
 import { buildConsentPayload } from "@/lib/onboarding";
 import {
@@ -94,6 +96,12 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState("");
   const [mainTab, setMainTab] = useState("searches");
+  const [jobsCriteriaDraft, setJobsCriteriaDraft] = useState(DEFAULT_CRITERIA);
+  const [jobsView, setJobsView] = useState("all");
+  const [jobsSource, setJobsSource] = useState("all");
+  const [jobsSort, setJobsSort] = useState("score");
+  const [jobsPage, setJobsPage] = useState(1);
+  const [selectedJobId, setSelectedJobId] = useState(null);
   const [searchState, setSearchState] = useState("enabled");
   const [searchRunCadence, setSearchRunCadence] = useState(() => {
     if (typeof window === "undefined") {
@@ -143,6 +151,16 @@ export default function App() {
     }
     persistSearchRunCadence(window.localStorage, searchRunCadence);
   }, [searchRunCadence]);
+
+  useEffect(() => {
+    if (!dashboard?.searchCriteria) {
+      return;
+    }
+    const nextCriteria = normalizeCriteria(dashboard.searchCriteria);
+    setJobsCriteriaDraft((current) =>
+      JSON.stringify(current) === JSON.stringify(nextCriteria) ? current : nextCriteria,
+    );
+  }, [dashboard]);
 
   const onboardingChecksBySourceId =
     dashboard?.onboarding?.checks && typeof dashboard.onboarding.checks === "object"
@@ -220,6 +238,22 @@ export default function App() {
   );
 
   const controlsDisabled = busyAction.length > 0 || authFlow.busy;
+
+  const jobsModel = useMemo(
+    () =>
+      buildJobsPresentationalModel({
+        dashboard,
+        state: {
+          criteria: jobsCriteriaDraft,
+          view: jobsView,
+          source: jobsSource,
+          sort: jobsSort,
+          page: jobsPage,
+          selectedJobId,
+        },
+      }),
+    [dashboard, jobsCriteriaDraft, jobsPage, jobsSort, jobsSource, jobsView, selectedJobId],
+  );
 
   const currentEnabledSourceIds = useCallback(
     () =>
@@ -445,6 +479,47 @@ export default function App() {
       setBusyAction("");
     }
   }, [consentDraft, loadDashboard, toast]);
+
+  const handleJobsCriteriaChange = useCallback((name, value) => {
+    setJobsCriteriaDraft((current) => ({
+      ...current,
+      [name]: value,
+    }));
+  }, []);
+
+  const handleJobsFind = useCallback(() => {
+    toast({
+      title: "Jobs shell ready",
+      description: "J2 keeps this interaction local. J3 wires criteria save + source run calls.",
+    });
+  }, [toast]);
+
+  const handleJobsViewChange = useCallback((value) => {
+    setJobsView(value);
+    setJobsPage(1);
+    setSelectedJobId(null);
+  }, []);
+
+  const handleJobsSourceChange = useCallback((value) => {
+    setJobsSource(value);
+    setJobsPage(1);
+    setSelectedJobId(null);
+  }, []);
+
+  const handleJobsSortChange = useCallback((value) => {
+    setJobsSort(value);
+    setJobsPage(1);
+    setSelectedJobId(null);
+  }, []);
+
+  const handleJobsPageChange = useCallback((page) => {
+    setJobsPage(page);
+    setSelectedJobId(null);
+  }, []);
+
+  const handleJobsSelectJob = useCallback((jobId) => {
+    setSelectedJobId(jobId);
+  }, []);
 
   const authFlowSource =
     authFlow.sourceId && sourceById[authFlow.sourceId] ? sourceById[authFlow.sourceId] : null;
@@ -836,11 +911,16 @@ export default function App() {
             </TabsContent>
 
             <TabsContent value="jobs">
-              <Card>
-                <CardContent className="pt-6 text-sm text-muted-foreground">
-                  Jobs React slice is pending lane completion. Use Searches actions from this view for now.
-                </CardContent>
-              </Card>
+              <JobsWorkspace
+                model={jobsModel}
+                onCriteriaChange={handleJobsCriteriaChange}
+                onFindJobs={handleJobsFind}
+                onViewChange={handleJobsViewChange}
+                onSortChange={handleJobsSortChange}
+                onSourceChange={handleJobsSourceChange}
+                onPageChange={handleJobsPageChange}
+                onSelectJob={handleJobsSelectJob}
+              />
             </TabsContent>
 
             <TabsContent value="profile">

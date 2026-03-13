@@ -11,9 +11,10 @@ This plan follows [PLANS.md](../../PLANS.md).
 ## Progress
 
 - [x] (2026-03-12) Baseline audit complete: backend contracts for Jobs already exist (`/api/dashboard`, `/api/search-criteria`, `/api/sources/run-all`, `/api/jobs/:id/status`).
+- [x] (2026-03-12) J2 presentational Jobs UI landed in React: mocked/fallback Jobs shell renders queue, detail, controls rail, and criteria form from props in `src/review/web/src/features/jobs/`, with minimal state wiring in `src/review/web/src/App.jsx`.
 - [ ] Create parallel lane branches/worktrees (`J1`–`J4`).
 - [x] (2026-03-12) Implemented Jobs logic module + targeted tests for view selection, source filters, sort, pagination, selected-job reconciliation, and optimistic viewed semantics.
-- [ ] Implement Jobs UI components + state wiring in React.
+- [x] (2026-03-12) Implemented Jobs UI components + state wiring in React.
 - [ ] Implement Jobs action wiring + status transitions + reject-reason dialog.
 - [ ] Run Playwright Jobs smoke and full verification.
 
@@ -21,6 +22,7 @@ This plan follows [PLANS.md](../../PLANS.md).
 
 - Legacy Jobs behavior is rich and spans filtering, sort, pagination, viewed tracking, status transitions, and detail rendering inside the legacy `renderDashboardPage` script.
 - No new backend endpoint is required for MVP parity; migration risk is frontend behavior parity and state coordination.
+- The React worktree had no existing `src/review/web/src/features/jobs/` surface, so J2 added a mock-backed presentational model to keep the tab renderable before J1/J3 land.
 
 ## Decision Log
 
@@ -178,4 +180,7 @@ node scripts/playwright-jobs-flow-smoke.js --artifact-prefix 2026-03-12-jobs-rea
 
 ## Outcomes & Retrospective
 
-- Pending implementation.
+- J2 shipped a presentational Jobs shell with prop-driven criteria, controls, queue, and detail components.
+- Verification run in this worktree:
+  - `node --test test/review-jobs-react-ui-model.test.js`
+  - `npm run dashboard:web:build`
