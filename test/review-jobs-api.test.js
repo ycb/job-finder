@@ -13,20 +13,22 @@ test("normalizeSearchCriteriaDraft hydrates string form fields from dashboard cr
   assert.deepEqual(
     normalizeSearchCriteriaDraft({
       title: "Senior Product Manager",
-      keywords: "growth",
-      keywordMode: "or",
-      includeTerms: ["ai", "platform"],
-      excludeTerms: ["staffing", "intern"],
+      hardIncludeTerms: ["ml", "platform"],
+      hardIncludeMode: "or",
+      hardExcludeTerms: ["staffing", "intern"],
+      scoreKeywords: ["growth", "payments"],
+      scoreKeywordMode: "or",
       location: "San Francisco, CA",
       minSalary: 210000,
       datePosted: "1w",
     }),
     {
       title: "Senior Product Manager",
-      keywords: "growth",
-      keywordMode: "or",
-      includeTerms: "ai, platform",
-      excludeTerms: "staffing, intern",
+      hardIncludeTerms: "ml, platform",
+      hardIncludeMode: "or",
+      hardExcludeTerms: "staffing, intern",
+      additionalKeywords: "growth, payments",
+      additionalKeywordMode: "or",
       location: "San Francisco, CA",
       minSalary: "210000",
       datePosted: "1w",
@@ -38,19 +40,25 @@ test("buildSearchCriteriaPayload normalizes comma-separated terms and numeric sa
   assert.deepEqual(
     buildSearchCriteriaPayload({
       title: " PM ",
-      keywords: "search, ranking",
-      keywordMode: "wat",
-      includeTerms: "ai, platform, ai",
-      excludeTerms: "staffing,  intern ",
+      hardIncludeTerms: "ai, platform, ai",
+      hardIncludeMode: "wat",
+      hardExcludeTerms: "staffing,  intern ",
+      additionalKeywords: "search, ranking",
+      additionalKeywordMode: "wat",
       location: "Remote",
       minSalary: "$250,000",
       datePosted: "1d",
     }),
     {
       title: " PM ",
-      keywords: "search, ranking",
+      hardIncludeTerms: ["ai", "platform"],
+      hardIncludeMode: "and",
+      hardExcludeTerms: ["staffing", "intern"],
+      scoreKeywords: ["search", "ranking"],
+      scoreKeywordMode: "and",
+      keywords: "",
       keywordMode: "and",
-      includeTerms: ["ai", "platform"],
+      includeTerms: [],
       excludeTerms: ["staffing", "intern"],
       location: "Remote",
       minSalary: 250000,
@@ -65,6 +73,21 @@ test("buildRunAllPayload maps saved search cadence to backend refresh options", 
   assert.deepEqual(buildRunAllPayload("daily"), { refreshProfile: "safe", cacheTtlHours: 24 });
   assert.deepEqual(buildRunAllPayload("12h"), { refreshProfile: "safe", cacheTtlHours: 12 });
   assert.deepEqual(buildRunAllPayload("unknown"), { refreshProfile: "safe", cacheTtlHours: 12 });
+});
+
+test("normalizeSearchCriteriaDraft maps legacy keyword/include fields into the new model", () => {
+  const draft = normalizeSearchCriteriaDraft({
+    keywords: "ai, growth",
+    keywordMode: "or",
+    includeTerms: ["fintech"],
+    excludeTerms: ["intern"],
+  });
+
+  assert.equal(draft.hardIncludeTerms, "");
+  assert.equal(draft.hardIncludeMode, "and");
+  assert.equal(draft.hardExcludeTerms, "intern");
+  assert.equal(draft.additionalKeywords, "ai, growth");
+  assert.equal(draft.additionalKeywordMode, "or");
 });
 
 test("applyJobStatusToDashboard moves jobs across queue groups and preserves reason notes", () => {

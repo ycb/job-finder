@@ -140,24 +140,27 @@ test("saveSearchCriteria normalizes comma-separated keywords", () => {
   }
 });
 
-test("saveSearchCriteria persists keyword mode and include/exclude terms", () => {
+test("saveSearchCriteria persists hard-filter and scoring keyword controls", () => {
   const { tempDir, configDir } = createTempConfigDir();
   const criteriaPath = path.join(configDir, "search-criteria.json");
 
   try {
     const saved = saveSearchCriteria(
       {
-        keywords: "ai, fintech",
-        keywordMode: "OR",
-        includeTerms: ["payments", "growth", "payments"],
-        excludeTerms: ["intern", "contract", "intern"]
+        hardIncludeTerms: ["platform", "healthcare", "platform"],
+        hardIncludeMode: "OR",
+        hardExcludeTerms: ["intern", "contract", "intern"],
+        scoreKeywords: ["ai", "fintech", "ai"],
+        scoreKeywordMode: "OR"
       },
       criteriaPath
     );
 
-    assert.equal(saved.criteria.keywordMode, "or");
-    assert.deepEqual(saved.criteria.includeTerms, ["payments", "growth"]);
-    assert.deepEqual(saved.criteria.excludeTerms, ["intern", "contract"]);
+    assert.equal(saved.criteria.hardIncludeMode, "or");
+    assert.equal(saved.criteria.scoreKeywordMode, "or");
+    assert.deepEqual(saved.criteria.hardIncludeTerms, ["platform", "healthcare"]);
+    assert.deepEqual(saved.criteria.hardExcludeTerms, ["intern", "contract"]);
+    assert.deepEqual(saved.criteria.scoreKeywords, ["ai", "fintech"]);
 
     const reloaded = loadSearchCriteria(criteriaPath);
     assert.deepEqual(reloaded.criteria, saved.criteria);

@@ -91,6 +91,11 @@ const SEARCH_CRITERIA_FIELD_NAMES = new Set([
   "title",
   "keywords",
   "keywordMode",
+  "hardIncludeTerms",
+  "hardIncludeMode",
+  "hardExcludeTerms",
+  "scoreKeywords",
+  "scoreKeywordMode",
   "includeTerms",
   "excludeTerms",
   "location",
@@ -152,6 +157,54 @@ export function validateSearchCriteria(raw, label = "Search criteria") {
       throw new Error(`${label}.keywordMode must be one of: and, or.`);
     }
     normalizedCriteria.keywordMode = keywordMode;
+  }
+
+  const hardIncludeMode = assertOptionalString(
+    criteria.hardIncludeMode,
+    `${label}.hardIncludeMode`,
+    ""
+  ).toLowerCase();
+  if (hardIncludeMode) {
+    if (!SEARCH_CRITERIA_KEYWORD_MODE_VALUES.has(hardIncludeMode)) {
+      throw new Error(`${label}.hardIncludeMode must be one of: and, or.`);
+    }
+    normalizedCriteria.hardIncludeMode = hardIncludeMode;
+  }
+
+  const scoreKeywordMode = assertOptionalString(
+    criteria.scoreKeywordMode,
+    `${label}.scoreKeywordMode`,
+    ""
+  ).toLowerCase();
+  if (scoreKeywordMode) {
+    if (!SEARCH_CRITERIA_KEYWORD_MODE_VALUES.has(scoreKeywordMode)) {
+      throw new Error(`${label}.scoreKeywordMode must be one of: and, or.`);
+    }
+    normalizedCriteria.scoreKeywordMode = scoreKeywordMode;
+  }
+
+  const hardIncludeTerms = normalizeCriteriaTermList(
+    criteria.hardIncludeTerms,
+    `${label}.hardIncludeTerms`
+  );
+  if (hardIncludeTerms.length > 0) {
+    normalizedCriteria.hardIncludeTerms = hardIncludeTerms;
+  }
+
+  const hardExcludeTerms = normalizeCriteriaTermList(
+    criteria.hardExcludeTerms,
+    `${label}.hardExcludeTerms`
+  );
+  if (hardExcludeTerms.length > 0) {
+    normalizedCriteria.hardExcludeTerms = hardExcludeTerms;
+  }
+
+  const scoreKeywords = normalizeCriteriaTermList(
+    criteria.scoreKeywords,
+    `${label}.scoreKeywords`
+  );
+  if (scoreKeywords.length > 0) {
+    normalizedCriteria.scoreKeywords = scoreKeywords;
   }
 
   const includeTerms = normalizeCriteriaTermList(

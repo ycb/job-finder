@@ -439,7 +439,15 @@ function normalizeKeywordMode(rawKeywordMode) {
   return normalized === "or" ? "or" : "and";
 }
 
-function resolvePositiveKeywordTerms(rawCriteria = {}) {
+function resolveHardIncludeTerms(rawCriteria = {}) {
+  return normalizeCriteriaTermList(rawCriteria.hardIncludeTerms);
+}
+
+function resolveHardIncludeMode(rawCriteria = {}) {
+  return normalizeKeywordMode(rawCriteria.hardIncludeMode);
+}
+
+function resolveScoringKeywordTerms(rawCriteria = {}) {
   const deduped = [];
   const pushTerm = (term) => {
     if (term && !deduped.includes(term)) {
@@ -447,10 +455,15 @@ function resolvePositiveKeywordTerms(rawCriteria = {}) {
     }
   };
 
+  for (const term of normalizeCriteriaTermList(rawCriteria.scoreKeywords)) {
+    pushTerm(term);
+  }
+
   for (const term of splitSearchKeywords(rawCriteria.keywords)) {
     pushTerm(term);
   }
 
+  // Legacy fallback: historical include terms acted as scoring signals.
   for (const term of normalizeCriteriaTermList(rawCriteria.includeTerms)) {
     pushTerm(term);
   }
@@ -458,8 +471,11 @@ function resolvePositiveKeywordTerms(rawCriteria = {}) {
   return deduped;
 }
 
-function resolveExcludeKeywordTerms(rawCriteria = {}) {
-  return normalizeCriteriaTermList(rawCriteria.excludeTerms);
+function resolveHardExcludeTerms(rawCriteria = {}) {
+  return [
+    ...normalizeCriteriaTermList(rawCriteria.hardExcludeTerms),
+    ...normalizeCriteriaTermList(rawCriteria.excludeTerms)
+  ].filter((term, index, collection) => collection.indexOf(term) === index);
 }
 
 const SEARCH_CRITERIA_DATE_POSTED_TO_DAYS = new Map([
@@ -572,7 +588,8 @@ function resolveCriteriaFreshnessDays(datePosted) {
 
 function hasSearchCriteriaSignal(rawCriteria = {}) {
   const title = normalizeSearchCriteriaText(rawCriteria.title);
-  const keywords = resolvePositiveKeywordTerms(rawCriteria);
+  const keywords = resolveScoringKeywordTerms(rawCriteria);
+  const hardIncludeTerms = resolveHardIncludeTerms(rawCriteria);
   const location = normalizeSearchCriteriaText(rawCriteria.location);
   const minSalary = Number(rawCriteria.minSalary);
   const freshnessDays = resolveCriteriaFreshnessDays(rawCriteria.datePosted);
@@ -580,6 +597,7 @@ function hasSearchCriteriaSignal(rawCriteria = {}) {
   return (
     Boolean(title) ||
     keywords.length > 0 ||
+    hardIncludeTerms.length > 0 ||
     Boolean(location) ||
     (Number.isFinite(minSalary) && minSalary > 0) ||
     freshnessDays !== null
@@ -588,8 +606,8 @@ function hasSearchCriteriaSignal(rawCriteria = {}) {
 
 export function buildScoringProfileFromSearchCriteria(rawCriteria = {}) {
   const title = normalizeSearchCriteriaText(rawCriteria.title).toLowerCase();
-  const keywords = resolvePositiveKeywordTerms(rawCriteria);
-  const excludeTerms = resolveExcludeKeywordTerms(rawCriteria);
+  const keywords = resolveScoringKeywordTerms(rawCriteria);
+  const excludeTerms = resolveHardExcludeTerms(rawCriteria);
   const location = normalizeSearchCriteriaText(rawCriteria.location).toLowerCase();
   const minSalaryValue = Number(rawCriteria.minSalary);
   const minSalary =
@@ -621,9 +639,12 @@ export function buildScoringProfileFromSearchCriteria(rawCriteria = {}) {
 
 function evaluateJobFromSearchCriteria(criteria, job) {
   const titleCriteria = normalizeSearchCriteriaText(criteria?.title).toLowerCase();
-  const keywordCriteria = resolvePositiveKeywordTerms(criteria);
-  const excludeTerms = resolveExcludeKeywordTerms(criteria);
+  const keywordCriteria = resolveScoringKeywordTerms(criteria);
+  const hardIncludeTerms = resolveHardIncludeTerms(criteria);
+  const hardIncludeMode = resolveHardIncludeMode(criteria);
+  const excludeTerms = resolveHardExcludeTerms(criteria);
   const keywordMode = normalizeKeywordMode(criteria?.keywordMode);
+  const scoreKeywordMode = normalizeKeywordMode(criteria?.scoreKeywordMode || criteria?.additionalKeywordMode || keywordMode);
   const locationCriteria = normalizeSearchCriteriaText(criteria?.location).toLowerCase();
   const minSalaryValue = Number(criteria?.minSalary);
   const minSalary =
@@ -641,8 +662,34 @@ function evaluateJobFromSearchCriteria(criteria, job) {
   const parsedWorkTypes = inferWorkType(searchableText);
   const salaryFloor = parseCompensationFloor(job.salary_text || job.salaryText);
   const freshnessDays = calcFreshnessDays(job);
+  const hardIncludeMatches = findMatchingTerms(searchableText, hardIncludeTerms);
   const excludedMatches = findMatchingTerms(searchableText, excludeTerms);
   const strongestExcludedTerm = pickStrongestMatch(excludedMatches);
+
+  if (hardIncludeTerms.length > 0) {
+    const includeSatisfied =
+      hardIncludeMode === "or"
+        ? hardIncludeMatches.length > 0
+        : hardIncludeMatches.length >= hardIncludeTerms.length;
+
+    if (!includeSatisfied) {
+      const reason =
+        hardIncludeMode === "or"
+          ? `hard filter hit: none of required terms matched (${hardIncludeTerms.join(", ")})`
+          : `hard filter hit: missing required terms (${hardIncludeTerms.filter((term) => !hardIncludeMatches.includes(term)).join(", ")})`;
+      return {
+        jobId: job.id,
+        score: 0,
+        bucket: "reject",
+        summary: `Score 0: ${reason}`,
+        reasons: [reason],
+        confidence: calcDataConfidence(job, parsedWorkTypes),
+        freshnessDays,
+        hardFiltered: true,
+        evaluatedAt: new Date().toISOString()
+      };
+    }
+  }
 
   if (strongestExcludedTerm) {
     const reason = `hard filter hit: exclude term "${strongestExcludedTerm}"`;
@@ -679,7 +726,7 @@ function evaluateJobFromSearchCriteria(criteria, job) {
     totalWeight += SEARCH_CRITERIA_WEIGHTS.keywords;
     const ratio = keywordMatchRatio(searchableText, keywordCriteria);
     const matched = Math.round(ratio * keywordCriteria.length);
-    if (keywordMode === "or") {
+    if (scoreKeywordMode === "or") {
       if (matched > 0) {
         matchedWeight += SEARCH_CRITERIA_WEIGHTS.keywords;
         reasons.push(`keywords matched in OR mode (${matched}/${keywordCriteria.length})`);

@@ -6974,6 +6974,13 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
           title: typeof parsedBody.title === "string" ? parsedBody.title : "",
           keywords: typeof parsedBody.keywords === "string" ? parsedBody.keywords : "",
           keywordMode: typeof parsedBody.keywordMode === "string" ? parsedBody.keywordMode : "",
+          hardIncludeTerms: parseTerms(parsedBody.hardIncludeTerms),
+          hardIncludeMode:
+            typeof parsedBody.hardIncludeMode === "string" ? parsedBody.hardIncludeMode : "",
+          hardExcludeTerms: parseTerms(parsedBody.hardExcludeTerms),
+          scoreKeywords: parseTerms(parsedBody.scoreKeywords),
+          scoreKeywordMode:
+            typeof parsedBody.scoreKeywordMode === "string" ? parsedBody.scoreKeywordMode : "",
           includeTerms: parseTerms(parsedBody.includeTerms),
           excludeTerms: parseTerms(parsedBody.excludeTerms),
           location: typeof parsedBody.location === "string" ? parsedBody.location : "",
@@ -6991,6 +6998,14 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
           has_title: Boolean(saved.criteria.title),
           has_keywords: Boolean(saved.criteria.keywords),
           keyword_mode: saved.criteria.keywordMode || "and",
+          has_hard_include_terms:
+            Array.isArray(saved.criteria.hardIncludeTerms) && saved.criteria.hardIncludeTerms.length > 0,
+          hard_include_mode: saved.criteria.hardIncludeMode || "and",
+          has_hard_exclude_terms:
+            Array.isArray(saved.criteria.hardExcludeTerms) && saved.criteria.hardExcludeTerms.length > 0,
+          has_score_keywords:
+            Array.isArray(saved.criteria.scoreKeywords) && saved.criteria.scoreKeywords.length > 0,
+          score_keyword_mode: saved.criteria.scoreKeywordMode || "and",
           has_include_terms: Array.isArray(saved.criteria.includeTerms) && saved.criteria.includeTerms.length > 0,
           has_exclude_terms: Array.isArray(saved.criteria.excludeTerms) && saved.criteria.excludeTerms.length > 0,
           has_location: Boolean(saved.criteria.location),

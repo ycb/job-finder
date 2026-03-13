@@ -58,7 +58,6 @@ import {
 
 const MAIN_TABS = [
   { value: "jobs", label: "Jobs" },
-  { value: "searches", label: "Searches" },
   { value: "profile", label: "Profile" },
 ];
 
@@ -263,7 +262,7 @@ export default function App() {
   const [dashboard, setDashboard] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState("");
-  const [mainTab, setMainTab] = useState("searches");
+  const [mainTab, setMainTab] = useState("jobs");
   const [jobsView, setJobsView] = useState("all");
   const [jobsSort, setJobsSort] = useState("score");
   const [jobsSourceFilter, setJobsSourceFilter] = useState("all");
@@ -284,6 +283,7 @@ export default function App() {
     }
     return readSearchRunCadence(window.localStorage);
   });
+  const [searchesDialogOpen, setSearchesDialogOpen] = useState(false);
   const [consentDraft, setConsentDraft] = useState({
     legalAccepted: false,
     tosRiskAccepted: false,
@@ -362,7 +362,7 @@ export default function App() {
 
     const hasSeenToast = hasSeenSearchesWelcomeToast(window.localStorage, welcomeToastScope);
     const shouldShow = shouldShowSearchesWelcomeToast({
-      mainTab,
+      mainTab: searchesDialogOpen ? "searches" : mainTab,
       searchState,
       hasSeenToast,
     });
@@ -389,7 +389,7 @@ export default function App() {
         ),
       });
     }
-  }, [consentGateRequired, dashboard, mainTab, searchState, toast, welcomeToastScope]);
+  }, [consentGateRequired, dashboard, mainTab, searchesDialogOpen, searchState, toast, welcomeToastScope]);
 
   const searchRows = useMemo(
     () => buildSearchRows(rawSources, onboardingChecksBySourceId),
@@ -407,6 +407,15 @@ export default function App() {
     () => computeSearchTotals(filteredRows, selectedSearchState),
     [filteredRows, selectedSearchState],
   );
+  const sourceReadinessRollup = useMemo(() => {
+    const actionNeeded = enabledRows.filter(
+      (row) => row.authRequired === true && row.readiness?.key === "not_authorized",
+    ).length;
+    return {
+      ready: Math.max(0, enabledRows.length - actionNeeded),
+      actionNeeded,
+    };
+  }, [enabledRows]);
 
   const controlsDisabled = busyAction.length > 0 || authFlow.busy;
   const jobsControlsDisabled = controlsDisabled || criteriaBusy || rejectDialog.saving;
@@ -1139,254 +1148,29 @@ export default function App() {
               ))}
             </TabsList>
 
-            <TabsContent value="searches">
-              <div className="space-y-0">
-                <div className="mb-0 flex justify-end">
-                  <Tabs
-                    value={selectedSearchState}
-                    onValueChange={setSearchState}
-                    className="-mb-px"
-                  >
-                    <TabsList className="h-auto gap-0 rounded-t-xl rounded-b-none border border-border/80 border-b-0 bg-transparent p-0">
-                      <TabsTrigger
-                        value="enabled"
-                        className="rounded-none rounded-tl-xl border-r border-border/80 px-6 py-3 data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=inactive]:bg-secondary/20"
-                      >
-                        Enabled ({enabledRows.length})
-                      </TabsTrigger>
-                      <TabsTrigger
-                        value="disabled"
-                        className="rounded-none rounded-tr-xl px-6 py-3 data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=inactive]:bg-secondary/20"
-                      >
-                        Disabled ({disabledRows.length})
-                      </TabsTrigger>
-                    </TabsList>
-                  </Tabs>
-                </div>
-                <Card className="searches-card rounded-tr-none">
-                  <CardHeader className="pb-4">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <CardTitle className="pt-1 text-base">My Job Searches</CardTitle>
-                      {selectedSearchState === "enabled" ? (
-                        <label className="w-full text-sm font-medium text-foreground sm:ml-auto sm:w-64">
-                          Search frequency
-                          <Select value={searchRunCadence} onValueChange={setSearchRunCadence}>
-                            <SelectTrigger id="search-run-cadence" className="mt-2 w-full">
-                              <SelectValue placeholder="Select search frequency" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectGroup>
-                                <SelectLabel>Run cadence</SelectLabel>
-                                <SelectItem value="12h">12h (recommended)</SelectItem>
-                                <SelectItem value="daily">Daily</SelectItem>
-                                <SelectItem value="weekly">Weekly</SelectItem>
-                                <SelectItem value="cached">Use cached results (dev)</SelectItem>
-                              </SelectGroup>
-                            </SelectContent>
-                          </Select>
-                        </label>
-                      ) : null}
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Source</TableHead>
-                          <TableHead>Last Run</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead>Found</TableHead>
-                          <TableHead>Filtered</TableHead>
-                          <TableHead>Dupes</TableHead>
-                          <TableHead>Imported</TableHead>
-                          <TableHead>Avg Score</TableHead>
-                          <TableHead className="w-[116px] pr-1">Action</TableHead>
-                          <TableHead className="w-[44px] pl-1 pr-2">
-                            <span className="sr-only">More actions</span>
-                          </TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {filteredRows.map((row) => {
-                          const statusPresentation = presentSearchStatus(row);
-                          const hasStatusDetails =
-                            Boolean(statusPresentation.statusDetail) ||
-                            Boolean(statusPresentation.formatterDetail);
-                          const runNowDisabled = controlsDisabled || !row.manualRefreshAllowed;
-                          const runNowLabel = runNowDisabled
-                            ? row.manualRefreshNextEligibleAt
-                              ? `Available in ${formatDurationFromNow(row.manualRefreshNextEligibleAt)}`
-                              : "Run now"
-                            : "Run now";
-
-                          return (
-                            <TableRow key={row.id} className={cn(!row.enabled && "bg-secondary/20") }>
-                              <TableCell>
-                                {row.searchUrl ? (
-                                  <a
-                                    href={row.searchUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="font-medium text-primary hover:underline"
-                                  >
-                                    {row.label} <span aria-hidden="true">↗</span>
-                                  </a>
-                                ) : (
-                                  <span className="font-medium">{row.label}</span>
-                                )}
-                              </TableCell>
-                              <TableCell>{formatRelativeTimestamp(row.capturedAt)}</TableCell>
-                              <TableCell className="max-w-[260px]">
-                                <div className="inline-flex items-center gap-2">
-                                  <div className="inline-flex items-center gap-2 rounded-full bg-secondary/60 px-2 py-1 text-xs font-semibold">
-                                    <span
-                                      aria-hidden="true"
-                                      className={cn("h-2 w-2 rounded-full", toneClassName(statusPresentation.tone))}
-                                    />
-                                    <span>{statusPresentation.label}</span>
-                                  </div>
-                                  {hasStatusDetails ? (
-                                    <button
-                                      type="button"
-                                      className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground"
-                                      aria-label="Show status details"
-                                      onClick={() => {
-                                        const details = [
-                                          statusPresentation.statusDetail,
-                                          statusPresentation.formatterDetail
-                                            ? `formatter: ${statusPresentation.formatterDetail}`
-                                            : "",
-                                        ]
-                                          .filter(Boolean)
-                                          .join(" ");
-                                        toast({
-                                          title: `${row.label}: status details`,
-                                          description: details,
-                                        });
-                                      }}
-                                    >
-                                      i
-                                    </button>
-                                  ) : null}
-                                </div>
-                              </TableCell>
-                              <TableCell>{statusPresentation.foundLabel}</TableCell>
-                              <TableCell>{row.filteredCount}</TableCell>
-                              <TableCell>{row.dedupedCount}</TableCell>
-                              <TableCell>{row.importedCount}</TableCell>
-                              <TableCell>{row.avgScore === null ? "n/a" : row.avgScore}</TableCell>
-                              <TableCell className="w-[116px] py-2 pl-1 pr-1">
-                                <div className="flex items-center justify-start whitespace-nowrap">
-                                  {!row.enabled ? (
-                                    <Button
-                                      size="sm"
-                                      className="h-8 shrink-0 px-3"
-                                      data-onboarding-enable-source={row.id}
-                                      disabled={controlsDisabled}
-                                      onClick={() => {
-                                        void handleEnableSource(row.id, row.label);
-                                      }}
-                                    >
-                                      Enable
-                                    </Button>
-                                  ) : (
-                                    <Button
-                                      size="sm"
-                                      className="h-8 shrink-0 px-3"
-                                      variant="secondary"
-                                      disabled={runNowDisabled}
-                                      title={`Manual refreshes remaining today: ${row.manualRefreshRemaining}`}
-                                      onClick={() => {
-                                        void handleRunSourceNow(row.id);
-                                      }}
-                                    >
-                                      {runNowLabel}
-                                    </Button>
-                                  )}
-                                </div>
-                              </TableCell>
-                              <TableCell className="w-[44px] py-2 pl-1 pr-2 text-right align-middle">
-                                {row.enabled ? (
-                                  <details className="relative inline-block shrink-0">
-                                    <summary
-                                      className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-border text-sm [&::-webkit-details-marker]:hidden"
-                                      aria-label="Source actions"
-                                      title="Source actions"
-                                    >
-                                      ⋯
-                                    </summary>
-                                    <div className="absolute right-full top-1/2 z-20 mr-2 min-w-[128px] -translate-y-1/2 rounded-md border border-border bg-card p-1 shadow-panel">
-                                      {row.authRequired && row.readiness.tone === "warn" ? (
-                                        <Button
-                                          size="sm"
-                                          variant="ghost"
-                                          className="w-full justify-start"
-                                          data-onboarding-check-source={row.id}
-                                          disabled={controlsDisabled}
-                                          onClick={() => {
-                                            void handleCheckAccess(row.id, row.label);
-                                          }}
-                                        >
-                                          Check access
-                                        </Button>
-                                      ) : null}
-                                      <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        className="w-full justify-start"
-                                        data-onboarding-disable-source={row.id}
-                                        disabled={controlsDisabled}
-                                        onClick={() => {
-                                          void handleDisableSource(row.id, row.label);
-                                        }}
-                                      >
-                                        Disable
-                                      </Button>
-                                    </div>
-                                  </details>
-                                ) : null}
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-
-                        {filteredRows.length > 0 ? (
-                          <TableRow className="search-totals-row border-t-2 border-border bg-primary/10 font-semibold hover:bg-primary/10">
-                            <TableCell>{totals.stateLabel}</TableCell>
-                            <TableCell>—</TableCell>
-                            <TableCell>—</TableCell>
-                            <TableCell>{totals.foundLabel}</TableCell>
-                            <TableCell>{totals.filtered}</TableCell>
-                            <TableCell>{totals.deduped}</TableCell>
-                            <TableCell>{totals.imported}</TableCell>
-                            <TableCell>{totals.avgScore}</TableCell>
-                            <TableCell>—</TableCell>
-                            <TableCell />
-                          </TableRow>
-                        ) : null}
-                      </TableBody>
-                    </Table>
-
-                    {filteredRows.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">No sources in this tab.</p>
-                    ) : null}
-
-                  </CardContent>
-                </Card>
-              </div>
-            </TabsContent>
-
             <TabsContent value="jobs">
               <div className="space-y-4">
                 <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">Find Jobs</CardTitle>
-                    <CardDescription>
-                      Save search criteria, run enabled sources, and refresh the ranked queue.
-                    </CardDescription>
+                  <CardHeader className="space-y-3">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <CardTitle className="text-base">Find Jobs</CardTitle>
+                        <CardDescription>
+                          Define hard import gates and ranking keywords for your target vertical.
+                        </CardDescription>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        data-jobs-open-searches="1"
+                        onClick={() => setSearchesDialogOpen(true)}
+                      >
+                        Sources: {sourceReadinessRollup.ready} ready | {sourceReadinessRollup.actionNeeded} action needed
+                      </Button>
+                    </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                       <label className="block text-sm font-medium text-foreground">
                         Title
                         <input
@@ -1400,36 +1184,6 @@ export default function App() {
                       </label>
 
                       <label className="block text-sm font-medium text-foreground">
-                        Keywords
-                        <input
-                          className={FIELD_CLASSNAME}
-                          data-jobs-criteria-keywords="1"
-                          value={criteriaDraft.keywords}
-                          onChange={(event) =>
-                            setCriteriaDraft((current) => ({ ...current, keywords: event.target.value }))
-                          }
-                        />
-                      </label>
-
-                      <label className="block text-sm font-medium text-foreground">
-                        Keyword mode
-                        <select
-                          className={FIELD_CLASSNAME}
-                          data-jobs-criteria-keyword-mode="1"
-                          value={criteriaDraft.keywordMode}
-                          onChange={(event) =>
-                            setCriteriaDraft((current) => ({
-                              ...current,
-                              keywordMode: event.target.value,
-                            }))
-                          }
-                        >
-                          <option value="and">Match all keywords</option>
-                          <option value="or">Match any keyword</option>
-                        </select>
-                      </label>
-
-                      <label className="block text-sm font-medium text-foreground">
                         Location
                         <input
                           className={FIELD_CLASSNAME}
@@ -1437,38 +1191,6 @@ export default function App() {
                           value={criteriaDraft.location}
                           onChange={(event) =>
                             setCriteriaDraft((current) => ({ ...current, location: event.target.value }))
-                          }
-                        />
-                      </label>
-
-                      <label className="block text-sm font-medium text-foreground md:col-span-2 xl:col-span-2">
-                        Include terms
-                        <input
-                          className={FIELD_CLASSNAME}
-                          data-jobs-criteria-include-terms="1"
-                          placeholder="ai, platform, growth"
-                          value={criteriaDraft.includeTerms}
-                          onChange={(event) =>
-                            setCriteriaDraft((current) => ({
-                              ...current,
-                              includeTerms: event.target.value,
-                            }))
-                          }
-                        />
-                      </label>
-
-                      <label className="block text-sm font-medium text-foreground md:col-span-2 xl:col-span-2">
-                        Exclude terms
-                        <input
-                          className={FIELD_CLASSNAME}
-                          data-jobs-criteria-exclude-terms="1"
-                          placeholder="staffing, internship"
-                          value={criteriaDraft.excludeTerms}
-                          onChange={(event) =>
-                            setCriteriaDraft((current) => ({
-                              ...current,
-                              excludeTerms: event.target.value,
-                            }))
                           }
                         />
                       </label>
@@ -1514,23 +1236,113 @@ export default function App() {
                       </label>
                     </div>
 
-                    <div className="flex flex-col gap-3 rounded-lg border border-border/70 bg-secondary/30 p-3 md:flex-row md:items-center md:justify-between">
-                      <div className="text-sm text-muted-foreground">
-                        <p>Enabled sources: {visibleJobSources.length}</p>
-                        <p>
-                          Active queue: {activeJobs.length}. Applied: {appliedJobs.length}.
-                        </p>
+                    <div className="rounded-lg border border-border/70 bg-secondary/20 p-4">
+                      <div className="mb-3 text-sm font-semibold text-foreground">Hard filter (import gate)</div>
+                      <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,2fr)]">
+                        <label className="block text-sm font-medium text-foreground">
+                          Must include
+                          <input
+                            className={FIELD_CLASSNAME}
+                            data-jobs-criteria-hard-include-terms="1"
+                            placeholder="ml platform, healthcare"
+                            value={criteriaDraft.hardIncludeTerms}
+                            onChange={(event) =>
+                              setCriteriaDraft((current) => ({
+                                ...current,
+                                hardIncludeTerms: event.target.value,
+                              }))
+                            }
+                          />
+                        </label>
+
+                        <label className="block text-sm font-medium text-foreground">
+                          Match mode
+                          <select
+                            className={FIELD_CLASSNAME}
+                            data-jobs-criteria-hard-include-mode="1"
+                            value={criteriaDraft.hardIncludeMode}
+                            onChange={(event) =>
+                              setCriteriaDraft((current) => ({
+                                ...current,
+                                hardIncludeMode: event.target.value,
+                              }))
+                            }
+                          >
+                            <option value="and">All required terms</option>
+                            <option value="or">Any required term</option>
+                          </select>
+                        </label>
+
+                        <label className="block text-sm font-medium text-foreground">
+                          Must not include
+                          <input
+                            className={FIELD_CLASSNAME}
+                            data-jobs-criteria-hard-exclude-terms="1"
+                            placeholder="intern, contract"
+                            value={criteriaDraft.hardExcludeTerms}
+                            onChange={(event) =>
+                              setCriteriaDraft((current) => ({
+                                ...current,
+                                hardExcludeTerms: event.target.value,
+                              }))
+                            }
+                          />
+                        </label>
                       </div>
-                      <Button
-                        className="w-full md:w-auto"
-                        data-jobs-find="1"
-                        disabled={jobsControlsDisabled}
-                        onClick={() => {
-                          void handleFindJobs();
-                        }}
-                      >
-                        {criteriaBusy ? "Finding jobs..." : "Find Jobs"}
-                      </Button>
+                    </div>
+
+                    <div className="rounded-lg border border-border/70 bg-secondary/10 p-4">
+                      <div className="mb-3 text-sm font-semibold text-foreground">
+                        Additional keywords (ranking only)
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto]">
+                        <label className="block text-sm font-medium text-foreground">
+                          Keywords
+                          <input
+                            className={FIELD_CLASSNAME}
+                            data-jobs-criteria-additional-keywords="1"
+                            placeholder="ai tooling, growth, marketplace"
+                            value={criteriaDraft.additionalKeywords}
+                            onChange={(event) =>
+                              setCriteriaDraft((current) => ({
+                                ...current,
+                                additionalKeywords: event.target.value,
+                              }))
+                            }
+                          />
+                        </label>
+
+                        <label className="block text-sm font-medium text-foreground">
+                          Match mode
+                          <select
+                            className={FIELD_CLASSNAME}
+                            data-jobs-criteria-additional-keyword-mode="1"
+                            value={criteriaDraft.additionalKeywordMode}
+                            onChange={(event) =>
+                              setCriteriaDraft((current) => ({
+                                ...current,
+                                additionalKeywordMode: event.target.value,
+                              }))
+                            }
+                          >
+                            <option value="and">Match all keywords</option>
+                            <option value="or">Match any keyword</option>
+                          </select>
+                        </label>
+
+                        <div className="flex items-end">
+                          <Button
+                            className="w-full md:w-auto"
+                            data-jobs-find="1"
+                            disabled={jobsControlsDisabled}
+                            onClick={() => {
+                              void handleFindJobs();
+                            }}
+                          >
+                            {criteriaBusy ? "Finding jobs..." : "Find Jobs"}
+                          </Button>
+                        </div>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
@@ -1541,7 +1353,15 @@ export default function App() {
                     <div className="flex flex-col gap-3">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div>
-                          <CardTitle className="text-base">Queue</CardTitle>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <CardTitle className="text-base">Queue</CardTitle>
+                            <span className="rounded-full bg-secondary px-2 py-1 text-xs font-semibold text-secondary-foreground">
+                              Active {activeJobs.length}
+                            </span>
+                            <span className="rounded-full bg-secondary px-2 py-1 text-xs font-semibold text-secondary-foreground">
+                              Applied {appliedJobs.length}
+                            </span>
+                          </div>
                           <CardDescription>
                             Filter by view, source, and sort order without leaving the review tab.
                           </CardDescription>
@@ -1897,6 +1717,251 @@ export default function App() {
           </Tabs>
         </CardHeader>
       </Card>
+
+      <Dialog open={searchesDialogOpen} onOpenChange={setSearchesDialogOpen}>
+        <DialogContent className="max-h-[90vh] max-w-[1220px] overflow-y-auto" data-searches-modal="1">
+          <DialogHeader>
+            <DialogTitle>My Job Searches</DialogTitle>
+            <DialogDescription>
+              Manage enabled sources, authentication checks, and per-source refresh actions.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-0">
+            <div className="mb-0 flex justify-end">
+              <Tabs
+                value={selectedSearchState}
+                onValueChange={setSearchState}
+                className="-mb-px"
+              >
+                <TabsList className="h-auto gap-0 rounded-t-xl rounded-b-none border border-border/80 border-b-0 bg-transparent p-0">
+                  <TabsTrigger
+                    value="enabled"
+                    className="rounded-none rounded-tl-xl border-r border-border/80 px-6 py-3 data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=inactive]:bg-secondary/20"
+                  >
+                    Enabled ({enabledRows.length})
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="disabled"
+                    className="rounded-none rounded-tr-xl px-6 py-3 data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=inactive]:bg-secondary/20"
+                  >
+                    Disabled ({disabledRows.length})
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </div>
+            <Card className="searches-card rounded-tr-none">
+              <CardHeader className="pb-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <CardTitle className="pt-1 text-base">Sources</CardTitle>
+                  {selectedSearchState === "enabled" ? (
+                    <label className="w-full text-sm font-medium text-foreground sm:ml-auto sm:w-64">
+                      Search frequency
+                      <Select value={searchRunCadence} onValueChange={setSearchRunCadence}>
+                        <SelectTrigger id="search-run-cadence" className="mt-2 w-full">
+                          <SelectValue placeholder="Select search frequency" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            <SelectLabel>Run cadence</SelectLabel>
+                            <SelectItem value="12h">12h (recommended)</SelectItem>
+                            <SelectItem value="daily">Daily</SelectItem>
+                            <SelectItem value="weekly">Weekly</SelectItem>
+                            <SelectItem value="cached">Use cached results (dev)</SelectItem>
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </label>
+                  ) : null}
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Source</TableHead>
+                      <TableHead>Last Run</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Found</TableHead>
+                      <TableHead>Filtered</TableHead>
+                      <TableHead>Dupes</TableHead>
+                      <TableHead>Imported</TableHead>
+                      <TableHead>Avg Score</TableHead>
+                      <TableHead className="w-[116px] pr-1">Action</TableHead>
+                      <TableHead className="w-[44px] pl-1 pr-2">
+                        <span className="sr-only">More actions</span>
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredRows.map((row) => {
+                      const statusPresentation = presentSearchStatus(row);
+                      const hasStatusDetails =
+                        Boolean(statusPresentation.statusDetail) ||
+                        Boolean(statusPresentation.formatterDetail);
+                      const runNowDisabled = controlsDisabled || !row.manualRefreshAllowed;
+                      const runNowLabel = runNowDisabled
+                        ? row.manualRefreshNextEligibleAt
+                          ? `Available in ${formatDurationFromNow(row.manualRefreshNextEligibleAt)}`
+                          : "Run now"
+                        : "Run now";
+
+                      return (
+                        <TableRow key={row.id} className={cn(!row.enabled && "bg-secondary/20")}>
+                          <TableCell>
+                            {row.searchUrl ? (
+                              <a
+                                href={row.searchUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="font-medium text-primary hover:underline"
+                              >
+                                {row.label} <span aria-hidden="true">↗</span>
+                              </a>
+                            ) : (
+                              <span className="font-medium">{row.label}</span>
+                            )}
+                          </TableCell>
+                          <TableCell>{formatRelativeTimestamp(row.capturedAt)}</TableCell>
+                          <TableCell className="max-w-[260px]">
+                            <div className="inline-flex items-center gap-2">
+                              <div className="inline-flex items-center gap-2 rounded-full bg-secondary/60 px-2 py-1 text-xs font-semibold">
+                                <span
+                                  aria-hidden="true"
+                                  className={cn("h-2 w-2 rounded-full", toneClassName(statusPresentation.tone))}
+                                />
+                                <span>{statusPresentation.label}</span>
+                              </div>
+                              {hasStatusDetails ? (
+                                <button
+                                  type="button"
+                                  className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground"
+                                  aria-label="Show status details"
+                                  onClick={() => {
+                                    const details = [
+                                      statusPresentation.statusDetail,
+                                      statusPresentation.formatterDetail
+                                        ? `formatter: ${statusPresentation.formatterDetail}`
+                                        : "",
+                                    ]
+                                      .filter(Boolean)
+                                      .join(" ");
+                                    toast({
+                                      title: `${row.label}: status details`,
+                                      description: details,
+                                    });
+                                  }}
+                                >
+                                  i
+                                </button>
+                              ) : null}
+                            </div>
+                          </TableCell>
+                          <TableCell>{statusPresentation.foundLabel}</TableCell>
+                          <TableCell>{row.filteredCount}</TableCell>
+                          <TableCell>{row.dedupedCount}</TableCell>
+                          <TableCell>{row.importedCount}</TableCell>
+                          <TableCell>{row.avgScore === null ? "n/a" : row.avgScore}</TableCell>
+                          <TableCell className="w-[116px] py-2 pl-1 pr-1">
+                            <div className="flex items-center justify-start whitespace-nowrap">
+                              {!row.enabled ? (
+                                <Button
+                                  size="sm"
+                                  className="h-8 shrink-0 px-3"
+                                  data-onboarding-enable-source={row.id}
+                                  disabled={controlsDisabled}
+                                  onClick={() => {
+                                    void handleEnableSource(row.id, row.label);
+                                  }}
+                                >
+                                  Enable
+                                </Button>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  className="h-8 shrink-0 px-3"
+                                  variant="secondary"
+                                  disabled={runNowDisabled}
+                                  title={`Manual refreshes remaining today: ${row.manualRefreshRemaining}`}
+                                  onClick={() => {
+                                    void handleRunSourceNow(row.id);
+                                  }}
+                                >
+                                  {runNowLabel}
+                                </Button>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="w-[44px] py-2 pl-1 pr-2 text-right align-middle">
+                            {row.enabled ? (
+                              <details className="relative inline-block shrink-0">
+                                <summary
+                                  className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-border text-sm [&::-webkit-details-marker]:hidden"
+                                  aria-label="Source actions"
+                                  title="Source actions"
+                                >
+                                  ⋯
+                                </summary>
+                                <div className="absolute right-full top-1/2 z-20 mr-2 min-w-[128px] -translate-y-1/2 rounded-md border border-border bg-card p-1 shadow-panel">
+                                  {row.authRequired && row.readiness.tone === "warn" ? (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="w-full justify-start"
+                                      data-onboarding-check-source={row.id}
+                                      disabled={controlsDisabled}
+                                      onClick={() => {
+                                        void handleCheckAccess(row.id, row.label);
+                                      }}
+                                    >
+                                      Check access
+                                    </Button>
+                                  ) : null}
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="w-full justify-start"
+                                    data-onboarding-disable-source={row.id}
+                                    disabled={controlsDisabled}
+                                    onClick={() => {
+                                      void handleDisableSource(row.id, row.label);
+                                    }}
+                                  >
+                                    Disable
+                                  </Button>
+                                </div>
+                              </details>
+                            ) : null}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+
+                    {filteredRows.length > 0 ? (
+                      <TableRow className="search-totals-row border-t-2 border-border bg-primary/10 font-semibold hover:bg-primary/10">
+                        <TableCell>{totals.stateLabel}</TableCell>
+                        <TableCell>—</TableCell>
+                        <TableCell>—</TableCell>
+                        <TableCell>{totals.foundLabel}</TableCell>
+                        <TableCell>{totals.filtered}</TableCell>
+                        <TableCell>{totals.deduped}</TableCell>
+                        <TableCell>{totals.imported}</TableCell>
+                        <TableCell>{totals.avgScore}</TableCell>
+                        <TableCell>—</TableCell>
+                        <TableCell />
+                      </TableRow>
+                    ) : null}
+                  </TableBody>
+                </Table>
+
+                {filteredRows.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No sources in this tab.</p>
+                ) : null}
+              </CardContent>
+            </Card>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {authFlowSource ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">

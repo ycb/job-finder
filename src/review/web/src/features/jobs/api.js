@@ -31,6 +31,21 @@ function normalizeKeywordMode(value) {
   return String(value || "").trim().toLowerCase() === "or" ? "or" : "and";
 }
 
+function readCriteriaTerms(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((term) => String(term || "").trim())
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return "";
+}
+
 function normalizeRunCadence(value) {
   const normalized = String(value || "").trim().toLowerCase();
   if (["12h", "daily", "weekly", "cached"].includes(normalized)) {
@@ -55,10 +70,20 @@ function targetQueueKey(status) {
 export function normalizeSearchCriteriaDraft(criteria = {}) {
   return {
     title: typeof criteria?.title === "string" ? criteria.title : "",
-    keywords: typeof criteria?.keywords === "string" ? criteria.keywords : "",
-    keywordMode: normalizeKeywordMode(criteria?.keywordMode),
-    includeTerms: Array.isArray(criteria?.includeTerms) ? criteria.includeTerms.join(", ") : "",
-    excludeTerms: Array.isArray(criteria?.excludeTerms) ? criteria.excludeTerms.join(", ") : "",
+    hardIncludeTerms:
+      readCriteriaTerms(criteria?.hardIncludeTerms) ||
+      readCriteriaTerms(criteria?.requiredTerms) ||
+      "",
+    hardIncludeMode: normalizeKeywordMode(criteria?.hardIncludeMode || criteria?.requiredTermsMode),
+    hardExcludeTerms:
+      readCriteriaTerms(criteria?.hardExcludeTerms) || readCriteriaTerms(criteria?.excludeTerms),
+    additionalKeywords:
+      readCriteriaTerms(criteria?.scoreKeywords) ||
+      readCriteriaTerms(criteria?.additionalKeywords) ||
+      (typeof criteria?.keywords === "string" ? criteria.keywords : ""),
+    additionalKeywordMode: normalizeKeywordMode(
+      criteria?.scoreKeywordMode || criteria?.additionalKeywordMode || criteria?.keywordMode,
+    ),
     location: typeof criteria?.location === "string" ? criteria.location : "",
     minSalary:
       Number.isFinite(Number(criteria?.minSalary)) && Number(criteria.minSalary) > 0
@@ -69,12 +94,24 @@ export function normalizeSearchCriteriaDraft(criteria = {}) {
 }
 
 export function buildSearchCriteriaPayload(draft = {}) {
+  const hardIncludeTerms = parseTerms(draft?.hardIncludeTerms);
+  const hardExcludeTerms = parseTerms(draft?.hardExcludeTerms);
+  const scoreKeywords = parseTerms(draft?.additionalKeywords);
+  const hardIncludeMode = normalizeKeywordMode(draft?.hardIncludeMode);
+  const scoreKeywordMode = normalizeKeywordMode(draft?.additionalKeywordMode);
+
   return {
     title: typeof draft?.title === "string" ? draft.title : "",
-    keywords: typeof draft?.keywords === "string" ? draft.keywords : "",
-    keywordMode: normalizeKeywordMode(draft?.keywordMode),
-    includeTerms: parseTerms(draft?.includeTerms),
-    excludeTerms: parseTerms(draft?.excludeTerms),
+    hardIncludeTerms,
+    hardIncludeMode,
+    hardExcludeTerms,
+    scoreKeywords,
+    scoreKeywordMode,
+    // Legacy compatibility fields retained while the broader codebase migrates.
+    keywords: "",
+    keywordMode: scoreKeywordMode,
+    includeTerms: [],
+    excludeTerms: hardExcludeTerms,
     location: typeof draft?.location === "string" ? draft.location : "",
     minSalary: parseSalary(draft?.minSalary),
     datePosted: typeof draft?.datePosted === "string" ? draft.datePosted : "",

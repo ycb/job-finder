@@ -216,3 +216,53 @@ test("evaluateJobsFromSearchCriteria keeps baseline scoring for exclude-only cri
   assert.equal(eligible.hardFiltered, false);
   assert.ok(eligible.score > 0);
 });
+
+test("evaluateJobsFromSearchCriteria enforces hard include terms with AND default", () => {
+  const evaluations = evaluateJobsFromSearchCriteria(
+    {
+      hardIncludeTerms: ["ai", "platform"]
+    },
+    [
+      {
+        id: "job-missing-required",
+        title: "Senior Product Manager",
+        company: "Acme",
+        location: "San Francisco, CA",
+        description: "Own growth roadmap",
+        salaryText: "$220,000 - $260,000",
+        source: "indeed_search",
+        postedAt: new Date().toISOString()
+      }
+    ]
+  );
+
+  assert.equal(evaluations[0].hardFiltered, true);
+  assert.equal(evaluations[0].score, 0);
+  assert.match(evaluations[0].summary, /missing required terms/i);
+});
+
+test("evaluateJobsFromSearchCriteria uses scoreKeywords as ranking-only terms", () => {
+  const evaluations = evaluateJobsFromSearchCriteria(
+    {
+      hardIncludeTerms: ["product manager"],
+      scoreKeywords: ["ai", "fintech"],
+      scoreKeywordMode: "or"
+    },
+    [
+      {
+        id: "job-partial-score-hit",
+        title: "Senior Product Manager",
+        company: "Acme",
+        location: "San Francisco, CA",
+        description: "Lead AI platform roadmap",
+        salaryText: "$220,000 - $260,000",
+        source: "indeed_search",
+        postedAt: new Date().toISOString()
+      }
+    ]
+  );
+
+  assert.equal(evaluations[0].hardFiltered, false);
+  assert.ok(evaluations[0].score > 0);
+  assert.match(evaluations[0].summary, /OR mode/i);
+});
