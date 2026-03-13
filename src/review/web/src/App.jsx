@@ -1238,8 +1238,17 @@ export default function App() {
                     </div>
 
                     <div className="rounded-lg border border-border/70 bg-secondary/20 p-4">
-                      <div className="mb-3 text-sm font-semibold text-foreground">Hard filter (import gate)</div>
-                      <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,2fr)]">
+                      <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
+                        <span>Hard filter</span>
+                        <span
+                          className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground"
+                          title="Only jobs with these words will be imported."
+                          aria-label="Hard filter info: Only jobs with these words will be imported."
+                        >
+                          i
+                        </span>
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
                         <label className="block text-sm font-medium text-foreground">
                           Must include
                           <input
@@ -1273,7 +1282,9 @@ export default function App() {
                             <option value="or">Any required term</option>
                           </select>
                         </label>
+                      </div>
 
+                      <div className="mt-3">
                         <label className="block text-sm font-medium text-foreground">
                           Must not include
                           <input
@@ -1293,10 +1304,17 @@ export default function App() {
                     </div>
 
                     <div className="rounded-lg border border-border/70 bg-secondary/10 p-4">
-                      <div className="mb-3 text-sm font-semibold text-foreground">
-                        Additional keywords (ranking only)
+                      <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
+                        <span>Additional keywords</span>
+                        <span
+                          className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground"
+                          title="Jobs with these keywords will receive higher scores."
+                          aria-label="Additional keywords info: Jobs with these keywords will receive higher scores."
+                        >
+                          i
+                        </span>
                       </div>
-                      <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto]">
+                      <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
                         <label className="block text-sm font-medium text-foreground">
                           Keywords
                           <input
@@ -1330,19 +1348,19 @@ export default function App() {
                             <option value="or">Match any keyword</option>
                           </select>
                         </label>
+                      </div>
 
-                        <div className="flex items-end">
-                          <Button
-                            className="w-full md:w-auto"
-                            data-jobs-find="1"
-                            disabled={jobsControlsDisabled}
-                            onClick={() => {
-                              void handleFindJobs();
-                            }}
-                          >
-                            {criteriaBusy ? "Finding jobs..." : "Find Jobs"}
-                          </Button>
-                        </div>
+                      <div className="mt-3 flex justify-end">
+                        <Button
+                          className="w-full md:w-auto"
+                          data-jobs-find="1"
+                          disabled={jobsControlsDisabled}
+                          onClick={() => {
+                            void handleFindJobs();
+                          }}
+                        >
+                          {criteriaBusy ? "Finding jobs..." : "Find Jobs"}
+                        </Button>
                       </div>
                     </div>
                   </CardContent>
