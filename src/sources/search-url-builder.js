@@ -390,7 +390,6 @@ function combineTitleAndKeywords(criteria) {
     ? criteria.keywordTerms.map((term) => normalizeText(term).toLowerCase()).filter(Boolean)
     : normalizeCriteriaTermList(criteria?.keywords);
   const includeTerms = normalizeCriteriaTermList(criteria?.includeTerms);
-  const excludeTerms = normalizeCriteriaTermList(criteria?.excludeTerms);
   const positiveTerms = dedupe([...keywordTerms, ...includeTerms]).filter(Boolean);
 
   let positiveQuery = "";
@@ -402,8 +401,7 @@ function combineTitleAndKeywords(criteria) {
     }
   }
 
-  const excludeQuery = excludeTerms.map((term) => `-${formatQueryTerm(term)}`).join(" ").trim();
-  return [title, positiveQuery, excludeQuery].filter(Boolean).join(" ").trim();
+  return [title, positiveQuery].filter(Boolean).join(" ").trim();
 }
 
 function toLinkedInSalaryBucket(minSalary) {
@@ -451,6 +449,9 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
   const criteria = normalizeSearchCriteria(rawCriteria);
   const notes = [];
   const criteriaAccountability = createCriteriaAccountabilityTracker(criteria);
+  if (criteria.excludeTerms) {
+    criteriaAccountability.markAppliedPostCapture("excludeTerms");
+  }
   const parsed = toUrl(options.baseUrl, sourceType);
 
   if (!parsed) {
@@ -488,7 +489,6 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
       if (criteria.title) criteriaAccountability.markAppliedInUrl("title");
       if (criteria.keywords) criteriaAccountability.markAppliedInUrl("keywords");
       if (criteria.includeTerms) criteriaAccountability.markAppliedInUrl("includeTerms");
-      if (criteria.excludeTerms) criteriaAccountability.markAppliedInUrl("excludeTerms");
       if (criteria.keywordMode) criteriaAccountability.markAppliedInUrl("keywordMode");
     }
 
@@ -571,7 +571,6 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
       if (criteria.title) criteriaAccountability.markAppliedInUrl("title");
       if (criteria.keywords) criteriaAccountability.markAppliedInUrl("keywords");
       if (criteria.includeTerms) criteriaAccountability.markAppliedInUrl("includeTerms");
-      if (criteria.excludeTerms) criteriaAccountability.markAppliedInUrl("excludeTerms");
       if (criteria.keywordMode) criteriaAccountability.markAppliedInUrl("keywordMode");
     }
 
@@ -626,7 +625,6 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
     if (criteria.keywords) criteriaAccountability.markUnsupported("keywords");
     if (criteria.keywordMode) criteriaAccountability.markUnsupported("keywordMode");
     if (criteria.includeTerms) criteriaAccountability.markUnsupported("includeTerms");
-    if (criteria.excludeTerms) criteriaAccountability.markUnsupported("excludeTerms");
     if (criteria.location) criteriaAccountability.markUnsupported("location");
     if (criteria.minSalary) criteriaAccountability.markUnsupported("minSalary");
     if (criteria.distanceMiles) criteriaAccountability.markUnsupported("distanceMiles");
@@ -664,7 +662,6 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
       if (criteria.title) criteriaAccountability.markAppliedInUrl("title");
       if (criteria.keywords) criteriaAccountability.markAppliedInUrl("keywords");
       if (criteria.includeTerms) criteriaAccountability.markAppliedInUrl("includeTerms");
-      if (criteria.excludeTerms) criteriaAccountability.markAppliedInUrl("excludeTerms");
       if (criteria.keywordMode) criteriaAccountability.markAppliedInUrl("keywordMode");
     }
 
@@ -737,7 +734,6 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
       if (criteria.title) criteriaAccountability.markAppliedInUrl("title");
       if (criteria.keywords) criteriaAccountability.markAppliedInUrl("keywords");
       if (criteria.includeTerms) criteriaAccountability.markAppliedInUrl("includeTerms");
-      if (criteria.excludeTerms) criteriaAccountability.markAppliedInUrl("excludeTerms");
       if (criteria.keywordMode) criteriaAccountability.markAppliedInUrl("keywordMode");
     } else {
       const existingQuery = normalizeText(parsed.searchParams.get("q"));
@@ -818,7 +814,6 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
       if (criteria.title) criteriaAccountability.markAppliedInUrl("title");
       if (criteria.keywords) criteriaAccountability.markAppliedInUrl("keywords");
       if (criteria.includeTerms) criteriaAccountability.markAppliedInUrl("includeTerms");
-      if (criteria.excludeTerms) criteriaAccountability.markAppliedInUrl("excludeTerms");
       if (criteria.keywordMode) criteriaAccountability.markAppliedInUrl("keywordMode");
     } else {
       const existingQuery = normalizeText(parsed.searchParams.get("search"));
@@ -909,7 +904,6 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
     if (criteria.location) criteriaAccountability.markUnsupported("location");
     if (criteria.keywordMode) criteriaAccountability.markUnsupported("keywordMode");
     if (criteria.includeTerms) criteriaAccountability.markUnsupported("includeTerms");
-    if (criteria.excludeTerms) criteriaAccountability.markUnsupported("excludeTerms");
     if (criteria.distanceMiles) criteriaAccountability.markUnsupported("distanceMiles");
     if (criteria.minSalary) criteriaAccountability.markUnsupported("minSalary");
     if (criteria.datePosted) criteriaAccountability.markUnsupported("datePosted");
