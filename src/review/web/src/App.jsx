@@ -150,6 +150,16 @@ function formatJobFreshness(job) {
   return "Freshness unknown";
 }
 
+function formatSalaryMaskInput(value) {
+  const digits = String(value || "")
+    .replace(/[^0-9]/g, "")
+    .slice(0, 9);
+  if (!digits) {
+    return "";
+  }
+  return `$${Number(digits).toLocaleString("en-US")}`;
+}
+
 function rankJobs(items, jobsSort) {
   const jobs = Array.isArray(items) ? [...items] : [];
 
@@ -1160,16 +1170,14 @@ export default function App() {
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-auto items-center gap-2 px-3 py-2"
+                        className="h-auto flex-col items-start gap-1 px-3 py-2 sm:flex-row sm:items-center sm:gap-3"
                         data-jobs-open-searches="1"
                         onClick={() => setSearchesDialogOpen(true)}
                       >
+                        <span className="text-xs font-medium text-muted-foreground">Source readiness</span>
                         <span className="inline-flex items-center gap-1 text-xs font-semibold text-foreground">
                           <span className="h-2 w-2 rounded-full bg-emerald-600" aria-hidden="true" />
                           Ready ({sourceReadinessRollup.ready})
-                        </span>
-                        <span className="text-muted-foreground" aria-hidden="true">
-                          |
                         </span>
                         <span className="inline-flex items-center gap-1 text-xs font-semibold text-foreground">
                           <span
@@ -1217,12 +1225,12 @@ export default function App() {
                           className={FIELD_CLASSNAME}
                           data-jobs-criteria-min-salary="1"
                           inputMode="numeric"
-                          placeholder="200000"
-                          value={criteriaDraft.minSalary}
+                          placeholder="$XXX,XXX"
+                          value={formatSalaryMaskInput(criteriaDraft.minSalary)}
                           onChange={(event) =>
                             setCriteriaDraft((current) => ({
                               ...current,
-                              minSalary: event.target.value,
+                              minSalary: formatSalaryMaskInput(event.target.value),
                             }))
                           }
                         />
