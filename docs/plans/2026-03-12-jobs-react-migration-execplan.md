@@ -15,7 +15,7 @@ This plan follows [PLANS.md](../../PLANS.md).
 - [ ] Create parallel lane branches/worktrees (`J1`–`J4`).
 - [x] (2026-03-12) Implemented Jobs logic module + targeted tests for view selection, source filters, sort, pagination, selected-job reconciliation, and optimistic viewed semantics.
 - [x] (2026-03-12) Implemented Jobs UI components + state wiring in React.
-- [ ] Implement Jobs action wiring + status transitions + reject-reason dialog.
+- [x] (2026-03-12) Implement Jobs action wiring + status transitions + reject-reason dialog in React (`App.jsx`, `features/jobs/api.js`, `components/ui/dialog.jsx`, `test/review-jobs-api.test.js`).
 - [ ] Run Playwright Jobs smoke and full verification.
 
 ## Surprises & Discoveries
@@ -23,6 +23,7 @@ This plan follows [PLANS.md](../../PLANS.md).
 - Legacy Jobs behavior is rich and spans filtering, sort, pagination, viewed tracking, status transitions, and detail rendering inside the legacy `renderDashboardPage` script.
 - No new backend endpoint is required for MVP parity; migration risk is frontend behavior parity and state coordination.
 - The React worktree had no existing `src/review/web/src/features/jobs/` surface, so J2 added a mock-backed presentational model to keep the tab renderable before J1/J3 land.
+- Fresh worktrees may not have `node_modules` bootstrapped; `npm install` was required before the React build and CLI smoke tests could execute.
 
 ## Decision Log
 
@@ -181,6 +182,11 @@ node scripts/playwright-jobs-flow-smoke.js --artifact-prefix 2026-03-12-jobs-rea
 ## Outcomes & Retrospective
 
 - J2 shipped a presentational Jobs shell with prop-driven criteria, controls, queue, and detail components.
-- Verification run in this worktree:
+- J2 verification run in this worktree:
   - `node --test test/review-jobs-react-ui-model.test.js`
   - `npm run dashboard:web:build`
+- 2026-03-12 J3 verification:
+  - `node --test test/review-jobs-api.test.js`
+  - `npm run dashboard:web:build`
+  - `npm test`
+- Result: Jobs tab now saves criteria, runs captures, refreshes the dashboard, marks jobs viewed/applied/skipped/rejected, and collects rejection reasons in a dialog with toast feedback.
