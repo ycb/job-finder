@@ -64,6 +64,7 @@
     "review": "node src/cli.js review",
     "review:react": "JOB_FINDER_DASHBOARD_UI=react node src/cli.js review",
     "review:react:watch": "bash scripts/review-react-watch.sh",
+    "review:main:follow": "bash scripts/review-main-follow.sh",
     "smoke:dashboard": "node scripts/playwright-dashboard-smoke.js",
     "review:safe": "JOB_FINDER_REFRESH_PROFILE=safe node src/cli.js review",
     "review:probe": "JOB_FINDER_REFRESH_PROFILE=probe node src/cli.js review",
