@@ -12,7 +12,7 @@ This plan follows [PLANS.md](../../PLANS.md).
 
 - [x] (2026-03-12) Baseline audit complete: backend contracts for Jobs already exist (`/api/dashboard`, `/api/search-criteria`, `/api/sources/run-all`, `/api/jobs/:id/status`).
 - [ ] Create parallel lane branches/worktrees (`J1`–`J4`).
-- [ ] Implement Jobs logic module + tests.
+- [x] (2026-03-12) Implemented Jobs logic module + targeted tests for view selection, source filters, sort, pagination, selected-job reconciliation, and optimistic viewed semantics.
 - [ ] Implement Jobs UI components + state wiring in React.
 - [ ] Implement Jobs action wiring + status transitions + reject-reason dialog.
 - [ ] Run Playwright Jobs smoke and full verification.
