@@ -18,10 +18,13 @@ echo "Starting Vite build watcher..."
 npm run dashboard:web:build -- --watch &
 WATCH_PID=$!
 
+DIST_INDEX_PRIMARY="src/review/web/dist/index.html"
+DIST_INDEX_LEGACY="dist/index.html"
+
 echo "Waiting for initial dist build..."
-until [[ -f "dist/index.html" ]]; do
+until [[ -f "${DIST_INDEX_PRIMARY}" || -f "${DIST_INDEX_LEGACY}" ]]; do
   sleep 0.2
 done
 
-echo "Starting review server in React mode on top of dist/..."
+echo "Starting review server in React mode..."
 JOB_FINDER_DASHBOARD_UI=react node src/cli.js review
