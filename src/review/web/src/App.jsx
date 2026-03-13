@@ -425,8 +425,9 @@ export default function App() {
     return {
       ready: Math.max(0, enabledRows.length - actionNeeded),
       actionNeeded,
+      disabled: disabledRows.length,
     };
-  }, [enabledRows]);
+  }, [disabledRows.length, enabledRows]);
 
   const controlsDisabled = busyAction.length > 0 || authFlow.busy;
   const jobsControlsDisabled = controlsDisabled || criteriaBusy || rejectDialog.saving;
@@ -1167,29 +1168,35 @@ export default function App() {
                       <div>
                         <CardTitle className="text-base">Find Jobs</CardTitle>
                       </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-auto flex-col items-start gap-1 px-3 py-2 sm:flex-row sm:items-center sm:gap-3"
-                        data-jobs-open-searches="1"
-                        onClick={() => setSearchesDialogOpen(true)}
-                      >
-                        <span className="text-xs font-medium text-muted-foreground">Source readiness</span>
-                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-foreground">
-                          <span className="h-2 w-2 rounded-full bg-emerald-600" aria-hidden="true" />
-                          Ready ({sourceReadinessRollup.ready})
-                        </span>
-                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-foreground">
-                          <span
-                            className={cn(
-                              "h-2 w-2 rounded-full",
-                              sourceReadinessRollup.actionNeeded > 0 ? "bg-amber-600" : "bg-emerald-600",
-                            )}
-                            aria-hidden="true"
-                          />
-                          Action needed ({sourceReadinessRollup.actionNeeded})
-                        </span>
-                      </Button>
+                      <div className="flex flex-col gap-1 sm:items-end">
+                        <span className="text-xs font-medium text-muted-foreground">Job sources</span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-auto px-3 py-2"
+                          data-jobs-open-searches="1"
+                          onClick={() => setSearchesDialogOpen(true)}
+                        >
+                          <span className="flex flex-wrap items-center gap-2">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-1 text-xs font-semibold text-secondary-foreground">
+                              <span className="h-2 w-2 rounded-full bg-emerald-600" aria-hidden="true" />
+                              Ready ({sourceReadinessRollup.ready})
+                            </span>
+                            {sourceReadinessRollup.actionNeeded > 0 ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-1 text-xs font-semibold text-secondary-foreground">
+                                <span className="h-2 w-2 rounded-full bg-amber-600" aria-hidden="true" />
+                                Action needed ({sourceReadinessRollup.actionNeeded})
+                              </span>
+                            ) : null}
+                            {sourceReadinessRollup.disabled > 0 ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-1 text-xs font-semibold text-secondary-foreground">
+                                <span className="h-2 w-2 rounded-full bg-muted-foreground" aria-hidden="true" />
+                                Disabled ({sourceReadinessRollup.disabled})
+                              </span>
+                            ) : null}
+                          </span>
+                        </Button>
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
