@@ -6242,7 +6242,7 @@ export function renderDashboardPage(dashboard, options = {}) {
               '<div class="header">',
               "  <div>",
               "    <h1>Job Finder</h1>",
-              '    <div class="subhead">Manage saved searches, run intake, and review ranked jobs in one place.</div>',
+              '    <div class="subhead">Search across sites to find your best matches</div>',
               "  </div>",
               "</div>",
               '<div class="main-tabs">' + tabButtons + "</div>",

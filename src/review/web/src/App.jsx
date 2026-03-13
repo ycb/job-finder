@@ -1147,9 +1147,7 @@ export default function App() {
       <Card className="animate-fade-in">
         <CardHeader className="space-y-4">
           <CardTitle>Job Finder</CardTitle>
-          <CardDescription>
-            Manage saved searches, run intake, and review ranked jobs in one place.
-          </CardDescription>
+          <CardDescription>Search across sites to find your best matches</CardDescription>
 
           <Tabs value={mainTab} onValueChange={setMainTab} className="w-full">
             <TabsList className="w-full justify-start">
