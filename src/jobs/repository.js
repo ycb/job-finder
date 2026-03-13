@@ -115,41 +115,55 @@ export function pruneSourceJobs(db, sourceId, keepJobIds = []) {
     )
   );
 
-  let statement;
+  let targetIdsSql;
   let params;
 
   if (uniqueKeepIds.length === 0) {
-    statement = db.prepare(`
-      DELETE FROM jobs
-      WHERE source_id = ?
-        AND id IN (
-          SELECT j.id
-          FROM jobs j
-          LEFT JOIN applications a ON a.job_id = j.id
-          WHERE j.source_id = ?
-            AND COALESCE(a.status, 'new') IN ('new', 'viewed')
-        );
-    `);
-    params = [normalizedSourceId, normalizedSourceId];
+    targetIdsSql = `
+      SELECT j.id
+      FROM jobs j
+      LEFT JOIN applications a ON a.job_id = j.id
+      WHERE j.source_id = ?
+        AND COALESCE(a.status, 'new') IN ('new', 'viewed')
+    `;
+    params = [normalizedSourceId];
   } else {
     const placeholders = uniqueKeepIds.map(() => "?").join(", ");
-    statement = db.prepare(`
-      DELETE FROM jobs
-      WHERE source_id = ?
-        AND id NOT IN (${placeholders})
-        AND id IN (
-          SELECT j.id
-          FROM jobs j
-          LEFT JOIN applications a ON a.job_id = j.id
-          WHERE j.source_id = ?
-            AND COALESCE(a.status, 'new') IN ('new', 'viewed')
-        );
-    `);
-    params = [normalizedSourceId, ...uniqueKeepIds, normalizedSourceId];
+    targetIdsSql = `
+      SELECT j.id
+      FROM jobs j
+      LEFT JOIN applications a ON a.job_id = j.id
+      WHERE j.source_id = ?
+        AND j.id NOT IN (${placeholders})
+        AND COALESCE(a.status, 'new') IN ('new', 'viewed')
+    `;
+    params = [normalizedSourceId, ...uniqueKeepIds];
   }
 
-  const result = statement.run(...params);
-  return Number(result?.changes || 0);
+  const deleteEvaluations = db.prepare(`
+    DELETE FROM evaluations
+    WHERE job_id IN (${targetIdsSql});
+  `);
+  const deleteApplications = db.prepare(`
+    DELETE FROM applications
+    WHERE job_id IN (${targetIdsSql});
+  `);
+  const deleteJobs = db.prepare(`
+    DELETE FROM jobs
+    WHERE id IN (${targetIdsSql});
+  `);
+
+  db.exec("BEGIN;");
+  try {
+    deleteEvaluations.run(...params);
+    deleteApplications.run(...params);
+    const result = deleteJobs.run(...params);
+    db.exec("COMMIT;");
+    return Number(result?.changes || 0);
+  } catch (error) {
+    db.exec("ROLLBACK;");
+    throw error;
+  }
 }
 
 export function listSourceJobsForDelta(db, sourceId) {

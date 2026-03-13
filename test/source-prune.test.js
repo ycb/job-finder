@@ -101,3 +101,113 @@ test("pruneSourceJobs removes stale new/viewed rows and preserves applied rows",
     cleanupTempDb(db, dir);
   }
 });
+
+test("pruneSourceJobs works for legacy schemas without ON DELETE CASCADE", () => {
+  const { db, dir } = createTempDb();
+  try {
+    db.exec(`
+      CREATE TABLE jobs (
+        id TEXT PRIMARY KEY,
+        source TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        source_url TEXT NOT NULL,
+        external_id TEXT,
+        title TEXT NOT NULL,
+        company TEXT NOT NULL,
+        location TEXT,
+        posted_at TEXT,
+        employment_type TEXT,
+        easy_apply INTEGER NOT NULL DEFAULT 0,
+        salary_text TEXT,
+        description TEXT NOT NULL,
+        normalized_hash TEXT NOT NULL,
+        structured_meta TEXT,
+        metadata_quality_score INTEGER,
+        missing_required_fields TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE evaluations (
+        job_id TEXT PRIMARY KEY,
+        score INTEGER NOT NULL,
+        bucket TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        reasons TEXT NOT NULL,
+        evaluated_at TEXT NOT NULL,
+        FOREIGN KEY (job_id) REFERENCES jobs (id)
+      );
+
+      CREATE TABLE applications (
+        job_id TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        notes TEXT NOT NULL DEFAULT '',
+        draft_path TEXT,
+        last_action_at TEXT NOT NULL,
+        submitted_at TEXT,
+        FOREIGN KEY (job_id) REFERENCES jobs (id)
+      );
+    `);
+
+    const source = {
+      id: "legacy-source",
+      type: "ashby_search",
+      searchUrl: "https://www.google.com/search?q=site%3Aashbyhq.com+product+manager+ai"
+    };
+
+    const viewedJob = normalizeJobRecord(
+      {
+        title: "Viewed Job",
+        company: "Legacy Co",
+        location: "San Francisco, CA",
+        description: "Viewed role",
+        url: "https://jobs.ashbyhq.com/legacy/role-1"
+      },
+      source
+    );
+    const appliedJob = normalizeJobRecord(
+      {
+        title: "Applied Job",
+        company: "Legacy Co",
+        location: "San Francisco, CA",
+        description: "Applied role",
+        url: "https://jobs.ashbyhq.com/legacy/role-2"
+      },
+      source
+    );
+
+    upsertJobs(db, [viewedJob, appliedJob]);
+    db.prepare(`
+      INSERT INTO evaluations (job_id, score, bucket, summary, reasons, evaluated_at)
+      VALUES (?, 80, 'strong', 'ok', '[]', ?);
+    `).run(viewedJob.id, new Date().toISOString());
+    db.prepare(`
+      INSERT INTO applications (job_id, status, notes, last_action_at)
+      VALUES (?, 'viewed', '', ?);
+    `).run(viewedJob.id, new Date().toISOString());
+    markApplicationStatus(db, appliedJob.id, "applied");
+
+    const pruned = pruneSourceJobs(db, source.id);
+    assert.equal(pruned, 1);
+
+    const viewedStillExists = db
+      .prepare("SELECT COUNT(*) AS count FROM jobs WHERE id = ?;")
+      .get(viewedJob.id);
+    const appliedStillExists = db
+      .prepare("SELECT COUNT(*) AS count FROM jobs WHERE id = ?;")
+      .get(appliedJob.id);
+    const viewedEvalExists = db
+      .prepare("SELECT COUNT(*) AS count FROM evaluations WHERE job_id = ?;")
+      .get(viewedJob.id);
+    const viewedAppExists = db
+      .prepare("SELECT COUNT(*) AS count FROM applications WHERE job_id = ?;")
+      .get(viewedJob.id);
+
+    assert.equal(Number(viewedStillExists.count), 0);
+    assert.equal(Number(appliedStillExists.count), 1);
+    assert.equal(Number(viewedEvalExists.count), 0);
+    assert.equal(Number(viewedAppExists.count), 0);
+  } finally {
+    cleanupTempDb(db, dir);
+  }
+});
