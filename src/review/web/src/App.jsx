@@ -26,7 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToastAction } from "@/components/ui/toast";
 import { Toaster } from "@/components/ui/toaster";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -56,11 +56,6 @@ import {
   shouldShowSearchesWelcomeToast,
   splitSearchRows,
 } from "@/features/searches/logic";
-
-const MAIN_TABS = [
-  { value: "jobs", label: "Jobs" },
-  { value: "profile", label: "Profile" },
-];
 
 const AUTH_FLOW_HELP_TEXT = "Step 1: Open source. Step 2: Sign in. Step 3: Click I'm logged in.";
 const CONSENT_REQUIRED_MESSAGE =
@@ -273,7 +268,6 @@ export default function App() {
   const [dashboard, setDashboard] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState("");
-  const [mainTab, setMainTab] = useState("jobs");
   const [jobsView, setJobsView] = useState("all");
   const [jobsSort, setJobsSort] = useState("score");
   const [jobsSourceFilter, setJobsSourceFilter] = useState("all");
@@ -373,7 +367,7 @@ export default function App() {
 
     const hasSeenToast = hasSeenSearchesWelcomeToast(window.localStorage, welcomeToastScope);
     const shouldShow = shouldShowSearchesWelcomeToast({
-      mainTab: searchesDialogOpen ? "searches" : mainTab,
+      mainTab: searchesDialogOpen ? "searches" : "jobs",
       searchState,
       hasSeenToast,
     });
@@ -400,7 +394,7 @@ export default function App() {
         ),
       });
     }
-  }, [consentGateRequired, dashboard, mainTab, searchesDialogOpen, searchState, toast, welcomeToastScope]);
+  }, [consentGateRequired, dashboard, searchesDialogOpen, searchState, toast, welcomeToastScope]);
 
   const searchRows = useMemo(
     () => buildSearchRows(rawSources, onboardingChecksBySourceId),
@@ -985,7 +979,6 @@ export default function App() {
       );
       const refreshedDashboard = await loadDashboard({ quiet: true });
 
-      setMainTab("jobs");
       toast({
         title: "Jobs refreshed",
         description: buildRunAllDescription(runAllPayload, refreshedDashboard),
@@ -1008,7 +1001,7 @@ export default function App() {
         .filter(Boolean);
 
       toast({
-        title: error?.payload?.requiresAuthCheck ? "Sign-in required" : "Find Jobs failed",
+        title: error?.payload?.requiresAuthCheck ? "Sign-in required" : "Search failed",
         description: error?.payload?.requiresAuthCheck
           ? `Complete access checks for ${authSourceLabels.join(", ")} before running searches.`
           : typeof error?.message === "string"
@@ -1146,61 +1139,49 @@ export default function App() {
     <main className="container px-4 py-8 md:py-10">
       <Card className="animate-fade-in">
         <CardHeader className="space-y-4">
-          <CardTitle>Job Finder</CardTitle>
-          <CardDescription>Search across sites to find your best matches</CardDescription>
-
-          <Tabs value={mainTab} onValueChange={setMainTab} className="w-full">
-            <TabsList className="w-full justify-start">
-              {MAIN_TABS.map((tab) => (
-                <TabsTrigger key={tab.value} value={tab.value}>
-                  {tab.label}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-
-            <TabsContent value="jobs">
-              <div className="space-y-4">
-                <Card>
-                  <CardHeader className="space-y-3">
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                      <div>
-                        <CardTitle className="text-base">Find Jobs</CardTitle>
-                      </div>
-                      <div className="w-full lg:w-auto">
-                        <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                          <h3 className="text-sm font-semibold text-foreground">Job sources</h3>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-auto w-full justify-start px-3 py-2 sm:w-auto"
-                            data-jobs-open-searches="1"
-                            onClick={() => setSearchesDialogOpen(true)}
-                          >
-                            <span className="flex flex-wrap items-center gap-2">
-                            <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-1 text-xs font-semibold text-secondary-foreground">
-                              <span className="h-2 w-2 rounded-full bg-emerald-600" aria-hidden="true" />
-                              Ready ({sourceReadinessRollup.ready})
-                            </span>
-                            {sourceReadinessRollup.actionNeeded > 0 ? (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-1 text-xs font-semibold text-secondary-foreground">
-                                <span className="h-2 w-2 rounded-full bg-amber-600" aria-hidden="true" />
-                                Action needed ({sourceReadinessRollup.actionNeeded})
-                              </span>
-                            ) : null}
-                            {sourceReadinessRollup.disabled > 0 ? (
-                              <span className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-muted px-2 py-1 text-xs font-semibold text-muted-foreground">
-                                <span className="h-2 w-2 rounded-full bg-muted-foreground/80" aria-hidden="true" />
-                                Disabled ({sourceReadinessRollup.disabled})
-                              </span>
-                            ) : null}
-                            </span>
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="space-y-1">
+              <CardTitle>Job Finder</CardTitle>
+              <CardDescription>Search across sites to find your best matches</CardDescription>
+            </div>
+            <div className="w-full lg:w-auto">
+              <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                <h3 className="text-sm font-semibold text-foreground">Job sources</h3>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-auto w-full justify-start px-3 py-2 sm:w-auto"
+                  data-jobs-open-searches="1"
+                  onClick={() => setSearchesDialogOpen(true)}
+                >
+                  <span className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-1 text-xs font-semibold text-secondary-foreground">
+                      <span className="h-2 w-2 rounded-full bg-emerald-600" aria-hidden="true" />
+                      Ready ({sourceReadinessRollup.ready})
+                    </span>
+                    {sourceReadinessRollup.actionNeeded > 0 ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-1 text-xs font-semibold text-secondary-foreground">
+                        <span className="h-2 w-2 rounded-full bg-amber-600" aria-hidden="true" />
+                        Action needed ({sourceReadinessRollup.actionNeeded})
+                      </span>
+                    ) : null}
+                    {sourceReadinessRollup.disabled > 0 ? (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-muted px-2 py-1 text-xs font-semibold text-muted-foreground">
+                        <span className="h-2 w-2 rounded-full bg-muted-foreground/80" aria-hidden="true" />
+                        Disabled ({sourceReadinessRollup.disabled})
+                      </span>
+                    ) : null}
+                  </span>
+                </Button>
+              </div>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-4">
+            <Card>
+              <CardContent className="space-y-4 pt-6">
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                       <label className="block text-sm font-medium text-foreground">
                         Job title
                         <input
@@ -1422,7 +1403,7 @@ export default function App() {
                           void handleFindJobs();
                         }}
                       >
-                        {criteriaBusy ? "Finding jobs..." : "Find Jobs"}
+                        {criteriaBusy ? "Running search..." : "Run search"}
                       </Button>
                     </div>
                   </CardContent>
@@ -1786,19 +1767,8 @@ export default function App() {
                 </Card>
                 </div>
               </div>
-            </TabsContent>
-
-            <TabsContent value="profile">
-              <Card>
-                <CardContent className="pt-6 text-sm text-muted-foreground">
-                  Profile React slice is pending lane completion.
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
-        </CardHeader>
-      </Card>
-
+            </CardContent>
+          </Card>
       <Dialog open={searchesDialogOpen} onOpenChange={setSearchesDialogOpen}>
         <DialogContent className="max-h-[90vh] max-w-[1220px] overflow-y-auto" data-searches-modal="1">
           <DialogHeader>
