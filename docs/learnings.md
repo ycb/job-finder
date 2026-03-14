@@ -219,3 +219,5 @@ As of 2026-03-06.
 - For dashboard mode proof, persist explicit evidence in smoke logs (for example `ui_mode_check=pass` + root page title).
 - For manual QA on local runtime (`/Users/admin/job-finder`), always sync that repo to `origin/main` immediately before launch; pushing from a worktree does not update the separate local runtime checkout automatically.
 - Use a single QA launch command (`npm run review:main:follow`) as source of truth; avoid mixing `git checkout/pull/review` ad-hoc steps that can leave stale commit + live server combinations.
+- Do not merge to `main` before stakeholder QA approval. QA should run from a QA branch that tracks the feature branch; merge to `main` only after explicit sign-off.
+- Avoid fixed-port QA startup (`node src/cli.js review`) in docs/instructions; use scripts that auto-pick an open port and print the active URL to prevent recurring `EADDRINUSE` confusion.
