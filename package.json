@@ -66,6 +66,7 @@
     "review:qa": "bash scripts/review-qa.sh",
     "review:stop": "bash scripts/review-stop.sh",
     "review:react:watch": "bash scripts/review-react-watch.sh",
+    "review:follow": "bash scripts/review-branch-follow.sh",
     "review:main:follow": "bash scripts/review-main-follow.sh",
     "smoke:dashboard": "node scripts/playwright-dashboard-smoke.js",
     "review:safe": "JOB_FINDER_REFRESH_PROFILE=safe node src/cli.js review",
