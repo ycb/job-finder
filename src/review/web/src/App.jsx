@@ -1394,7 +1394,7 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="flex justify-end border-t border-border/70 pt-3">
+                    <div className="flex justify-end pt-3">
                       <Button
                         className="w-full md:w-auto"
                         data-jobs-find="1"
