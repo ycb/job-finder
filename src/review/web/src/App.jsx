@@ -1292,23 +1292,44 @@ export default function App() {
                             />
                           </label>
 
-                          <label className="block text-sm font-medium text-foreground">
-                            Match mode
-                            <select
-                              className={FIELD_CLASSNAME}
-                              data-jobs-criteria-hard-include-mode="1"
-                              value={criteriaDraft.hardIncludeMode}
-                              onChange={(event) =>
-                                setCriteriaDraft((current) => ({
-                                  ...current,
-                                  hardIncludeMode: event.target.value,
-                                }))
-                              }
-                            >
-                              <option value="and">All required terms</option>
-                              <option value="or">Any required term</option>
-                            </select>
-                          </label>
+                          <fieldset
+                            className="block text-sm font-medium text-foreground"
+                            data-jobs-criteria-hard-include-mode="1"
+                          >
+                            <legend>Match mode</legend>
+                            <div className="mt-2 inline-flex rounded-md border border-input bg-card p-1">
+                              <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
+                                <input
+                                  type="radio"
+                                  name="hard-include-mode"
+                                  value="and"
+                                  checked={criteriaDraft.hardIncludeMode === "and"}
+                                  onChange={(event) =>
+                                    setCriteriaDraft((current) => ({
+                                      ...current,
+                                      hardIncludeMode: event.target.value,
+                                    }))
+                                  }
+                                />
+                                All
+                              </label>
+                              <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
+                                <input
+                                  type="radio"
+                                  name="hard-include-mode"
+                                  value="or"
+                                  checked={criteriaDraft.hardIncludeMode === "or"}
+                                  onChange={(event) =>
+                                    setCriteriaDraft((current) => ({
+                                      ...current,
+                                      hardIncludeMode: event.target.value,
+                                    }))
+                                  }
+                                />
+                                Any
+                              </label>
+                            </div>
+                          </fieldset>
                         </div>
 
                         <div className="mt-3">
@@ -1373,23 +1394,44 @@ export default function App() {
                             />
                           </label>
 
-                          <label className="block text-sm font-medium text-foreground">
-                            Match mode
-                            <select
-                              className={FIELD_CLASSNAME}
-                              data-jobs-criteria-additional-keyword-mode="1"
-                              value={criteriaDraft.additionalKeywordMode}
-                              onChange={(event) =>
-                                setCriteriaDraft((current) => ({
-                                  ...current,
-                                  additionalKeywordMode: event.target.value,
-                                }))
-                              }
-                            >
-                              <option value="and">Match all keywords</option>
-                              <option value="or">Match any keyword</option>
-                            </select>
-                          </label>
+                          <fieldset
+                            className="block text-sm font-medium text-foreground"
+                            data-jobs-criteria-additional-keyword-mode="1"
+                          >
+                            <legend>Match mode</legend>
+                            <div className="mt-2 inline-flex rounded-md border border-input bg-card p-1">
+                              <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
+                                <input
+                                  type="radio"
+                                  name="additional-keyword-mode"
+                                  value="and"
+                                  checked={criteriaDraft.additionalKeywordMode === "and"}
+                                  onChange={(event) =>
+                                    setCriteriaDraft((current) => ({
+                                      ...current,
+                                      additionalKeywordMode: event.target.value,
+                                    }))
+                                  }
+                                />
+                                All
+                              </label>
+                              <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
+                                <input
+                                  type="radio"
+                                  name="additional-keyword-mode"
+                                  value="or"
+                                  checked={criteriaDraft.additionalKeywordMode === "or"}
+                                  onChange={(event) =>
+                                    setCriteriaDraft((current) => ({
+                                      ...current,
+                                      additionalKeywordMode: event.target.value,
+                                    }))
+                                  }
+                                />
+                                Any
+                              </label>
+                            </div>
+                          </fieldset>
                         </div>
                       </div>
                     </div>
