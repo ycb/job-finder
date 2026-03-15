@@ -19,6 +19,19 @@ pick_review_port() {
   return 1
 }
 
+resolve_review_port() {
+  if [[ -n "${REVIEW_FIXED_PORT:-}" ]]; then
+    if lsof -iTCP:"${REVIEW_FIXED_PORT}" -sTCP:LISTEN >/dev/null 2>&1; then
+      echo "Requested fixed port ${REVIEW_FIXED_PORT} is already in use." >&2
+      return 1
+    fi
+    echo "${REVIEW_FIXED_PORT}"
+    return 0
+  fi
+
+  pick_review_port
+}
+
 echo "review:react:watch"
 echo "  cwd:    $(pwd)"
 echo "  branch: $(git branch --show-current)"
@@ -36,7 +49,7 @@ until [[ -f "${DIST_INDEX_PRIMARY}" || -f "${DIST_INDEX_LEGACY}" ]]; do
   sleep 0.2
 done
 
-REVIEW_PORT="$(pick_review_port || true)"
+REVIEW_PORT="$(resolve_review_port || true)"
 if [[ -z "${REVIEW_PORT}" ]]; then
   echo "No open review port found in 4311-4320." >&2
   exit 1

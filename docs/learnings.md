@@ -222,3 +222,4 @@ As of 2026-03-06.
 - Do not merge to `main` before stakeholder QA approval. QA should run from a QA branch that tracks the feature branch; merge to `main` only after explicit sign-off.
 - Avoid fixed-port QA startup (`node src/cli.js review`) in docs/instructions; use scripts that auto-pick an open port and print the active URL to prevent recurring `EADDRINUSE` confusion.
 - For cross-worktree collaboration, Cmd-R reflects local changes only. If another worktree is producing commits, QA must run an auto-follow mode (`review:follow`) or explicit pulls to avoid stale UI confusion.
+- QA startup friction should be one-time per machine, not per branch. Prefer an always-on local review agent that follows the current branch/upstream and serves a fixed URL for Cmd-R.

@@ -58,6 +58,23 @@ sync_to_upstream() {
   return 0
 }
 
+start_watch_session() {
+  local branch
+  branch="$(git branch --show-current)"
+  echo "[watch] start for branch ${branch} (fixed-port=${REVIEW_FIXED_PORT:-auto})"
+  npm run review:react:watch &
+  WATCH_SESSION_PID=$!
+  WATCH_BRANCH="${branch}"
+}
+
+restart_watch_session() {
+  if [[ -n "${WATCH_SESSION_PID:-}" ]]; then
+    kill "${WATCH_SESSION_PID}" >/dev/null 2>&1 || true
+    wait "${WATCH_SESSION_PID}" >/dev/null 2>&1 || true
+  fi
+  start_watch_session
+}
+
 echo "review:follow"
 echo "  cwd:    $(pwd)"
 echo "  branch: $(git branch --show-current)"
@@ -67,12 +84,22 @@ echo "  upstream: $(resolve_upstream)"
 sync_to_upstream || true
 
 echo "Starting React watch server (local build + review server)..."
-npm run review:react:watch &
-WATCH_SESSION_PID=$!
+start_watch_session
 
-while kill -0 "${WATCH_SESSION_PID}" >/dev/null 2>&1; do
+while true; do
   sleep "${POLL_SECONDS}"
+  if ! kill -0 "${WATCH_SESSION_PID}" >/dev/null 2>&1; then
+    echo "[watch] review process exited; restarting."
+    start_watch_session
+    continue
+  fi
+
+  current_branch="$(git branch --show-current)"
+  if [[ "${current_branch}" != "${WATCH_BRANCH}" ]]; then
+    echo "[watch] branch changed: ${WATCH_BRANCH} -> ${current_branch}; restarting."
+    restart_watch_session
+    continue
+  fi
+
   sync_to_upstream || true
 done
-
-wait "${WATCH_SESSION_PID}"
