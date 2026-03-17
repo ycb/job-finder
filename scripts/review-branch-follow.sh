@@ -16,6 +16,21 @@ is_clean_tracked() {
   git diff --quiet && git diff --cached --quiet
 }
 
+print_dirty_hint_once() {
+  if [[ "${SKIP_SYNC_NOTE_EMITTED}" -eq 1 ]]; then
+    return 0
+  fi
+  local dirty
+  dirty="$(git status --short --untracked-files=no | awk '{print $2}' | paste -sd ', ' -)"
+  if [[ -n "${dirty}" ]]; then
+    echo "[sync] local tracked changes detected; auto-sync paused until clean."
+    echo "[sync] dirty tracked files: ${dirty}"
+  else
+    echo "[sync] local tracked changes detected; auto-sync paused until clean."
+  fi
+  SKIP_SYNC_NOTE_EMITTED=1
+}
+
 resolve_upstream() {
   git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true
 }
@@ -45,10 +60,7 @@ sync_to_upstream() {
   fi
 
   if ! is_clean_tracked; then
-    if [[ "${SKIP_SYNC_NOTE_EMITTED}" -eq 0 ]]; then
-      echo "[sync] local tracked changes detected; auto-sync paused until clean."
-      SKIP_SYNC_NOTE_EMITTED=1
-    fi
+    print_dirty_hint_once
     return 0
   fi
 
@@ -80,6 +92,7 @@ echo "  cwd:    $(pwd)"
 echo "  branch: $(git branch --show-current)"
 echo "  commit: $(git rev-parse --short HEAD)"
 echo "  upstream: $(resolve_upstream)"
+echo "  url:   http://127.0.0.1:${REVIEW_FIXED_PORT:-auto}"
 
 sync_to_upstream || true
 

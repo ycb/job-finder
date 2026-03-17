@@ -288,6 +288,10 @@ The current backlog has strong item-level specs, but we need explicit epic-level
   - STATUS: Icebox
   - WHY: RemoteOK is now gated behind a flag until criteria + capture quality are verified.
   - IMPACT: Prevents noisy results while keeping a clear path to re-enable.
+- `P2` Clean up employment-type data model and normalization before re-introducing employment-type filtering in UI. [Detailed spec](./backlog-specs/p2-source-quality-employment-type-cleanup.md)
+  - STATUS: Icebox
+  - WHY: Current `employmentType` data is semantically mixed across sources (`contract type` vs `work model` vs `seniority`) and causes misleading filters.
+  - IMPACT: Reliable metadata and a trustworthy employment-type filter path post-MVP.
 - `P2` Optimize Ashby discovery yield (high capture-to-import drop).
   - STATUS: Icebox
   - WHY: Ashby discovery mode captures broad board inventories before hard-filtering.

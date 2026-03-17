@@ -74,6 +74,7 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/backlog-specs/p2-brand-styles.md` | Contributors | Brand style roadmap specification | Brand roadmap changes |
 | `docs/backlog-specs/p2-source-expansion-levelsfyi.md` | Contributors | Levels.fyi source expansion specification | Levels.fyi roadmap changes |
 | `docs/backlog-specs/p2-source-expansion-yc.md` | Contributors | YC source expansion specification | YC roadmap changes |
+| `docs/backlog-specs/p2-source-quality-employment-type-cleanup.md` | Contributors | Employment-type cleanup and canonicalization specification | Employment-type model, normalization, or filter strategy changes |
 | `docs/backlog-specs/p2-source-quality-remoteok-validation.md` | Contributors | RemoteOK quality-validation specification | RemoteOK validation changes |
 | `docs/backlog-specs/p2-source-quality-wellfound-bootstrap.md` | Contributors | Wellfound bootstrap quality specification | Wellfound bootstrap changes |
 | `docs/backlog-specs/p2-ux-remove-searches-page.md` | Contributors | UX page-removal specification | UX roadmap changes |
