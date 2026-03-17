@@ -855,37 +855,6 @@ export default function App() {
     }
     return scores.reduce((sum, score) => sum + score, 0) / scores.length;
   }, [filteredJobs]);
-  const searchComposerChips = useMemo(() => {
-    const chips = [];
-    const hardInclude = String(criteriaDraft.hardIncludeTerms || "").trim();
-    const hardExclude = String(criteriaDraft.hardExcludeTerms || "").trim();
-    const additionalKeywords = String(criteriaDraft.additionalKeywords || "").trim();
-    if (hardInclude) {
-      chips.push({
-        key: "hard-include",
-        label: `Hard include (${criteriaDraft.hardIncludeMode === "or" ? "any" : "all"}): ${hardInclude}`,
-      });
-    }
-    if (hardExclude) {
-      chips.push({
-        key: "hard-exclude",
-        label: `Must not include: ${hardExclude}`,
-      });
-    }
-    if (additionalKeywords) {
-      chips.push({
-        key: "rank-keywords",
-        label: `Additional keywords (${criteriaDraft.additionalKeywordMode === "or" ? "any" : "all"}): ${additionalKeywords}`,
-      });
-    }
-    return chips;
-  }, [
-    criteriaDraft.additionalKeywordMode,
-    criteriaDraft.additionalKeywords,
-    criteriaDraft.hardExcludeTerms,
-    criteriaDraft.hardIncludeMode,
-    criteriaDraft.hardIncludeTerms,
-  ]);
   const activeWidgetFilterChips = useMemo(() => {
     const chips = [];
     if (jobsWidgetKeywordFilter) {
@@ -1680,210 +1649,232 @@ export default function App() {
                 </div>
               </div>
 
-              {jobsComposerCollapsed ? (
-                <div className="space-y-2">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Advanced constraints
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="rounded-lg border border-border/70 bg-secondary/20 p-4">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <span>Hard filter</span>
+                    <TooltipProvider delayDuration={150}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground"
+                            aria-label="Hard filter info"
+                            onClick={() =>
+                              toast({
+                                title: "Hard filter",
+                                description: "Only jobs with these words will be imported.",
+                              })
+                            }
+                          >
+                            i
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Only jobs with these words will be imported.</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    {searchComposerChips.length > 0 ? (
-                      searchComposerChips.map((chip) => (
-                        <span
-                          key={chip.key}
-                          className="rounded-full border border-border/80 bg-secondary/30 px-3 py-1 text-xs font-medium text-foreground"
-                        >
-                          {chip.label}
+                  {jobsComposerCollapsed ? (
+                    <div className="space-y-2 text-sm">
+                      <div>
+                        <span className="font-medium text-foreground">Must include: </span>
+                        <span className="text-muted-foreground">
+                          {criteriaDraft.hardIncludeTerms || "Not set"}
                         </span>
-                      ))
-                    ) : (
-                      <span className="rounded-full border border-dashed border-border/70 px-3 py-1 text-xs text-muted-foreground">
-                        No advanced constraints set
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <div className="rounded-lg border border-border/70 bg-secondary/20 p-4">
-                    <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
-                      <span>Hard filter</span>
-                      <TooltipProvider delayDuration={150}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground"
-                              aria-label="Hard filter info"
-                              onClick={() =>
-                                toast({
-                                  title: "Hard filter",
-                                  description: "Only jobs with these words will be imported.",
-                                })
-                              }
-                            >
-                              i
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>Only jobs with these words will be imported.</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
+                      </div>
+                      <div>
+                        <span className="font-medium text-foreground">Must not include: </span>
+                        <span className="text-muted-foreground">
+                          {criteriaDraft.hardExcludeTerms || "Not set"}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="font-medium text-foreground">Match mode: </span>
+                        <span className="text-muted-foreground">
+                          {criteriaDraft.hardIncludeMode === "or" ? "Any required term" : "All required terms"}
+                        </span>
+                      </div>
                     </div>
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <label className="block text-sm font-medium text-foreground">
-                        Must include
-                        <input
-                          className={FIELD_CLASSNAME}
-                          data-jobs-criteria-hard-include-terms="1"
-                          placeholder="ml platform, healthcare"
-                          value={criteriaDraft.hardIncludeTerms}
-                          onChange={(event) =>
-                            setCriteriaDraft((current) => ({
-                              ...current,
-                              hardIncludeTerms: event.target.value,
-                            }))
-                          }
-                        />
-                      </label>
-                      <label className="block text-sm font-medium text-foreground">
-                        Must not include
-                        <input
-                          className={FIELD_CLASSNAME}
-                          data-jobs-criteria-hard-exclude-terms="1"
-                          placeholder="intern, contract"
-                          value={criteriaDraft.hardExcludeTerms}
-                          onChange={(event) =>
-                            setCriteriaDraft((current) => ({
-                              ...current,
-                              hardExcludeTerms: event.target.value,
-                            }))
-                          }
-                        />
-                      </label>
-                    </div>
-                    <fieldset
-                      className="mt-3 block text-sm font-medium text-foreground"
-                      data-jobs-criteria-hard-include-mode="1"
-                    >
-                      <legend>Match mode</legend>
-                      <div className="mt-2 inline-flex rounded-md border border-input bg-card p-1">
-                        <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
+                  ) : (
+                    <>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <label className="block text-sm font-medium text-foreground">
+                          Must include
                           <input
-                            type="radio"
-                            name="hard-include-mode"
-                            value="and"
-                            checked={criteriaDraft.hardIncludeMode === "and"}
+                            className={FIELD_CLASSNAME}
+                            data-jobs-criteria-hard-include-terms="1"
+                            placeholder="ml platform, healthcare"
+                            value={criteriaDraft.hardIncludeTerms}
                             onChange={(event) =>
                               setCriteriaDraft((current) => ({
                                 ...current,
-                                hardIncludeMode: event.target.value,
+                                hardIncludeTerms: event.target.value,
                               }))
                             }
                           />
-                          All
                         </label>
-                        <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
+                        <label className="block text-sm font-medium text-foreground">
+                          Must not include
                           <input
-                            type="radio"
-                            name="hard-include-mode"
-                            value="or"
-                            checked={criteriaDraft.hardIncludeMode === "or"}
+                            className={FIELD_CLASSNAME}
+                            data-jobs-criteria-hard-exclude-terms="1"
+                            placeholder="intern, contract"
+                            value={criteriaDraft.hardExcludeTerms}
                             onChange={(event) =>
                               setCriteriaDraft((current) => ({
                                 ...current,
-                                hardIncludeMode: event.target.value,
+                                hardExcludeTerms: event.target.value,
                               }))
                             }
                           />
-                          Any
                         </label>
                       </div>
-                    </fieldset>
-                  </div>
+                      <fieldset
+                        className="mt-3 block text-sm font-medium text-foreground"
+                        data-jobs-criteria-hard-include-mode="1"
+                      >
+                        <legend>Match mode</legend>
+                        <div className="mt-2 inline-flex rounded-md border border-input bg-card p-1">
+                          <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
+                            <input
+                              type="radio"
+                              name="hard-include-mode"
+                              value="and"
+                              checked={criteriaDraft.hardIncludeMode === "and"}
+                              onChange={(event) =>
+                                setCriteriaDraft((current) => ({
+                                  ...current,
+                                  hardIncludeMode: event.target.value,
+                                }))
+                              }
+                            />
+                            All
+                          </label>
+                          <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
+                            <input
+                              type="radio"
+                              name="hard-include-mode"
+                              value="or"
+                              checked={criteriaDraft.hardIncludeMode === "or"}
+                              onChange={(event) =>
+                                setCriteriaDraft((current) => ({
+                                  ...current,
+                                  hardIncludeMode: event.target.value,
+                                }))
+                              }
+                            />
+                            Any
+                          </label>
+                        </div>
+                      </fieldset>
+                    </>
+                  )}
+                </div>
 
-                  <div className="rounded-lg border border-border/70 bg-secondary/10 p-4">
-                    <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
-                      <span>Additional keywords</span>
-                      <TooltipProvider delayDuration={150}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground"
-                              aria-label="Additional keywords info"
-                              onClick={() =>
-                                toast({
-                                  title: "Additional keywords",
-                                  description: "Jobs with these keywords will receive higher scores.",
-                                })
-                              }
-                            >
-                              i
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>Jobs with these keywords will receive higher scores.</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </div>
-                    <label className="block text-sm font-medium text-foreground">
-                      Keywords
-                      <input
-                        className={FIELD_CLASSNAME}
-                        data-jobs-criteria-additional-keywords="1"
-                        placeholder="ai tooling, growth, marketplace"
-                        value={criteriaDraft.additionalKeywords}
-                        onChange={(event) =>
-                          setCriteriaDraft((current) => ({
-                            ...current,
-                            additionalKeywords: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <fieldset
-                      className="mt-3 block text-sm font-medium text-foreground"
-                      data-jobs-criteria-additional-keyword-mode="1"
-                    >
-                      <legend>Match mode</legend>
-                      <div className="mt-2 inline-flex rounded-md border border-input bg-card p-1">
-                        <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
-                          <input
-                            type="radio"
-                            name="additional-keyword-mode"
-                            value="and"
-                            checked={criteriaDraft.additionalKeywordMode === "and"}
-                            onChange={(event) =>
-                              setCriteriaDraft((current) => ({
-                                ...current,
-                                additionalKeywordMode: event.target.value,
-                              }))
+                <div className="rounded-lg border border-border/70 bg-secondary/10 p-4">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <span>Additional keywords</span>
+                    <TooltipProvider delayDuration={150}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground"
+                            aria-label="Additional keywords info"
+                            onClick={() =>
+                              toast({
+                                title: "Additional keywords",
+                                description: "Jobs with these keywords will receive higher scores.",
+                              })
                             }
-                          />
-                          All
-                        </label>
-                        <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
-                          <input
-                            type="radio"
-                            name="additional-keyword-mode"
-                            value="or"
-                            checked={criteriaDraft.additionalKeywordMode === "or"}
-                            onChange={(event) =>
-                              setCriteriaDraft((current) => ({
-                                ...current,
-                                additionalKeywordMode: event.target.value,
-                              }))
-                            }
-                          />
-                          Any
-                        </label>
-                      </div>
-                    </fieldset>
+                          >
+                            i
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Jobs with these keywords will receive higher scores.</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   </div>
+                  {jobsComposerCollapsed ? (
+                    <div className="space-y-2 text-sm">
+                      <div>
+                        <span className="font-medium text-foreground">Keywords: </span>
+                        <span className="text-muted-foreground">
+                          {criteriaDraft.additionalKeywords || "Not set"}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="font-medium text-foreground">Match mode: </span>
+                        <span className="text-muted-foreground">
+                          {criteriaDraft.additionalKeywordMode === "or"
+                            ? "Any keyword"
+                            : "All keywords"}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <label className="block text-sm font-medium text-foreground">
+                        Keywords
+                        <input
+                          className={FIELD_CLASSNAME}
+                          data-jobs-criteria-additional-keywords="1"
+                          placeholder="ai tooling, growth, marketplace"
+                          value={criteriaDraft.additionalKeywords}
+                          onChange={(event) =>
+                            setCriteriaDraft((current) => ({
+                              ...current,
+                              additionalKeywords: event.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+                      <fieldset
+                        className="mt-3 block text-sm font-medium text-foreground"
+                        data-jobs-criteria-additional-keyword-mode="1"
+                      >
+                        <legend>Match mode</legend>
+                        <div className="mt-2 inline-flex rounded-md border border-input bg-card p-1">
+                          <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
+                            <input
+                              type="radio"
+                              name="additional-keyword-mode"
+                              value="and"
+                              checked={criteriaDraft.additionalKeywordMode === "and"}
+                              onChange={(event) =>
+                                setCriteriaDraft((current) => ({
+                                  ...current,
+                                  additionalKeywordMode: event.target.value,
+                                }))
+                              }
+                            />
+                            All
+                          </label>
+                          <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
+                            <input
+                              type="radio"
+                              name="additional-keyword-mode"
+                              value="or"
+                              checked={criteriaDraft.additionalKeywordMode === "or"}
+                              onChange={(event) =>
+                                setCriteriaDraft((current) => ({
+                                  ...current,
+                                  additionalKeywordMode: event.target.value,
+                                }))
+                              }
+                            />
+                            Any
+                          </label>
+                        </div>
+                      </fieldset>
+                    </>
+                  )}
                 </div>
-              )}
+              </div>
             </CardContent>
           </Card>
 
@@ -1902,48 +1893,54 @@ export default function App() {
             ))}
           </div>
 
-          <div className="grid gap-3 xl:grid-cols-[180px_180px_repeat(3,minmax(0,1fr))_minmax(0,1.3fr)_minmax(0,1.1fr)]">
-            <Card>
-              <CardContent className="space-y-1 pt-6">
-                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Total jobs</div>
-                <div className="text-3xl font-semibold text-foreground">{sortedJobs.length}</div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="space-y-1 pt-6">
-                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Avg score</div>
-                <div className="text-3xl font-semibold text-foreground">
-                  {jobsAverageScore === null ? "—" : Math.round(jobsAverageScore)}
-                </div>
-              </CardContent>
-            </Card>
-            {jobsKeywordWidgets.map((widget) => (
-              <Card key={widget.key}>
+          <div className="grid gap-3 lg:grid-cols-4">
+            <div className="space-y-3">
+              <Card>
                 <CardContent className="space-y-1 pt-6">
-                  <button
-                    type="button"
-                    className={cn(
-                      "block w-full rounded-md px-1 py-1 text-left",
-                      widget.term && jobsWidgetKeywordFilter === widget.term
-                        ? "bg-secondary/40"
-                        : "hover:bg-secondary/20",
-                    )}
-                    disabled={!widget.term}
-                    onClick={() =>
-                      setJobsWidgetKeywordFilter((current) =>
-                        current === widget.term ? "" : widget.term,
-                      )
-                    }
-                  >
-                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      {widget.label}
-                    </div>
-                    <div className="text-3xl font-semibold text-foreground">{widget.value}</div>
-                  </button>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Total jobs</div>
+                  <div className="text-3xl font-semibold text-foreground">{sortedJobs.length}</div>
                 </CardContent>
               </Card>
-            ))}
-            <Card>
+              <Card>
+                <CardContent className="space-y-1 pt-6">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Avg score</div>
+                  <div className="text-3xl font-semibold text-foreground">
+                    {jobsAverageScore === null ? "—" : Math.round(jobsAverageScore)}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="space-y-3">
+              {jobsKeywordWidgets.map((widget) => (
+                <Card key={widget.key}>
+                  <CardContent className="space-y-1 pt-5">
+                    <button
+                      type="button"
+                      className={cn(
+                        "block w-full rounded-md px-1 py-1 text-left",
+                        widget.term && jobsWidgetKeywordFilter === widget.term
+                          ? "bg-secondary/40"
+                          : "hover:bg-secondary/20",
+                      )}
+                      disabled={!widget.term}
+                      onClick={() =>
+                        setJobsWidgetKeywordFilter((current) =>
+                          current === widget.term ? "" : widget.term,
+                        )
+                      }
+                    >
+                      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {widget.label}
+                      </div>
+                      <div className="text-2xl font-semibold text-foreground">{widget.value}</div>
+                    </button>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            <Card className="h-full">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm">Titles</CardTitle>
               </CardHeader>
@@ -1972,7 +1969,7 @@ export default function App() {
                 )}
               </CardContent>
             </Card>
-            <Card>
+            <Card className="h-full">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm">Salaries</CardTitle>
               </CardHeader>
@@ -2143,7 +2140,7 @@ export default function App() {
             </div>
           ) : null}
 
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
             <Card>
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between gap-3">
