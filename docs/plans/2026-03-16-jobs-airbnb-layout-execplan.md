@@ -19,6 +19,10 @@ Users need faster job triage with less context switching. After this change, the
 - [x] (2026-03-16 23:20Z) Removed user-facing freshness from visible Jobs labels.
 - [ ] Run Playwright smoke + manual QA against the new Jobs layout in the stakeholder QA runtime checkout.
 - [x] (2026-03-16 23:27Z) Full automated verification passed (`npm run dashboard:web:build`, `npm test`).
+- [x] (2026-03-17 00:10Z) Implemented pre-search and post-search versions of the composer with collapse and constraint chips.
+- [x] (2026-03-17 00:10Z) Reordered layout to `view tabs -> widgets -> filters -> split pane`.
+- [x] (2026-03-17 00:10Z) Removed `Employment type` filter from MVP surface and kept employment data internal.
+- [x] (2026-03-17 00:10Z) Made breakdown widgets clickable result filters and added visible active-filter chips near results.
 
 ## Surprises & Discoveries
 

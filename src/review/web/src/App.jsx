@@ -255,22 +255,26 @@ function formatCurrency(value) {
   return `$${Math.round(Number(value)).toLocaleString("en-US")}`;
 }
 
+function jobSearchHaystack(job) {
+  return [
+    job?.title,
+    job?.summary,
+    Array.isArray(job?.reasons) ? job.reasons.join(" ") : "",
+    job?.location,
+    job?.company,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
 function countKeywordHits(jobs, term) {
   if (!term) {
     return 0;
   }
   const normalized = term.toLowerCase();
   return (Array.isArray(jobs) ? jobs : []).reduce((count, job) => {
-    const haystack = [
-      job?.title,
-      job?.summary,
-      Array.isArray(job?.reasons) ? job.reasons.join(" ") : "",
-      job?.location,
-      job?.company,
-    ]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
+    const haystack = jobSearchHaystack(job);
     return haystack.includes(normalized) ? count + 1 : count;
   }, 0);
 }
@@ -306,18 +310,24 @@ function computeSalarySummary(jobs) {
       min: null,
       avg: null,
       max: null,
+      p75: null,
       aboveAvgCount: 0,
+      topBandCount: 0,
       withSalaryCount: 0,
     };
   }
 
   const total = values.reduce((sum, value) => sum + value, 0);
   const avg = total / values.length;
+  const p75Index = Math.floor((values.length - 1) * 0.75);
+  const p75 = values[p75Index] || values[values.length - 1];
   return {
     min: values[0],
     avg,
     max: values[values.length - 1],
+    p75,
     aboveAvgCount: values.filter((value) => value > avg).length,
+    topBandCount: values.filter((value) => value >= p75).length,
     withSalaryCount: values.length,
   };
 }
@@ -428,10 +438,13 @@ export default function App() {
   const [jobsView, setJobsView] = useState("all");
   const [jobsSort, setJobsSort] = useState("score");
   const [jobsSourceFilter, setJobsSourceFilter] = useState("all");
-  const [jobsEmploymentFilter, setJobsEmploymentFilter] = useState("all");
   const [jobsPostedFilter, setJobsPostedFilter] = useState("all");
   const [jobsSalaryFloorFilter, setJobsSalaryFloorFilter] = useState("");
   const [jobsSalaryCeilingFilter, setJobsSalaryCeilingFilter] = useState("");
+  const [jobsComposerCollapsed, setJobsComposerCollapsed] = useState(false);
+  const [jobsWidgetKeywordFilter, setJobsWidgetKeywordFilter] = useState("");
+  const [jobsWidgetTitleFilter, setJobsWidgetTitleFilter] = useState("");
+  const [jobsWidgetSalaryFilter, setJobsWidgetSalaryFilter] = useState("all");
   const [jobsPage, setJobsPage] = useState(1);
   const [selectedJobId, setSelectedJobId] = useState(null);
   const [criteriaDraft, setCriteriaDraft] = useState(() => normalizeSearchCriteriaDraft({}));
@@ -497,6 +510,29 @@ export default function App() {
 
   useEffect(() => {
     setCriteriaDraft(normalizeSearchCriteriaDraft(dashboard?.searchCriteria || {}));
+  }, [dashboard]);
+
+  useEffect(() => {
+    if (!dashboard) {
+      return;
+    }
+    const criteria = normalizeSearchCriteriaDraft(dashboard?.searchCriteria || {});
+    const hasComposerCriteria = [
+      criteria.title,
+      criteria.location,
+      criteria.minSalary,
+      criteria.datePosted,
+      criteria.hardIncludeTerms,
+      criteria.hardExcludeTerms,
+      criteria.additionalKeywords,
+    ].some((value) => String(value || "").trim().length > 0);
+    const activeCount = Number(
+      dashboard?.profile?.activeCount ??
+      (Array.isArray(dashboard?.queue) ? dashboard.queue.length : 0),
+    );
+    if (hasComposerCriteria && activeCount > 0) {
+      setJobsComposerCollapsed(true);
+    }
   }, [dashboard]);
 
   const onboardingChecksBySourceId =
@@ -691,23 +727,6 @@ export default function App() {
 
     return [...totalsByKind.values()].sort((left, right) => left.label.localeCompare(right.label));
   }, [jobsAllInSelectedView, sourceKindBySourceId, visibleJobSources]);
-  const jobEmploymentFilters = useMemo(() => {
-    const counts = new Map();
-    for (const job of jobsAllInSelectedView) {
-      const key = String(job?.employmentType || "unknown")
-        .trim()
-        .toLowerCase() || "unknown";
-      counts.set(key, (counts.get(key) || 0) + 1);
-    }
-    const normalized = [...counts.entries()]
-      .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
-      .map(([value, count]) => ({
-        value,
-        count,
-        label: value === "unknown" ? "Unknown" : value.replaceAll("_", " "),
-      }));
-    return [{ value: "all", count: jobsAllInSelectedView.length, label: "All" }, ...normalized];
-  }, [jobsAllInSelectedView]);
   const jobPostedFilters = useMemo(() => {
     const options = [
       { value: "all", label: "Any time" },
@@ -725,7 +744,7 @@ export default function App() {
           : jobsAllInSelectedView.filter((job) => matchesPostedWindow(job, option.value)).length,
     }));
   }, [jobsAllInSelectedView]);
-  const filteredJobs = useMemo(() => {
+  const filteredJobsBase = useMemo(() => {
     const salaryFloor = Number(String(jobsSalaryFloorFilter || "").replace(/[^0-9]/g, ""));
     const salaryCeiling = Number(String(jobsSalaryCeilingFilter || "").replace(/[^0-9]/g, ""));
     const hasSalaryFloor = Number.isFinite(salaryFloor) && salaryFloor > 0;
@@ -739,15 +758,6 @@ export default function App() {
         )
       ) {
         return false;
-      }
-
-      if (jobsEmploymentFilter !== "all") {
-        const employment = String(job?.employmentType || "unknown")
-          .trim()
-          .toLowerCase();
-        if (employment !== jobsEmploymentFilter) {
-          return false;
-        }
       }
 
       if (!matchesPostedWindow(job, jobsPostedFilter)) {
@@ -768,11 +778,56 @@ export default function App() {
     jobsAllInSelectedView,
     jobsSourceFilter,
     sourceKindBySourceId,
-    jobsEmploymentFilter,
     jobsPostedFilter,
     jobsSalaryFloorFilter,
     jobsSalaryCeilingFilter,
   ]);
+  const jobsSalarySummaryBase = useMemo(
+    () => computeSalarySummary(filteredJobsBase),
+    [filteredJobsBase],
+  );
+  const filteredJobs = useMemo(
+    () =>
+      filteredJobsBase.filter((job) => {
+        if (jobsWidgetTitleFilter && normalizeTitleKey(job?.title) !== jobsWidgetTitleFilter) {
+          return false;
+        }
+
+        if (jobsWidgetKeywordFilter) {
+          const normalizedKeyword = jobsWidgetKeywordFilter.toLowerCase();
+          if (!jobSearchHaystack(job).includes(normalizedKeyword)) {
+            return false;
+          }
+        }
+
+        if (jobsWidgetSalaryFilter !== "all") {
+          const salaryValue = parseSalaryValue(job?.salaryText);
+          if (jobsWidgetSalaryFilter === "has_salary" && salaryValue <= 0) {
+            return false;
+          }
+          if (jobsWidgetSalaryFilter === "above_avg") {
+            if (!Number.isFinite(jobsSalarySummaryBase.avg) || salaryValue <= jobsSalarySummaryBase.avg) {
+              return false;
+            }
+          }
+          if (jobsWidgetSalaryFilter === "top_band") {
+            if (!Number.isFinite(jobsSalarySummaryBase.p75) || salaryValue < jobsSalarySummaryBase.p75) {
+              return false;
+            }
+          }
+        }
+
+        return true;
+      }),
+    [
+      filteredJobsBase,
+      jobsWidgetKeywordFilter,
+      jobsWidgetSalaryFilter,
+      jobsWidgetTitleFilter,
+      jobsSalarySummaryBase.avg,
+      jobsSalarySummaryBase.p75,
+    ],
+  );
   const sortedJobs = useMemo(() => rankJobs(filteredJobs, jobsSort), [filteredJobs, jobsSort]);
   const jobsKeywordWidgets = useMemo(() => {
     const terms = parseTerms(criteriaDraft.additionalKeywords).slice(0, 3);
@@ -781,11 +836,15 @@ export default function App() {
     }
     return terms.map((term, index) => ({
       key: term || `kw-${index + 1}`,
+      term,
       label: term ? term.toUpperCase() : `KW#${index + 1}`,
-      value: term ? countKeywordHits(filteredJobs, term) : 0,
+      value: term ? countKeywordHits(filteredJobsBase, term) : 0,
     }));
-  }, [criteriaDraft.additionalKeywords, filteredJobs]);
-  const jobsTitleBreakdown = useMemo(() => computeTitleBreakdown(filteredJobs, 5), [filteredJobs]);
+  }, [criteriaDraft.additionalKeywords, filteredJobsBase]);
+  const jobsTitleBreakdown = useMemo(
+    () => computeTitleBreakdown(filteredJobsBase, 5),
+    [filteredJobsBase],
+  );
   const jobsSalarySummary = useMemo(() => computeSalarySummary(filteredJobs), [filteredJobs]);
   const jobsAverageScore = useMemo(() => {
     const scores = filteredJobs
@@ -796,6 +855,60 @@ export default function App() {
     }
     return scores.reduce((sum, score) => sum + score, 0) / scores.length;
   }, [filteredJobs]);
+  const searchComposerChips = useMemo(() => {
+    const chips = [];
+    const hardInclude = String(criteriaDraft.hardIncludeTerms || "").trim();
+    const hardExclude = String(criteriaDraft.hardExcludeTerms || "").trim();
+    const additionalKeywords = String(criteriaDraft.additionalKeywords || "").trim();
+    if (hardInclude) {
+      chips.push({
+        key: "hard-include",
+        label: `Hard include (${criteriaDraft.hardIncludeMode === "or" ? "any" : "all"}): ${hardInclude}`,
+      });
+    }
+    if (hardExclude) {
+      chips.push({
+        key: "hard-exclude",
+        label: `Must not include: ${hardExclude}`,
+      });
+    }
+    if (additionalKeywords) {
+      chips.push({
+        key: "rank-keywords",
+        label: `Additional keywords (${criteriaDraft.additionalKeywordMode === "or" ? "any" : "all"}): ${additionalKeywords}`,
+      });
+    }
+    return chips;
+  }, [
+    criteriaDraft.additionalKeywordMode,
+    criteriaDraft.additionalKeywords,
+    criteriaDraft.hardExcludeTerms,
+    criteriaDraft.hardIncludeMode,
+    criteriaDraft.hardIncludeTerms,
+  ]);
+  const activeWidgetFilterChips = useMemo(() => {
+    const chips = [];
+    if (jobsWidgetKeywordFilter) {
+      chips.push({
+        key: "widget-keyword",
+        label: `Keyword: ${jobsWidgetKeywordFilter}`,
+      });
+    }
+    if (jobsWidgetTitleFilter) {
+      chips.push({
+        key: "widget-title",
+        label: `Title: ${jobsWidgetTitleFilter}`,
+      });
+    }
+    if (jobsWidgetSalaryFilter === "has_salary") {
+      chips.push({ key: "widget-salary", label: "Salary: has value" });
+    } else if (jobsWidgetSalaryFilter === "above_avg") {
+      chips.push({ key: "widget-salary", label: "Salary: above avg" });
+    } else if (jobsWidgetSalaryFilter === "top_band") {
+      chips.push({ key: "widget-salary", label: "Salary: top band" });
+    }
+    return chips;
+  }, [jobsWidgetKeywordFilter, jobsWidgetSalaryFilter, jobsWidgetTitleFilter]);
   const jobsById = useMemo(() => {
     const lookup = Object.create(null);
     for (const group of [activeJobs, appliedJobs, skippedJobs, rejectedJobs]) {
@@ -865,10 +978,12 @@ export default function App() {
     jobsSourceFilter,
     jobsSort,
     jobsView,
-    jobsEmploymentFilter,
     jobsPostedFilter,
     jobsSalaryFloorFilter,
     jobsSalaryCeilingFilter,
+    jobsWidgetKeywordFilter,
+    jobsWidgetTitleFilter,
+    jobsWidgetSalaryFilter,
   ]);
 
   useEffect(() => {
@@ -1257,6 +1372,10 @@ export default function App() {
         title: "Jobs refreshed",
         description: buildRunAllDescription(runAllPayload, refreshedDashboard),
       });
+      setJobsComposerCollapsed(true);
+      setJobsWidgetKeywordFilter("");
+      setJobsWidgetTitleFilter("");
+      setJobsWidgetSalaryFilter("all");
     } catch (error) {
       const authSources = Array.isArray(error?.payload?.authSources) ? error.payload.authSources : [];
       const authSourceLabels = authSources
@@ -1474,8 +1593,8 @@ export default function App() {
         </CardHeader>
         <CardContent className="space-y-4">
           <Card>
-            <CardContent className="pt-6">
-              <div className="grid gap-2 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_220px_220px_auto]">
+            <CardContent className="space-y-4 pt-6">
+              <div className="grid gap-2 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_220px_220px_auto_auto]">
                 <label className="block text-sm font-medium text-foreground">
                   Job title
                   <input
@@ -1549,194 +1668,224 @@ export default function App() {
                     {criteriaBusy ? "Running search..." : "Run search"}
                   </Button>
                 </div>
+                <div className="flex items-end">
+                  <Button
+                    className="h-10 w-full"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setJobsComposerCollapsed((current) => !current)}
+                  >
+                    {jobsComposerCollapsed ? "Edit filters" : "Collapse"}
+                  </Button>
+                </div>
               </div>
+
+              {jobsComposerCollapsed ? (
+                <div className="space-y-2">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Advanced constraints
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {searchComposerChips.length > 0 ? (
+                      searchComposerChips.map((chip) => (
+                        <span
+                          key={chip.key}
+                          className="rounded-full border border-border/80 bg-secondary/30 px-3 py-1 text-xs font-medium text-foreground"
+                        >
+                          {chip.label}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="rounded-full border border-dashed border-border/70 px-3 py-1 text-xs text-muted-foreground">
+                        No advanced constraints set
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <div className="rounded-lg border border-border/70 bg-secondary/20 p-4">
+                    <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
+                      <span>Hard filter</span>
+                      <TooltipProvider delayDuration={150}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground"
+                              aria-label="Hard filter info"
+                              onClick={() =>
+                                toast({
+                                  title: "Hard filter",
+                                  description: "Only jobs with these words will be imported.",
+                                })
+                              }
+                            >
+                              i
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Only jobs with these words will be imported.</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <label className="block text-sm font-medium text-foreground">
+                        Must include
+                        <input
+                          className={FIELD_CLASSNAME}
+                          data-jobs-criteria-hard-include-terms="1"
+                          placeholder="ml platform, healthcare"
+                          value={criteriaDraft.hardIncludeTerms}
+                          onChange={(event) =>
+                            setCriteriaDraft((current) => ({
+                              ...current,
+                              hardIncludeTerms: event.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+                      <label className="block text-sm font-medium text-foreground">
+                        Must not include
+                        <input
+                          className={FIELD_CLASSNAME}
+                          data-jobs-criteria-hard-exclude-terms="1"
+                          placeholder="intern, contract"
+                          value={criteriaDraft.hardExcludeTerms}
+                          onChange={(event) =>
+                            setCriteriaDraft((current) => ({
+                              ...current,
+                              hardExcludeTerms: event.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+                    </div>
+                    <fieldset
+                      className="mt-3 block text-sm font-medium text-foreground"
+                      data-jobs-criteria-hard-include-mode="1"
+                    >
+                      <legend>Match mode</legend>
+                      <div className="mt-2 inline-flex rounded-md border border-input bg-card p-1">
+                        <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
+                          <input
+                            type="radio"
+                            name="hard-include-mode"
+                            value="and"
+                            checked={criteriaDraft.hardIncludeMode === "and"}
+                            onChange={(event) =>
+                              setCriteriaDraft((current) => ({
+                                ...current,
+                                hardIncludeMode: event.target.value,
+                              }))
+                            }
+                          />
+                          All
+                        </label>
+                        <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
+                          <input
+                            type="radio"
+                            name="hard-include-mode"
+                            value="or"
+                            checked={criteriaDraft.hardIncludeMode === "or"}
+                            onChange={(event) =>
+                              setCriteriaDraft((current) => ({
+                                ...current,
+                                hardIncludeMode: event.target.value,
+                              }))
+                            }
+                          />
+                          Any
+                        </label>
+                      </div>
+                    </fieldset>
+                  </div>
+
+                  <div className="rounded-lg border border-border/70 bg-secondary/10 p-4">
+                    <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
+                      <span>Additional keywords</span>
+                      <TooltipProvider delayDuration={150}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground"
+                              aria-label="Additional keywords info"
+                              onClick={() =>
+                                toast({
+                                  title: "Additional keywords",
+                                  description: "Jobs with these keywords will receive higher scores.",
+                                })
+                              }
+                            >
+                              i
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Jobs with these keywords will receive higher scores.</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    <label className="block text-sm font-medium text-foreground">
+                      Keywords
+                      <input
+                        className={FIELD_CLASSNAME}
+                        data-jobs-criteria-additional-keywords="1"
+                        placeholder="ai tooling, growth, marketplace"
+                        value={criteriaDraft.additionalKeywords}
+                        onChange={(event) =>
+                          setCriteriaDraft((current) => ({
+                            ...current,
+                            additionalKeywords: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                    <fieldset
+                      className="mt-3 block text-sm font-medium text-foreground"
+                      data-jobs-criteria-additional-keyword-mode="1"
+                    >
+                      <legend>Match mode</legend>
+                      <div className="mt-2 inline-flex rounded-md border border-input bg-card p-1">
+                        <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
+                          <input
+                            type="radio"
+                            name="additional-keyword-mode"
+                            value="and"
+                            checked={criteriaDraft.additionalKeywordMode === "and"}
+                            onChange={(event) =>
+                              setCriteriaDraft((current) => ({
+                                ...current,
+                                additionalKeywordMode: event.target.value,
+                              }))
+                            }
+                          />
+                          All
+                        </label>
+                        <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
+                          <input
+                            type="radio"
+                            name="additional-keyword-mode"
+                            value="or"
+                            checked={criteriaDraft.additionalKeywordMode === "or"}
+                            onChange={(event) =>
+                              setCriteriaDraft((current) => ({
+                                ...current,
+                                additionalKeywordMode: event.target.value,
+                              }))
+                            }
+                          />
+                          Any
+                        </label>
+                      </div>
+                    </fieldset>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div className="rounded-lg border border-border/70 bg-secondary/20 p-4">
-              <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
-                <span>Hard filter</span>
-                <TooltipProvider delayDuration={150}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground"
-                        aria-label="Hard filter info"
-                        onClick={() =>
-                          toast({
-                            title: "Hard filter",
-                            description: "Only jobs with these words will be imported.",
-                          })
-                        }
-                      >
-                        i
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Only jobs with these words will be imported.</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
-              <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-                <label className="block text-sm font-medium text-foreground">
-                  Must include
-                  <input
-                    className={FIELD_CLASSNAME}
-                    data-jobs-criteria-hard-include-terms="1"
-                    placeholder="ml platform, healthcare"
-                    value={criteriaDraft.hardIncludeTerms}
-                    onChange={(event) =>
-                      setCriteriaDraft((current) => ({
-                        ...current,
-                        hardIncludeTerms: event.target.value,
-                      }))
-                    }
-                  />
-                </label>
-                <fieldset
-                  className="block text-sm font-medium text-foreground"
-                  data-jobs-criteria-hard-include-mode="1"
-                >
-                  <legend>Match mode</legend>
-                  <div className="mt-2 inline-flex rounded-md border border-input bg-card p-1">
-                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
-                      <input
-                        type="radio"
-                        name="hard-include-mode"
-                        value="and"
-                        checked={criteriaDraft.hardIncludeMode === "and"}
-                        onChange={(event) =>
-                          setCriteriaDraft((current) => ({
-                            ...current,
-                            hardIncludeMode: event.target.value,
-                          }))
-                        }
-                      />
-                      All
-                    </label>
-                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
-                      <input
-                        type="radio"
-                        name="hard-include-mode"
-                        value="or"
-                        checked={criteriaDraft.hardIncludeMode === "or"}
-                        onChange={(event) =>
-                          setCriteriaDraft((current) => ({
-                            ...current,
-                            hardIncludeMode: event.target.value,
-                          }))
-                        }
-                      />
-                      Any
-                    </label>
-                  </div>
-                </fieldset>
-              </div>
-              <div className="mt-3">
-                <label className="block text-sm font-medium text-foreground">
-                  Must not include
-                  <input
-                    className={FIELD_CLASSNAME}
-                    data-jobs-criteria-hard-exclude-terms="1"
-                    placeholder="intern, contract"
-                    value={criteriaDraft.hardExcludeTerms}
-                    onChange={(event) =>
-                      setCriteriaDraft((current) => ({
-                        ...current,
-                        hardExcludeTerms: event.target.value,
-                      }))
-                    }
-                  />
-                </label>
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-border/70 bg-secondary/10 p-4">
-              <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
-                <span>Additional keywords</span>
-                <TooltipProvider delayDuration={150}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground"
-                        aria-label="Additional keywords info"
-                        onClick={() =>
-                          toast({
-                            title: "Additional keywords",
-                            description: "Jobs with these keywords will receive higher scores.",
-                          })
-                        }
-                      >
-                        i
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Jobs with these keywords will receive higher scores.</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
-              <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-                <label className="block text-sm font-medium text-foreground">
-                  Keywords
-                  <input
-                    className={FIELD_CLASSNAME}
-                    data-jobs-criteria-additional-keywords="1"
-                    placeholder="ai tooling, growth, marketplace"
-                    value={criteriaDraft.additionalKeywords}
-                    onChange={(event) =>
-                      setCriteriaDraft((current) => ({
-                        ...current,
-                        additionalKeywords: event.target.value,
-                      }))
-                    }
-                  />
-                </label>
-                <fieldset
-                  className="block text-sm font-medium text-foreground"
-                  data-jobs-criteria-additional-keyword-mode="1"
-                >
-                  <legend>Match mode</legend>
-                  <div className="mt-2 inline-flex rounded-md border border-input bg-card p-1">
-                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
-                      <input
-                        type="radio"
-                        name="additional-keyword-mode"
-                        value="and"
-                        checked={criteriaDraft.additionalKeywordMode === "and"}
-                        onChange={(event) =>
-                          setCriteriaDraft((current) => ({
-                            ...current,
-                            additionalKeywordMode: event.target.value,
-                          }))
-                        }
-                      />
-                      All
-                    </label>
-                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
-                      <input
-                        type="radio"
-                        name="additional-keyword-mode"
-                        value="or"
-                        checked={criteriaDraft.additionalKeywordMode === "or"}
-                        onChange={(event) =>
-                          setCriteriaDraft((current) => ({
-                            ...current,
-                            additionalKeywordMode: event.target.value,
-                          }))
-                        }
-                      />
-                      Any
-                    </label>
-                  </div>
-                </fieldset>
-              </div>
-            </div>
-          </div>
 
           <div className="flex flex-wrap gap-2">
             {jobsViewTabs.map((tab) => (
@@ -1753,9 +1902,145 @@ export default function App() {
             ))}
           </div>
 
+          <div className="grid gap-3 xl:grid-cols-[180px_180px_repeat(3,minmax(0,1fr))_minmax(0,1.3fr)_minmax(0,1.1fr)]">
+            <Card>
+              <CardContent className="space-y-1 pt-6">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Total jobs</div>
+                <div className="text-3xl font-semibold text-foreground">{sortedJobs.length}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="space-y-1 pt-6">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Avg score</div>
+                <div className="text-3xl font-semibold text-foreground">
+                  {jobsAverageScore === null ? "—" : Math.round(jobsAverageScore)}
+                </div>
+              </CardContent>
+            </Card>
+            {jobsKeywordWidgets.map((widget) => (
+              <Card key={widget.key}>
+                <CardContent className="space-y-1 pt-6">
+                  <button
+                    type="button"
+                    className={cn(
+                      "block w-full rounded-md px-1 py-1 text-left",
+                      widget.term && jobsWidgetKeywordFilter === widget.term
+                        ? "bg-secondary/40"
+                        : "hover:bg-secondary/20",
+                    )}
+                    disabled={!widget.term}
+                    onClick={() =>
+                      setJobsWidgetKeywordFilter((current) =>
+                        current === widget.term ? "" : widget.term,
+                      )
+                    }
+                  >
+                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {widget.label}
+                    </div>
+                    <div className="text-3xl font-semibold text-foreground">{widget.value}</div>
+                  </button>
+                </CardContent>
+              </Card>
+            ))}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Titles</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-1 text-sm">
+                {jobsTitleBreakdown.length > 0 ? (
+                  jobsTitleBreakdown.map((item) => (
+                    <button
+                      key={item.label}
+                      type="button"
+                      className={cn(
+                        "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left hover:bg-secondary/20",
+                        jobsWidgetTitleFilter === item.label ? "bg-secondary/40" : "",
+                      )}
+                      onClick={() =>
+                        setJobsWidgetTitleFilter((current) =>
+                          current === item.label ? "" : item.label,
+                        )
+                      }
+                    >
+                      <span className="truncate text-muted-foreground">{item.label}</span>
+                      <span className="font-semibold text-foreground">{item.count}</span>
+                    </button>
+                  ))
+                ) : (
+                  <div className="text-muted-foreground">No title data</div>
+                )}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Salaries</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-1 text-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">Min</span>
+                  <span className="font-semibold text-foreground">{formatCurrency(jobsSalarySummary.min)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">Avg</span>
+                  <span className="font-semibold text-foreground">{formatCurrency(jobsSalarySummary.avg)}</span>
+                </div>
+                <button
+                  type="button"
+                  className={cn(
+                    "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left hover:bg-secondary/20",
+                    jobsWidgetSalaryFilter === "has_salary" ? "bg-secondary/40" : "",
+                  )}
+                  onClick={() =>
+                    setJobsWidgetSalaryFilter((current) =>
+                      current === "has_salary" ? "all" : "has_salary",
+                    )
+                  }
+                >
+                  <span className="text-muted-foreground">With salary</span>
+                  <span className="font-semibold text-foreground">{jobsSalarySummaryBase.withSalaryCount}</span>
+                </button>
+                <button
+                  type="button"
+                  className={cn(
+                    "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left hover:bg-secondary/20",
+                    jobsWidgetSalaryFilter === "above_avg" ? "bg-secondary/40" : "",
+                  )}
+                  onClick={() =>
+                    setJobsWidgetSalaryFilter((current) =>
+                      current === "above_avg" ? "all" : "above_avg",
+                    )
+                  }
+                >
+                  <span className="text-muted-foreground">Above avg</span>
+                  <span className="font-semibold text-foreground">{jobsSalarySummaryBase.aboveAvgCount}</span>
+                </button>
+                <button
+                  type="button"
+                  className={cn(
+                    "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left hover:bg-secondary/20",
+                    jobsWidgetSalaryFilter === "top_band" ? "bg-secondary/40" : "",
+                  )}
+                  onClick={() =>
+                    setJobsWidgetSalaryFilter((current) =>
+                      current === "top_band" ? "all" : "top_band",
+                    )
+                  }
+                >
+                  <span className="text-muted-foreground">Top band</span>
+                  <span className="font-semibold text-foreground">{jobsSalarySummaryBase.topBandCount}</span>
+                </button>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">Highest</span>
+                  <span className="font-semibold text-foreground">{formatCurrency(jobsSalarySummary.max)}</span>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
           <Card>
             <CardContent className="pt-5">
-              <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_220px_220px_220px_220px]">
+              <div className="grid gap-2 lg:grid-cols-[minmax(0,1.4fr)_220px_220px_220px_220px]">
                 <label className="block text-sm font-medium text-foreground">
                   Source
                   <select
@@ -1766,20 +2051,6 @@ export default function App() {
                     <option value="all">All ({jobsAllInSelectedView.length})</option>
                     {jobSourceFilters.map((filter) => (
                       <option key={filter.kind} value={filter.kind}>
-                        {filter.label} ({filter.count})
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block text-sm font-medium text-foreground">
-                  Employment type
-                  <select
-                    className={FIELD_CLASSNAME}
-                    value={jobsEmploymentFilter}
-                    onChange={(event) => setJobsEmploymentFilter(event.target.value)}
-                  >
-                    {jobEmploymentFilters.map((filter) => (
-                      <option key={filter.value} value={filter.value}>
                         {filter.label} ({filter.count})
                       </option>
                     ))}
@@ -1835,72 +2106,42 @@ export default function App() {
             </CardContent>
           </Card>
 
-          <div className="grid gap-3 xl:grid-cols-[180px_180px_repeat(3,minmax(0,1fr))_minmax(0,1.3fr)_minmax(0,1.1fr)]">
-            <Card>
-              <CardContent className="space-y-1 pt-6">
-                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Total jobs</div>
-                <div className="text-3xl font-semibold text-foreground">{sortedJobs.length}</div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="space-y-1 pt-6">
-                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Avg score</div>
-                <div className="text-3xl font-semibold text-foreground">
-                  {jobsAverageScore === null ? "—" : Math.round(jobsAverageScore)}
-                </div>
-              </CardContent>
-            </Card>
-            {jobsKeywordWidgets.map((widget) => (
-              <Card key={widget.key}>
-                <CardContent className="space-y-1 pt-6">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    {widget.label}
-                  </div>
-                  <div className="text-3xl font-semibold text-foreground">{widget.value}</div>
-                </CardContent>
-              </Card>
-            ))}
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Titles</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-1 text-sm">
-                {jobsTitleBreakdown.length > 0 ? (
-                  jobsTitleBreakdown.map((item) => (
-                    <div key={item.label} className="flex items-center justify-between gap-2">
-                      <span className="truncate text-muted-foreground">{item.label}</span>
-                      <span className="font-semibold text-foreground">{item.count}</span>
-                    </div>
-                  ))
-                ) : (
-                  <div className="text-muted-foreground">No title data</div>
-                )}
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Salaries</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-1 text-sm">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-muted-foreground">Min</span>
-                  <span className="font-semibold text-foreground">{formatCurrency(jobsSalarySummary.min)}</span>
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-muted-foreground">Avg</span>
-                  <span className="font-semibold text-foreground">{formatCurrency(jobsSalarySummary.avg)}</span>
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-muted-foreground">Above avg</span>
-                  <span className="font-semibold text-foreground">{jobsSalarySummary.aboveAvgCount}</span>
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-muted-foreground">Highest</span>
-                  <span className="font-semibold text-foreground">{formatCurrency(jobsSalarySummary.max)}</span>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+          {activeWidgetFilterChips.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Widget filters
+              </span>
+              {activeWidgetFilterChips.map((chip) => (
+                <button
+                  key={chip.key}
+                  type="button"
+                  className="rounded-full border border-border/80 bg-secondary/30 px-3 py-1 text-xs font-medium text-foreground hover:bg-secondary/40"
+                  onClick={() => {
+                    if (chip.key === "widget-keyword") {
+                      setJobsWidgetKeywordFilter("");
+                    } else if (chip.key === "widget-title") {
+                      setJobsWidgetTitleFilter("");
+                    } else if (chip.key === "widget-salary") {
+                      setJobsWidgetSalaryFilter("all");
+                    }
+                  }}
+                >
+                  {chip.label} ×
+                </button>
+              ))}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setJobsWidgetKeywordFilter("");
+                  setJobsWidgetTitleFilter("");
+                  setJobsWidgetSalaryFilter("all");
+                }}
+              >
+                Clear all
+              </Button>
+            </div>
+          ) : null}
 
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <Card>
