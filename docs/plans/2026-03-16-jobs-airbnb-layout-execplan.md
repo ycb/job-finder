@@ -12,12 +12,13 @@ Users need faster job triage with less context switching. After this change, the
 
 - [x] (2026-03-16 18:00Z) Scope alignment confirmed from stakeholder sketches: top widgets, horizontal filters, split-pane queue/detail, and post-MVP `Why it fits`.
 - [x] (2026-03-16 18:00Z) Product decisions locked: widgets reflect current filtered set; rejected items capture notes; `freshness` remains internal.
-- [ ] Implement new Jobs information architecture in React layout.
-- [ ] Implement filter-sensitive widget rail (`Total jobs`, `Avg score`, `KW#1/#2/#3`, title breakdown, salary breakdown).
-- [ ] Implement horizontal filter bar and advanced filters interaction model.
-- [ ] Update list/detail behavior and rejected-notes rendering.
-- [ ] Remove user-facing freshness from all visible Jobs surfaces.
-- [ ] Add/adjust tests and run full verification (unit + smoke + manual QA).
+- [x] (2026-03-16 23:20Z) Implemented new Jobs information architecture in React layout.
+- [x] (2026-03-16 23:20Z) Implemented filter-sensitive widget rail (`Total jobs`, `Avg score`, `KW#1/#2/#3`, title breakdown, salary breakdown).
+- [x] (2026-03-16 23:20Z) Implemented horizontal filter bar and advanced filters interaction model.
+- [x] (2026-03-16 23:20Z) Updated list/detail behavior and rejected-notes rendering.
+- [x] (2026-03-16 23:20Z) Removed user-facing freshness from visible Jobs labels.
+- [ ] Run Playwright smoke + manual QA against the new Jobs layout in the stakeholder QA runtime checkout.
+- [x] (2026-03-16 23:27Z) Full automated verification passed (`npm run dashboard:web:build`, `npm test`).
 
 ## Surprises & Discoveries
 
@@ -46,7 +47,13 @@ Users need faster job triage with less context switching. After this change, the
 
 ## Outcomes & Retrospective
 
-Planned. Update after implementation and QA.
+- Delivered: Jobs page now follows the approved split-pane architecture with compact top search controls, explicit `Hard filter` vs `Additional keywords`, filter-sensitive widgets, and a denser review/detail workflow.
+- Delivered: Rejected notes are surfaced directly in the detail pane when status is `rejected`.
+- Delivered: User-facing freshness wording was removed from the Jobs surface; user-visible time reference is now `Date posted`.
+- Verification evidence:
+  - `npm run dashboard:web:build` ✅
+  - `npm test` ✅ (`280` passing, `0` failing)
+- Remaining gate before merge: manual QA + Playwright smoke in the stakeholder checkout flow (`qa/current`) because the existing smoke script still assumes pre-redesign page anchors.
 
 ## Context and Orientation
 
@@ -190,4 +197,3 @@ Post-MVP note: `Why it fits` LLM module is intentionally excluded from this plan
 ## Interfaces and Dependencies
 
 No new backend endpoints are required for this phase. Continue using existing Jobs dashboard payload and status APIs. Any new computed widget data should be derived in frontend selectors/helpers first. If backend pre-aggregation becomes needed for performance, that change must be proposed in a follow-on ExecPlan.
-

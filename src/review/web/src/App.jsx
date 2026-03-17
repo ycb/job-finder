@@ -137,12 +137,9 @@ function formatJobStatus(status) {
 
 function formatJobFreshness(job) {
   if (typeof job?.postedAt === "string" && job.postedAt.trim()) {
-    return `Posted ${formatRelativeTimestamp(job.postedAt)}`;
+    return formatRelativeTimestamp(job.postedAt);
   }
-  if (typeof job?.updatedAt === "string" && job.updatedAt.trim()) {
-    return `Retrieved ${formatRelativeTimestamp(job.updatedAt)}`;
-  }
-  return "Freshness unknown";
+  return "Unknown";
 }
 
 function formatSalaryMaskInput(value) {
@@ -171,9 +168,23 @@ function rankJobs(items, jobsSort) {
     const parsed = Number(job?.score);
     return Number.isFinite(parsed) ? parsed : -1;
   };
+  const salaryValue = (job) => parseSalaryValue(job?.salaryText);
 
   jobs.sort((left, right) => {
-    if (jobsSort === "date") {
+    if (jobsSort === "salary") {
+      const salaryDiff = salaryValue(right) - salaryValue(left);
+      if (salaryDiff !== 0) {
+        return salaryDiff;
+      }
+      const scoreDiff = scoreValue(right) - scoreValue(left);
+      if (scoreDiff !== 0) {
+        return scoreDiff;
+      }
+      const freshnessDiff = dateValue(right) - dateValue(left);
+      if (freshnessDiff !== 0) {
+        return freshnessDiff;
+      }
+    } else if (jobsSort === "date") {
       const freshnessDiff = dateValue(right) - dateValue(left);
       if (freshnessDiff !== 0) {
         return freshnessDiff;
@@ -197,6 +208,152 @@ function rankJobs(items, jobsSort) {
   });
 
   return jobs;
+}
+
+function parseTerms(value) {
+  const seen = new Set();
+  const terms = [];
+  for (const part of String(value || "").split(",")) {
+    const normalized = part.trim().toLowerCase();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    terms.push(normalized);
+  }
+  return terms;
+}
+
+function parseSalaryValue(value) {
+  const text = String(value || "").toLowerCase();
+  if (!text) {
+    return 0;
+  }
+  const matches = [...text.matchAll(/([0-9]+(?:[.,][0-9]{3})*(?:\.[0-9]+)?)(\s*k)?/g)];
+  if (matches.length === 0) {
+    return 0;
+  }
+  const numbers = matches
+    .map((match) => {
+      const amount = Number(String(match[1] || "").replace(/,/g, ""));
+      if (!Number.isFinite(amount)) {
+        return 0;
+      }
+      return match[2] ? amount * 1000 : amount;
+    })
+    .filter((amount) => amount > 0);
+  if (numbers.length === 0) {
+    return 0;
+  }
+  return Math.max(...numbers);
+}
+
+function formatCurrency(value) {
+  if (!Number.isFinite(Number(value)) || Number(value) <= 0) {
+    return "—";
+  }
+  return `$${Math.round(Number(value)).toLocaleString("en-US")}`;
+}
+
+function countKeywordHits(jobs, term) {
+  if (!term) {
+    return 0;
+  }
+  const normalized = term.toLowerCase();
+  return (Array.isArray(jobs) ? jobs : []).reduce((count, job) => {
+    const haystack = [
+      job?.title,
+      job?.summary,
+      Array.isArray(job?.reasons) ? job.reasons.join(" ") : "",
+      job?.location,
+      job?.company,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(normalized) ? count + 1 : count;
+  }, 0);
+}
+
+function normalizeTitleKey(value) {
+  const title = String(value || "").trim();
+  if (!title) {
+    return "Unknown";
+  }
+  return title;
+}
+
+function computeTitleBreakdown(jobs, limit = 5) {
+  const counts = new Map();
+  for (const job of Array.isArray(jobs) ? jobs : []) {
+    const key = normalizeTitleKey(job?.title);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .slice(0, limit)
+    .map(([label, count]) => ({ label, count }));
+}
+
+function computeSalarySummary(jobs) {
+  const values = (Array.isArray(jobs) ? jobs : [])
+    .map((job) => parseSalaryValue(job?.salaryText))
+    .filter((value) => Number.isFinite(value) && value > 0)
+    .sort((left, right) => left - right);
+
+  if (values.length === 0) {
+    return {
+      min: null,
+      avg: null,
+      max: null,
+      aboveAvgCount: 0,
+      withSalaryCount: 0,
+    };
+  }
+
+  const total = values.reduce((sum, value) => sum + value, 0);
+  const avg = total / values.length;
+  return {
+    min: values[0],
+    avg,
+    max: values[values.length - 1],
+    aboveAvgCount: values.filter((value) => value > avg).length,
+    withSalaryCount: values.length,
+  };
+}
+
+function ageInDays(timestamp) {
+  const parsed = Date.parse(String(timestamp || ""));
+  if (!Number.isFinite(parsed)) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return Math.floor((Date.now() - parsed) / (1000 * 60 * 60 * 24));
+}
+
+function matchesPostedWindow(job, windowKey) {
+  if (windowKey === "all") {
+    return true;
+  }
+  const days = ageInDays(job?.postedAt);
+  if (!Number.isFinite(days)) {
+    return false;
+  }
+  if (windowKey === "24h") {
+    return days <= 1;
+  }
+  if (windowKey === "3d") {
+    return days <= 3;
+  }
+  if (windowKey === "1w") {
+    return days <= 7;
+  }
+  if (windowKey === "2w") {
+    return days <= 14;
+  }
+  if (windowKey === "1m") {
+    return days <= 30;
+  }
+  return true;
 }
 
 function buildRunAllDescription(runAllPayload, dashboard) {
@@ -271,6 +428,10 @@ export default function App() {
   const [jobsView, setJobsView] = useState("all");
   const [jobsSort, setJobsSort] = useState("score");
   const [jobsSourceFilter, setJobsSourceFilter] = useState("all");
+  const [jobsEmploymentFilter, setJobsEmploymentFilter] = useState("all");
+  const [jobsPostedFilter, setJobsPostedFilter] = useState("all");
+  const [jobsSalaryFloorFilter, setJobsSalaryFloorFilter] = useState("");
+  const [jobsSalaryCeilingFilter, setJobsSalaryCeilingFilter] = useState("");
   const [jobsPage, setJobsPage] = useState(1);
   const [selectedJobId, setSelectedJobId] = useState(null);
   const [criteriaDraft, setCriteriaDraft] = useState(() => normalizeSearchCriteriaDraft({}));
@@ -472,6 +633,17 @@ export default function App() {
     }),
     [activeJobs, appliedJobs, rejectedJobs, skippedJobs],
   );
+  const jobsViewTabs = useMemo(
+    () => [
+      { value: "all", label: "All", count: jobsViewCounts.all },
+      { value: "new", label: "New", count: jobsViewCounts.new },
+      { value: "best_match", label: "Best match", count: jobsViewCounts.best_match },
+      { value: "applied", label: "Applied", count: jobsViewCounts.applied },
+      { value: "skipped", label: "Skipped", count: jobsViewCounts.skipped },
+      { value: "rejected", label: "Rejected", count: jobsViewCounts.rejected },
+    ],
+    [jobsViewCounts],
+  );
   const jobsAllInSelectedView = useMemo(() => {
     if (jobsView === "applied") {
       return appliedJobs;
@@ -519,17 +691,111 @@ export default function App() {
 
     return [...totalsByKind.values()].sort((left, right) => left.label.localeCompare(right.label));
   }, [jobsAllInSelectedView, sourceKindBySourceId, visibleJobSources]);
-  const filteredJobs = useMemo(() => {
-    if (jobsSourceFilter === "all") {
-      return jobsAllInSelectedView;
+  const jobEmploymentFilters = useMemo(() => {
+    const counts = new Map();
+    for (const job of jobsAllInSelectedView) {
+      const key = String(job?.employmentType || "unknown")
+        .trim()
+        .toLowerCase() || "unknown";
+      counts.set(key, (counts.get(key) || 0) + 1);
     }
-    return jobsAllInSelectedView.filter((job) =>
-      (Array.isArray(job?.sourceIds) ? job.sourceIds : []).some(
-        (sourceId) => sourceKindBySourceId.get(sourceId) === jobsSourceFilter,
-      ),
-    );
-  }, [jobsAllInSelectedView, jobsSourceFilter, sourceKindBySourceId]);
+    const normalized = [...counts.entries()]
+      .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+      .map(([value, count]) => ({
+        value,
+        count,
+        label: value === "unknown" ? "Unknown" : value.replaceAll("_", " "),
+      }));
+    return [{ value: "all", count: jobsAllInSelectedView.length, label: "All" }, ...normalized];
+  }, [jobsAllInSelectedView]);
+  const jobPostedFilters = useMemo(() => {
+    const options = [
+      { value: "all", label: "Any time" },
+      { value: "24h", label: "24h" },
+      { value: "3d", label: "3 days" },
+      { value: "1w", label: "1 week" },
+      { value: "2w", label: "2 weeks" },
+      { value: "1m", label: "1 month" },
+    ];
+    return options.map((option) => ({
+      ...option,
+      count:
+        option.value === "all"
+          ? jobsAllInSelectedView.length
+          : jobsAllInSelectedView.filter((job) => matchesPostedWindow(job, option.value)).length,
+    }));
+  }, [jobsAllInSelectedView]);
+  const filteredJobs = useMemo(() => {
+    const salaryFloor = Number(String(jobsSalaryFloorFilter || "").replace(/[^0-9]/g, ""));
+    const salaryCeiling = Number(String(jobsSalaryCeilingFilter || "").replace(/[^0-9]/g, ""));
+    const hasSalaryFloor = Number.isFinite(salaryFloor) && salaryFloor > 0;
+    const hasSalaryCeiling = Number.isFinite(salaryCeiling) && salaryCeiling > 0;
+
+    return jobsAllInSelectedView.filter((job) => {
+      if (
+        jobsSourceFilter !== "all" &&
+        !(Array.isArray(job?.sourceIds) ? job.sourceIds : []).some(
+          (sourceId) => sourceKindBySourceId.get(sourceId) === jobsSourceFilter,
+        )
+      ) {
+        return false;
+      }
+
+      if (jobsEmploymentFilter !== "all") {
+        const employment = String(job?.employmentType || "unknown")
+          .trim()
+          .toLowerCase();
+        if (employment !== jobsEmploymentFilter) {
+          return false;
+        }
+      }
+
+      if (!matchesPostedWindow(job, jobsPostedFilter)) {
+        return false;
+      }
+
+      const salaryValue = parseSalaryValue(job?.salaryText);
+      if (hasSalaryFloor && salaryValue > 0 && salaryValue < salaryFloor) {
+        return false;
+      }
+      if (hasSalaryCeiling && salaryValue > 0 && salaryValue > salaryCeiling) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [
+    jobsAllInSelectedView,
+    jobsSourceFilter,
+    sourceKindBySourceId,
+    jobsEmploymentFilter,
+    jobsPostedFilter,
+    jobsSalaryFloorFilter,
+    jobsSalaryCeilingFilter,
+  ]);
   const sortedJobs = useMemo(() => rankJobs(filteredJobs, jobsSort), [filteredJobs, jobsSort]);
+  const jobsKeywordWidgets = useMemo(() => {
+    const terms = parseTerms(criteriaDraft.additionalKeywords).slice(0, 3);
+    while (terms.length < 3) {
+      terms.push("");
+    }
+    return terms.map((term, index) => ({
+      key: term || `kw-${index + 1}`,
+      label: term ? term.toUpperCase() : `KW#${index + 1}`,
+      value: term ? countKeywordHits(filteredJobs, term) : 0,
+    }));
+  }, [criteriaDraft.additionalKeywords, filteredJobs]);
+  const jobsTitleBreakdown = useMemo(() => computeTitleBreakdown(filteredJobs, 5), [filteredJobs]);
+  const jobsSalarySummary = useMemo(() => computeSalarySummary(filteredJobs), [filteredJobs]);
+  const jobsAverageScore = useMemo(() => {
+    const scores = filteredJobs
+      .map((job) => Number(job?.score))
+      .filter((score) => Number.isFinite(score) && score >= 0);
+    if (scores.length === 0) {
+      return null;
+    }
+    return scores.reduce((sum, score) => sum + score, 0) / scores.length;
+  }, [filteredJobs]);
   const jobsById = useMemo(() => {
     const lookup = Object.create(null);
     for (const group of [activeJobs, appliedJobs, skippedJobs, rejectedJobs]) {
@@ -595,7 +861,15 @@ export default function App() {
   useEffect(() => {
     setJobsPage(1);
     setSelectedJobId(sortedJobs[0]?.id || null);
-  }, [jobsSourceFilter, jobsSort, jobsView]);
+  }, [
+    jobsSourceFilter,
+    jobsSort,
+    jobsView,
+    jobsEmploymentFilter,
+    jobsPostedFilter,
+    jobsSalaryFloorFilter,
+    jobsSalaryCeilingFilter,
+  ]);
 
   useEffect(() => {
     const nextSelectedJobId = sortedJobs.find((job) => job.id === selectedJobId)
@@ -1043,6 +1317,27 @@ export default function App() {
     });
   }, [executeJobStatusUpdate, jobsById, rejectDialog, toast]);
 
+  const moveSelection = useCallback(
+    (direction) => {
+      if (!Array.isArray(sortedJobs) || sortedJobs.length === 0) {
+        return;
+      }
+      const currentIndex = sortedJobs.findIndex((job) => job.id === selectedJobId);
+      const baseIndex = currentIndex >= 0 ? currentIndex : 0;
+      const nextIndex = Math.min(
+        sortedJobs.length - 1,
+        Math.max(0, baseIndex + (direction < 0 ? -1 : 1)),
+      );
+      const nextJob = sortedJobs[nextIndex];
+      if (!nextJob) {
+        return;
+      }
+      setSelectedJobId(nextJob.id);
+      setJobsPage(Math.floor(nextIndex / JOBS_PAGE_SIZE) + 1);
+    },
+    [selectedJobId, sortedJobs],
+  );
+
   if (loading && !dashboard) {
     return (
       <main className="container px-4 py-8 md:py-10">
@@ -1178,639 +1473,732 @@ export default function App() {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="space-y-4">
-            <Card>
-              <CardContent className="space-y-4 pt-6">
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                      <label className="block text-sm font-medium text-foreground">
-                        Job title
-                        <input
-                          className={FIELD_CLASSNAME}
-                          data-jobs-criteria-title="1"
-                          placeholder="Product manager"
-                          value={criteriaDraft.title}
-                          onChange={(event) =>
-                            setCriteriaDraft((current) => ({ ...current, title: event.target.value }))
-                          }
-                        />
-                      </label>
-
-                      <label className="block text-sm font-medium text-foreground">
-                        Location
-                        <input
-                          className={FIELD_CLASSNAME}
-                          data-jobs-criteria-location="1"
-                          value={criteriaDraft.location}
-                          onChange={(event) =>
-                            setCriteriaDraft((current) => ({ ...current, location: event.target.value }))
-                          }
-                        />
-                      </label>
-
-                      <label className="block text-sm font-medium text-foreground">
-                        Minimum salary
-                        <input
-                          className={FIELD_CLASSNAME}
-                          data-jobs-criteria-min-salary="1"
-                          inputMode="numeric"
-                          placeholder="$XXX,XXX"
-                          value={formatSalaryMaskInput(criteriaDraft.minSalary)}
-                          onChange={(event) =>
-                            setCriteriaDraft((current) => ({
-                              ...current,
-                              minSalary: formatSalaryMaskInput(event.target.value),
-                            }))
-                          }
-                        />
-                      </label>
-
-                      <label className="block text-sm font-medium text-foreground">
-                        Date posted
-                        <select
-                          className={FIELD_CLASSNAME}
-                          data-jobs-criteria-date-posted="1"
-                          value={criteriaDraft.datePosted}
-                          onChange={(event) =>
-                            setCriteriaDraft((current) => ({
-                              ...current,
-                              datePosted: event.target.value,
-                            }))
-                          }
-                        >
-                          <option value="">Not set</option>
-                          <option value="any">Any time</option>
-                          <option value="1d">Past 24 hours</option>
-                          <option value="3d">Past 3 days</option>
-                          <option value="1w">Past week</option>
-                          <option value="2w">Past 2 weeks</option>
-                          <option value="1m">Past month</option>
-                        </select>
-                      </label>
-                    </div>
-
-                    <div className="grid gap-4 lg:grid-cols-2">
-                      <div className="rounded-lg border border-border/70 bg-secondary/20 p-4">
-                        <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
-                          <span>Hard filter</span>
-                          <TooltipProvider delayDuration={150}>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <button
-                                  type="button"
-                                  className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground"
-                                  aria-label="Hard filter info"
-                                  onClick={() =>
-                                    toast({
-                                      title: "Hard filter",
-                                      description: "Only jobs with these words will be imported.",
-                                    })
-                                  }
-                                >
-                                  i
-                                </button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>Only jobs with these words will be imported.</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        </div>
-                        <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-                          <label className="block text-sm font-medium text-foreground">
-                            Must include
-                            <input
-                              className={FIELD_CLASSNAME}
-                              data-jobs-criteria-hard-include-terms="1"
-                              placeholder="ml platform, healthcare"
-                              value={criteriaDraft.hardIncludeTerms}
-                              onChange={(event) =>
-                                setCriteriaDraft((current) => ({
-                                  ...current,
-                                  hardIncludeTerms: event.target.value,
-                                }))
-                              }
-                            />
-                          </label>
-
-                          <fieldset
-                            className="block text-sm font-medium text-foreground"
-                            data-jobs-criteria-hard-include-mode="1"
-                          >
-                            <legend>Match mode</legend>
-                            <div className="mt-2 inline-flex rounded-md border border-input bg-card p-1">
-                              <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
-                                <input
-                                  type="radio"
-                                  name="hard-include-mode"
-                                  value="and"
-                                  checked={criteriaDraft.hardIncludeMode === "and"}
-                                  onChange={(event) =>
-                                    setCriteriaDraft((current) => ({
-                                      ...current,
-                                      hardIncludeMode: event.target.value,
-                                    }))
-                                  }
-                                />
-                                All
-                              </label>
-                              <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
-                                <input
-                                  type="radio"
-                                  name="hard-include-mode"
-                                  value="or"
-                                  checked={criteriaDraft.hardIncludeMode === "or"}
-                                  onChange={(event) =>
-                                    setCriteriaDraft((current) => ({
-                                      ...current,
-                                      hardIncludeMode: event.target.value,
-                                    }))
-                                  }
-                                />
-                                Any
-                              </label>
-                            </div>
-                          </fieldset>
-                        </div>
-
-                        <div className="mt-3">
-                          <label className="block text-sm font-medium text-foreground">
-                            Must not include
-                            <input
-                              className={FIELD_CLASSNAME}
-                              data-jobs-criteria-hard-exclude-terms="1"
-                              placeholder="intern, contract"
-                              value={criteriaDraft.hardExcludeTerms}
-                              onChange={(event) =>
-                                setCriteriaDraft((current) => ({
-                                  ...current,
-                                  hardExcludeTerms: event.target.value,
-                                }))
-                              }
-                            />
-                          </label>
-                        </div>
-                      </div>
-
-                      <div className="rounded-lg border border-border/70 bg-secondary/10 p-4">
-                        <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
-                          <span>Additional keywords</span>
-                          <TooltipProvider delayDuration={150}>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <button
-                                  type="button"
-                                  className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground"
-                                  aria-label="Additional keywords info"
-                                  onClick={() =>
-                                    toast({
-                                      title: "Additional keywords",
-                                      description: "Jobs with these keywords will receive higher scores.",
-                                    })
-                                  }
-                                >
-                                  i
-                                </button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>Jobs with these keywords will receive higher scores.</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        </div>
-                        <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-                          <label className="block text-sm font-medium text-foreground">
-                            Keywords
-                            <input
-                              className={FIELD_CLASSNAME}
-                              data-jobs-criteria-additional-keywords="1"
-                              placeholder="ai tooling, growth, marketplace"
-                              value={criteriaDraft.additionalKeywords}
-                              onChange={(event) =>
-                                setCriteriaDraft((current) => ({
-                                  ...current,
-                                  additionalKeywords: event.target.value,
-                                }))
-                              }
-                            />
-                          </label>
-
-                          <fieldset
-                            className="block text-sm font-medium text-foreground"
-                            data-jobs-criteria-additional-keyword-mode="1"
-                          >
-                            <legend>Match mode</legend>
-                            <div className="mt-2 inline-flex rounded-md border border-input bg-card p-1">
-                              <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
-                                <input
-                                  type="radio"
-                                  name="additional-keyword-mode"
-                                  value="and"
-                                  checked={criteriaDraft.additionalKeywordMode === "and"}
-                                  onChange={(event) =>
-                                    setCriteriaDraft((current) => ({
-                                      ...current,
-                                      additionalKeywordMode: event.target.value,
-                                    }))
-                                  }
-                                />
-                                All
-                              </label>
-                              <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
-                                <input
-                                  type="radio"
-                                  name="additional-keyword-mode"
-                                  value="or"
-                                  checked={criteriaDraft.additionalKeywordMode === "or"}
-                                  onChange={(event) =>
-                                    setCriteriaDraft((current) => ({
-                                      ...current,
-                                      additionalKeywordMode: event.target.value,
-                                    }))
-                                  }
-                                />
-                                Any
-                              </label>
-                            </div>
-                          </fieldset>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex justify-end pt-3">
-                      <Button
-                        className="w-full md:w-auto"
-                        data-jobs-find="1"
-                        disabled={jobsControlsDisabled}
-                        onClick={() => {
-                          void handleFindJobs();
-                        }}
-                      >
-                        {criteriaBusy ? "Running search..." : "Run search"}
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <div className="grid gap-4 xl:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
-                  <Card>
-                  <CardHeader className="space-y-4">
-                    <div className="flex flex-col gap-3">
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <CardTitle className="text-base">Queue</CardTitle>
-                            <span className="rounded-full bg-secondary px-2 py-1 text-xs font-semibold text-secondary-foreground">
-                              Active {activeJobs.length}
-                            </span>
-                            <span className="rounded-full bg-secondary px-2 py-1 text-xs font-semibold text-secondary-foreground">
-                              Applied {appliedJobs.length}
-                            </span>
-                          </div>
-                          <CardDescription>
-                            Filter by view, source, and sort order without leaving the review tab.
-                          </CardDescription>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            size="sm"
-                            variant={jobsSort === "score" ? "default" : "outline"}
-                            data-jobs-sort="score"
-                            disabled={jobsControlsDisabled}
-                            onClick={() => setJobsSort("score")}
-                          >
-                            Score
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant={jobsSort === "date" ? "default" : "outline"}
-                            data-jobs-sort="date"
-                            disabled={jobsControlsDisabled}
-                            onClick={() => setJobsSort("date")}
-                          >
-                            Date
-                          </Button>
-                        </div>
-                      </div>
-
-                      <label className="block text-sm font-medium text-foreground">
-                        View
-                        <select
-                          className={FIELD_CLASSNAME}
-                          data-jobs-view="1"
-                          value={jobsView}
-                          onChange={(event) => setJobsView(event.target.value)}
-                        >
-                          {JOBS_VIEW_OPTIONS.map((view) => (
-                            <option key={view} value={view}>
-                              {view === "best_match"
-                                ? `Best Match (${jobsViewCounts[view]})`
-                                : `${view.replaceAll("_", " ")} (${jobsViewCounts[view]})`}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          size="sm"
-                          variant={jobsSourceFilter === "all" ? "default" : "outline"}
-                          data-jobs-source-filter="all"
-                          disabled={jobsControlsDisabled}
-                          onClick={() => setJobsSourceFilter("all")}
-                        >
-                          All Results ({jobsAllInSelectedView.length})
-                        </Button>
-                        {jobSourceFilters.map((filter) => (
-                          <Button
-                            key={filter.kind}
-                            size="sm"
-                            variant={jobsSourceFilter === filter.kind ? "default" : "outline"}
-                            data-jobs-source-filter={filter.kind}
-                            disabled={
-                              jobsControlsDisabled ||
-                              (filter.count === 0 && jobsSourceFilter !== filter.kind)
-                            }
-                            onClick={() => setJobsSourceFilter(filter.kind)}
-                          >
-                            {filter.label} ({filter.count})
-                          </Button>
-                        ))}
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="flex items-center justify-between text-sm text-muted-foreground">
-                      <span>
-                        Showing {sortedJobs.length === 0 ? "0" : (currentPage - 1) * JOBS_PAGE_SIZE + 1}-
-                        {Math.min(currentPage * JOBS_PAGE_SIZE, sortedJobs.length)} of {sortedJobs.length}
-                      </span>
-                      <span>
-                        Page {currentPage} / {totalJobsPages}
-                      </span>
-                    </div>
-
-                    <div className="space-y-3">
-                      {pagedJobs.length === 0 ? (
-                        <div className="rounded-lg border border-dashed border-border bg-secondary/20 p-4 text-sm text-muted-foreground">
-                          No jobs match the current filters.
-                        </div>
-                      ) : (
-                        pagedJobs.map((job) => {
-                          const isSelected = currentJob?.id === job.id;
-                          return (
-                            <button
-                              key={job.id}
-                              type="button"
-                              data-job-row={job.id}
-                              className={cn(
-                                "w-full rounded-xl border p-4 text-left transition",
-                                isSelected
-                                  ? "border-primary bg-primary/5 shadow-sm"
-                                  : "border-border/70 bg-card hover:border-primary/40 hover:bg-secondary/20",
-                              )}
-                              onClick={() => setSelectedJobId(job.id)}
-                            >
-                              <div className="flex flex-col gap-2">
-                                <div className="flex items-start justify-between gap-3">
-                                  <div>
-                                    <div className="text-sm font-semibold text-foreground">{job.title}</div>
-                                    <div className="text-sm text-muted-foreground">
-                                      {job.company || "Unknown company"} · {job.location || "Unknown location"}
-                                    </div>
-                                  </div>
-                                  <div className="rounded-full bg-secondary px-2 py-1 text-xs font-semibold text-secondary-foreground">
-                                    {formatJobStatus(job.status)}
-                                  </div>
-                                </div>
-                                <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                                  <span className="rounded-full bg-secondary/70 px-2 py-1">
-                                    Score {Number.isFinite(Number(job.score)) ? job.score : "n/a"}
-                                  </span>
-                                  <span className="rounded-full bg-secondary/70 px-2 py-1">
-                                    {job.bucket ? job.bucket.replaceAll("_", " ") : "unscored"}
-                                  </span>
-                                  <span className="rounded-full bg-secondary/70 px-2 py-1">
-                                    {formatJobFreshness(job)}
-                                  </span>
-                                </div>
-                              </div>
-                            </button>
-                          );
-                        })
-                      )}
-                    </div>
-
-                    <div className="flex items-center justify-between gap-2">
-                      <Button
-                        variant="outline"
-                        data-jobs-page="prev"
-                        disabled={jobsControlsDisabled || currentPage <= 1}
-                        onClick={() => setJobsPage((current) => Math.max(1, current - 1))}
-                      >
-                        Prev
-                      </Button>
-                      <Button
-                        variant="outline"
-                        data-jobs-page="next"
-                        disabled={jobsControlsDisabled || currentPage >= totalJobsPages}
-                        onClick={() => setJobsPage((current) => Math.min(totalJobsPages, current + 1))}
-                      >
-                        Next
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">Detail</CardTitle>
-                    <CardDescription>
-                      Review the selected job, open the posting, and record the outcome.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {currentJob ? (
-                      <>
-                        <div className="space-y-3">
-                          <div className="space-y-2">
-                            <div className="text-xl font-semibold text-foreground">{currentJob.title}</div>
-                            <div className="text-sm text-muted-foreground">
-                              {currentJob.company || "Unknown company"} ·{" "}
-                              {currentJob.location || "Unknown location"}
-                            </div>
-                          </div>
-                          <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                            <span className="rounded-full bg-secondary px-2 py-1">
-                              Status: {formatJobStatus(currentJob.status)}
-                            </span>
-                            <span className="rounded-full bg-secondary px-2 py-1">
-                              Source: {currentJobSourceKinds}
-                            </span>
-                            <span className="rounded-full bg-secondary px-2 py-1">
-                              Score: {Number.isFinite(Number(currentJob.score)) ? currentJob.score : "n/a"}
-                            </span>
-                            <span className="rounded-full bg-secondary px-2 py-1">
-                              Confidence:{" "}
-                              {Number.isFinite(Number(currentJob.confidence))
-                                ? currentJob.confidence
-                                : "n/a"}
-                            </span>
-                            <span className="rounded-full bg-secondary px-2 py-1">
-                              {formatJobFreshness(currentJob)}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="flex flex-wrap gap-2">
-                          <Button
-                            data-job-open="1"
-                            disabled={jobsControlsDisabled || !currentJob.reviewTarget?.url}
-                            onClick={() => {
-                              void handleOpenCurrentJob();
-                            }}
-                          >
-                            {currentJob.reviewTarget?.mode === "search" ? "Open Search" : "Open Job"}
-                          </Button>
-                          {currentJob.status === "new" ? (
-                            <Button
-                              variant="outline"
-                              data-job-status="viewed"
-                              disabled={jobsControlsDisabled}
-                              onClick={() => {
-                                void executeJobStatusUpdate(currentJob, "viewed");
-                              }}
-                            >
-                              Mark viewed
-                            </Button>
-                          ) : null}
-                          <Button
-                            variant="outline"
-                            data-job-status="applied"
-                            disabled={jobsControlsDisabled}
-                            onClick={() => {
-                              void executeJobStatusUpdate(currentJob, "applied");
-                            }}
-                          >
-                            I Applied
-                          </Button>
-                          <Button
-                            variant="outline"
-                            data-job-status="skip_for_now"
-                            disabled={jobsControlsDisabled}
-                            onClick={() => {
-                              void executeJobStatusUpdate(currentJob, "skip_for_now");
-                            }}
-                          >
-                            Skip For Now
-                          </Button>
-                          <Button
-                            variant="outline"
-                            data-job-status="rejected"
-                            disabled={jobsControlsDisabled}
-                            onClick={() =>
-                              setRejectDialog({
-                                open: true,
-                                jobId: currentJob.id,
-                                reason: currentJob.status === "rejected" ? currentJob.notes || "" : "",
-                                saving: false,
-                              })
-                            }
-                          >
-                            Reject
-                          </Button>
-                        </div>
-
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <span>
-                            Job {currentJobPosition.index >= 0 ? currentJobPosition.index + 1 : 0} of{" "}
-                            {currentJobPosition.total}
-                          </span>
-                        </div>
-
-                        {currentJob.status === "rejected" && currentJob.notes ? (
-                          <div className="rounded-lg border border-destructive/25 bg-destructive/5 p-4">
-                            <div className="text-sm font-semibold text-destructive">Rejection reason</div>
-                            <div className="mt-2 text-sm text-foreground">{currentJob.notes}</div>
-                          </div>
-                        ) : null}
-
-                        <div className="rounded-lg border border-border/70 bg-secondary/20 p-4">
-                          <div className="text-sm font-semibold text-foreground">Why it fits</div>
-                          <p className="mt-2 text-sm text-muted-foreground">
-                            {currentJob.summary || "No summary available."}
-                          </p>
-                          <ul className="mt-3 space-y-2 text-sm text-foreground">
-                            {(Array.isArray(currentJob.reasons) ? currentJob.reasons : []).length > 0 ? (
-                              currentJob.reasons.map((reason) => <li key={reason}>• {reason}</li>)
-                            ) : (
-                              <li>• No specific fit reasons recorded yet.</li>
-                            )}
-                          </ul>
-                        </div>
-
-                        <div className="grid gap-4 md:grid-cols-2">
-                          <div className="rounded-lg border border-border/70 bg-card p-4">
-                            <div className="text-sm font-semibold text-foreground">Role snapshot</div>
-                            <dl className="mt-3 space-y-2 text-sm">
-                              <div className="flex items-center justify-between gap-4">
-                                <dt className="text-muted-foreground">Salary</dt>
-                                <dd className="text-right text-foreground">
-                                  {currentJob.salaryText || "Unknown"}
-                                </dd>
-                              </div>
-                              <div className="flex items-center justify-between gap-4">
-                                <dt className="text-muted-foreground">Employment</dt>
-                                <dd className="text-right text-foreground">
-                                  {currentJob.employmentType || "Unknown"}
-                                </dd>
-                              </div>
-                              <div className="flex items-center justify-between gap-4">
-                                <dt className="text-muted-foreground">Freshness</dt>
-                                <dd className="text-right text-foreground">{formatJobFreshness(currentJob)}</dd>
-                              </div>
-                            </dl>
-                          </div>
-
-                          <div className="rounded-lg border border-border/70 bg-card p-4">
-                            <div className="text-sm font-semibold text-foreground">Attribution</div>
-                            <ul className="mt-3 space-y-3 text-sm">
-                              {currentJobSourceAttributions.length > 0 ? (
-                                currentJobSourceAttributions.map((source) => (
-                                  <li key={source.id} className="space-y-1">
-                                    <div className="font-medium text-foreground">{source.name}</div>
-                                    <div className="text-muted-foreground">
-                                      {source.type ? source.type.replaceAll("_", " ") : "source"}
-                                    </div>
-                                    <a
-                                      href={source.searchUrl}
-                                      target="_blank"
-                                      rel="noreferrer noopener"
-                                      className="text-primary hover:underline"
-                                    >
-                                      Open search ↗
-                                    </a>
-                                  </li>
-                                ))
-                              ) : (
-                                <li className="text-muted-foreground">
-                                  No source attribution recorded for this job yet.
-                                </li>
-                              )}
-                            </ul>
-                          </div>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="rounded-lg border border-dashed border-border bg-secondary/20 p-6 text-sm text-muted-foreground">
-                        No jobs are available for the current filter.
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="grid gap-2 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_220px_220px_auto]">
+                <label className="block text-sm font-medium text-foreground">
+                  Job title
+                  <input
+                    className={FIELD_CLASSNAME}
+                    data-jobs-criteria-title="1"
+                    placeholder="Product manager"
+                    value={criteriaDraft.title}
+                    onChange={(event) =>
+                      setCriteriaDraft((current) => ({ ...current, title: event.target.value }))
+                    }
+                  />
+                </label>
+                <label className="block text-sm font-medium text-foreground">
+                  Location
+                  <input
+                    className={FIELD_CLASSNAME}
+                    data-jobs-criteria-location="1"
+                    value={criteriaDraft.location}
+                    onChange={(event) =>
+                      setCriteriaDraft((current) => ({ ...current, location: event.target.value }))
+                    }
+                  />
+                </label>
+                <label className="block text-sm font-medium text-foreground">
+                  Minimum salary
+                  <input
+                    className={FIELD_CLASSNAME}
+                    data-jobs-criteria-min-salary="1"
+                    inputMode="numeric"
+                    placeholder="$XXX,XXX"
+                    value={formatSalaryMaskInput(criteriaDraft.minSalary)}
+                    onChange={(event) =>
+                      setCriteriaDraft((current) => ({
+                        ...current,
+                        minSalary: formatSalaryMaskInput(event.target.value),
+                      }))
+                    }
+                  />
+                </label>
+                <label className="block text-sm font-medium text-foreground">
+                  Date posted
+                  <select
+                    className={FIELD_CLASSNAME}
+                    data-jobs-criteria-date-posted="1"
+                    value={criteriaDraft.datePosted}
+                    onChange={(event) =>
+                      setCriteriaDraft((current) => ({
+                        ...current,
+                        datePosted: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="">Not set</option>
+                    <option value="any">Any time</option>
+                    <option value="1d">Past 24 hours</option>
+                    <option value="3d">Past 3 days</option>
+                    <option value="1w">Past week</option>
+                    <option value="2w">Past 2 weeks</option>
+                    <option value="1m">Past month</option>
+                  </select>
+                </label>
+                <div className="flex items-end">
+                  <Button
+                    className="h-10 w-full"
+                    data-jobs-find="1"
+                    disabled={jobsControlsDisabled}
+                    onClick={() => {
+                      void handleFindJobs();
+                    }}
+                  >
+                    {criteriaBusy ? "Running search..." : "Run search"}
+                  </Button>
                 </div>
               </div>
             </CardContent>
           </Card>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="rounded-lg border border-border/70 bg-secondary/20 p-4">
+              <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
+                <span>Hard filter</span>
+                <TooltipProvider delayDuration={150}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground"
+                        aria-label="Hard filter info"
+                        onClick={() =>
+                          toast({
+                            title: "Hard filter",
+                            description: "Only jobs with these words will be imported.",
+                          })
+                        }
+                      >
+                        i
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Only jobs with these words will be imported.</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+              <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+                <label className="block text-sm font-medium text-foreground">
+                  Must include
+                  <input
+                    className={FIELD_CLASSNAME}
+                    data-jobs-criteria-hard-include-terms="1"
+                    placeholder="ml platform, healthcare"
+                    value={criteriaDraft.hardIncludeTerms}
+                    onChange={(event) =>
+                      setCriteriaDraft((current) => ({
+                        ...current,
+                        hardIncludeTerms: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+                <fieldset
+                  className="block text-sm font-medium text-foreground"
+                  data-jobs-criteria-hard-include-mode="1"
+                >
+                  <legend>Match mode</legend>
+                  <div className="mt-2 inline-flex rounded-md border border-input bg-card p-1">
+                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
+                      <input
+                        type="radio"
+                        name="hard-include-mode"
+                        value="and"
+                        checked={criteriaDraft.hardIncludeMode === "and"}
+                        onChange={(event) =>
+                          setCriteriaDraft((current) => ({
+                            ...current,
+                            hardIncludeMode: event.target.value,
+                          }))
+                        }
+                      />
+                      All
+                    </label>
+                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
+                      <input
+                        type="radio"
+                        name="hard-include-mode"
+                        value="or"
+                        checked={criteriaDraft.hardIncludeMode === "or"}
+                        onChange={(event) =>
+                          setCriteriaDraft((current) => ({
+                            ...current,
+                            hardIncludeMode: event.target.value,
+                          }))
+                        }
+                      />
+                      Any
+                    </label>
+                  </div>
+                </fieldset>
+              </div>
+              <div className="mt-3">
+                <label className="block text-sm font-medium text-foreground">
+                  Must not include
+                  <input
+                    className={FIELD_CLASSNAME}
+                    data-jobs-criteria-hard-exclude-terms="1"
+                    placeholder="intern, contract"
+                    value={criteriaDraft.hardExcludeTerms}
+                    onChange={(event) =>
+                      setCriteriaDraft((current) => ({
+                        ...current,
+                        hardExcludeTerms: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-border/70 bg-secondary/10 p-4">
+              <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
+                <span>Additional keywords</span>
+                <TooltipProvider delayDuration={150}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground"
+                        aria-label="Additional keywords info"
+                        onClick={() =>
+                          toast({
+                            title: "Additional keywords",
+                            description: "Jobs with these keywords will receive higher scores.",
+                          })
+                        }
+                      >
+                        i
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Jobs with these keywords will receive higher scores.</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+              <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+                <label className="block text-sm font-medium text-foreground">
+                  Keywords
+                  <input
+                    className={FIELD_CLASSNAME}
+                    data-jobs-criteria-additional-keywords="1"
+                    placeholder="ai tooling, growth, marketplace"
+                    value={criteriaDraft.additionalKeywords}
+                    onChange={(event) =>
+                      setCriteriaDraft((current) => ({
+                        ...current,
+                        additionalKeywords: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+                <fieldset
+                  className="block text-sm font-medium text-foreground"
+                  data-jobs-criteria-additional-keyword-mode="1"
+                >
+                  <legend>Match mode</legend>
+                  <div className="mt-2 inline-flex rounded-md border border-input bg-card p-1">
+                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
+                      <input
+                        type="radio"
+                        name="additional-keyword-mode"
+                        value="and"
+                        checked={criteriaDraft.additionalKeywordMode === "and"}
+                        onChange={(event) =>
+                          setCriteriaDraft((current) => ({
+                            ...current,
+                            additionalKeywordMode: event.target.value,
+                          }))
+                        }
+                      />
+                      All
+                    </label>
+                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
+                      <input
+                        type="radio"
+                        name="additional-keyword-mode"
+                        value="or"
+                        checked={criteriaDraft.additionalKeywordMode === "or"}
+                        onChange={(event) =>
+                          setCriteriaDraft((current) => ({
+                            ...current,
+                            additionalKeywordMode: event.target.value,
+                          }))
+                        }
+                      />
+                      Any
+                    </label>
+                  </div>
+                </fieldset>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {jobsViewTabs.map((tab) => (
+              <Button
+                key={tab.value}
+                size="sm"
+                variant={jobsView === tab.value ? "default" : "outline"}
+                data-jobs-view={tab.value}
+                disabled={jobsControlsDisabled}
+                onClick={() => setJobsView(tab.value)}
+              >
+                {tab.label} ({tab.count})
+              </Button>
+            ))}
+          </div>
+
+          <Card>
+            <CardContent className="pt-5">
+              <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_220px_220px_220px_220px]">
+                <label className="block text-sm font-medium text-foreground">
+                  Source
+                  <select
+                    className={FIELD_CLASSNAME}
+                    value={jobsSourceFilter}
+                    onChange={(event) => setJobsSourceFilter(event.target.value)}
+                  >
+                    <option value="all">All ({jobsAllInSelectedView.length})</option>
+                    {jobSourceFilters.map((filter) => (
+                      <option key={filter.kind} value={filter.kind}>
+                        {filter.label} ({filter.count})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-sm font-medium text-foreground">
+                  Employment type
+                  <select
+                    className={FIELD_CLASSNAME}
+                    value={jobsEmploymentFilter}
+                    onChange={(event) => setJobsEmploymentFilter(event.target.value)}
+                  >
+                    {jobEmploymentFilters.map((filter) => (
+                      <option key={filter.value} value={filter.value}>
+                        {filter.label} ({filter.count})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-sm font-medium text-foreground">
+                  Posted
+                  <select
+                    className={FIELD_CLASSNAME}
+                    value={jobsPostedFilter}
+                    onChange={(event) => setJobsPostedFilter(event.target.value)}
+                  >
+                    {jobPostedFilters.map((filter) => (
+                      <option key={filter.value} value={filter.value}>
+                        {filter.label} ({filter.count})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-sm font-medium text-foreground">
+                  Sort
+                  <select
+                    className={FIELD_CLASSNAME}
+                    value={jobsSort}
+                    onChange={(event) => setJobsSort(event.target.value)}
+                  >
+                    <option value="score">Score</option>
+                    <option value="date">Date posted</option>
+                    <option value="salary">Salary</option>
+                  </select>
+                </label>
+                <label className="block text-sm font-medium text-foreground">
+                  Min salary
+                  <input
+                    className={FIELD_CLASSNAME}
+                    inputMode="numeric"
+                    placeholder="$120,000"
+                    value={formatSalaryMaskInput(jobsSalaryFloorFilter)}
+                    onChange={(event) => setJobsSalaryFloorFilter(formatSalaryMaskInput(event.target.value))}
+                  />
+                </label>
+                <label className="block text-sm font-medium text-foreground">
+                  Max salary
+                  <input
+                    className={FIELD_CLASSNAME}
+                    inputMode="numeric"
+                    placeholder="$350,000"
+                    value={formatSalaryMaskInput(jobsSalaryCeilingFilter)}
+                    onChange={(event) => setJobsSalaryCeilingFilter(formatSalaryMaskInput(event.target.value))}
+                  />
+                </label>
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="grid gap-3 xl:grid-cols-[180px_180px_repeat(3,minmax(0,1fr))_minmax(0,1.3fr)_minmax(0,1.1fr)]">
+            <Card>
+              <CardContent className="space-y-1 pt-6">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Total jobs</div>
+                <div className="text-3xl font-semibold text-foreground">{sortedJobs.length}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="space-y-1 pt-6">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Avg score</div>
+                <div className="text-3xl font-semibold text-foreground">
+                  {jobsAverageScore === null ? "—" : Math.round(jobsAverageScore)}
+                </div>
+              </CardContent>
+            </Card>
+            {jobsKeywordWidgets.map((widget) => (
+              <Card key={widget.key}>
+                <CardContent className="space-y-1 pt-6">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    {widget.label}
+                  </div>
+                  <div className="text-3xl font-semibold text-foreground">{widget.value}</div>
+                </CardContent>
+              </Card>
+            ))}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Titles</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-1 text-sm">
+                {jobsTitleBreakdown.length > 0 ? (
+                  jobsTitleBreakdown.map((item) => (
+                    <div key={item.label} className="flex items-center justify-between gap-2">
+                      <span className="truncate text-muted-foreground">{item.label}</span>
+                      <span className="font-semibold text-foreground">{item.count}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-muted-foreground">No title data</div>
+                )}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Salaries</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-1 text-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">Min</span>
+                  <span className="font-semibold text-foreground">{formatCurrency(jobsSalarySummary.min)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">Avg</span>
+                  <span className="font-semibold text-foreground">{formatCurrency(jobsSalarySummary.avg)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">Above avg</span>
+                  <span className="font-semibold text-foreground">{jobsSalarySummary.aboveAvgCount}</span>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">Highest</span>
+                  <span className="font-semibold text-foreground">{formatCurrency(jobsSalarySummary.max)}</span>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between gap-3">
+                  <CardTitle className="text-base">Results</CardTitle>
+                  <div className="text-sm text-muted-foreground">
+                    {sortedJobs.length === 0 ? "0" : (currentPage - 1) * JOBS_PAGE_SIZE + 1}-
+                    {Math.min(currentPage * JOBS_PAGE_SIZE, sortedJobs.length)} / {sortedJobs.length}
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {pagedJobs.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-border bg-secondary/20 p-4 text-sm text-muted-foreground">
+                    No jobs match the current filters.
+                  </div>
+                ) : (
+                  <div className="overflow-hidden rounded-lg border border-border/70">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Title</TableHead>
+                          <TableHead>Salary</TableHead>
+                          <TableHead>Date posted</TableHead>
+                          <TableHead>Score</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {pagedJobs.map((job) => {
+                          const isSelected = currentJob?.id === job.id;
+                          return (
+                            <TableRow
+                              key={job.id}
+                              data-job-row={job.id}
+                              className={cn(
+                                "cursor-pointer",
+                                isSelected ? "bg-secondary/40" : "hover:bg-secondary/20",
+                              )}
+                              onClick={() => setSelectedJobId(job.id)}
+                            >
+                              <TableCell>
+                                <div className="font-medium text-foreground">{job.title}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {job.company || "Unknown company"} · {job.location || "Unknown location"}
+                                </div>
+                                <div className="mt-1 flex flex-wrap gap-1">
+                                  <span className="rounded bg-secondary px-2 py-0.5 text-[11px] text-secondary-foreground">
+                                    {formatJobStatus(job.status)}
+                                  </span>
+                                  {job.bucket === "high_signal" ? (
+                                    <span className="rounded bg-secondary px-2 py-0.5 text-[11px] text-secondary-foreground">
+                                      best match
+                                    </span>
+                                  ) : null}
+                                </div>
+                              </TableCell>
+                              <TableCell>{job.salaryText || "—"}</TableCell>
+                              <TableCell>{formatJobFreshness(job)}</TableCell>
+                              <TableCell>
+                                {Number.isFinite(Number(job.score)) ? Math.round(Number(job.score)) : "n/a"}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+                <div className="flex items-center justify-between gap-2">
+                  <Button
+                    variant="outline"
+                    data-jobs-page="prev"
+                    disabled={jobsControlsDisabled || currentPage <= 1}
+                    onClick={() => setJobsPage((current) => Math.max(1, current - 1))}
+                  >
+                    Prev
+                  </Button>
+                  <div className="text-sm text-muted-foreground">
+                    Page {currentPage} / {totalJobsPages}
+                  </div>
+                  <Button
+                    variant="outline"
+                    data-jobs-page="next"
+                    disabled={jobsControlsDisabled || currentPage >= totalJobsPages}
+                    onClick={() => setJobsPage((current) => Math.min(totalJobsPages, current + 1))}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <CardTitle className="text-base">Job detail</CardTitle>
+                    <CardDescription>
+                      Job {currentJobPosition.index >= 0 ? currentJobPosition.index + 1 : 0} of{" "}
+                      {currentJobPosition.total}
+                    </CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={jobsControlsDisabled || currentJobPosition.index <= 0}
+                      onClick={() => moveSelection(-1)}
+                    >
+                      ←
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={
+                        jobsControlsDisabled ||
+                        currentJobPosition.index < 0 ||
+                        currentJobPosition.index >= currentJobPosition.total - 1
+                      }
+                      onClick={() => moveSelection(1)}
+                    >
+                      →
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {currentJob ? (
+                  <>
+                    <div className="space-y-1">
+                      <div className="text-xl font-semibold text-foreground">{currentJob.title}</div>
+                      <div className="text-sm text-muted-foreground">
+                        {currentJob.company || "Unknown company"} · {currentJob.location || "Unknown location"}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                      <span className="rounded-full bg-secondary px-2 py-1">
+                        Date posted: {formatJobFreshness(currentJob)}
+                      </span>
+                      <span className="rounded-full bg-secondary px-2 py-1">
+                        Salary: {currentJob.salaryText || "Unknown"}
+                      </span>
+                      <span className="rounded-full bg-secondary px-2 py-1">
+                        Score: {Number.isFinite(Number(currentJob.score)) ? Math.round(Number(currentJob.score)) : "n/a"}
+                      </span>
+                      <span className="rounded-full bg-secondary px-2 py-1">
+                        Status: {formatJobStatus(currentJob.status)}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        data-job-open="1"
+                        disabled={jobsControlsDisabled || !currentJob.reviewTarget?.url}
+                        onClick={() => {
+                          void handleOpenCurrentJob();
+                        }}
+                      >
+                        {currentJob.reviewTarget?.mode === "search" ? "Open Search" : "View Job"}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        data-job-status="rejected"
+                        disabled={jobsControlsDisabled}
+                        onClick={() =>
+                          setRejectDialog({
+                            open: true,
+                            jobId: currentJob.id,
+                            reason: currentJob.status === "rejected" ? currentJob.notes || "" : "",
+                            saving: false,
+                          })
+                        }
+                      >
+                        Reject
+                      </Button>
+                      <Button
+                        variant="outline"
+                        data-job-status="skip_for_now"
+                        disabled={jobsControlsDisabled}
+                        onClick={() => {
+                          void executeJobStatusUpdate(currentJob, "skip_for_now");
+                        }}
+                      >
+                        Skip
+                      </Button>
+                      <Button
+                        variant="outline"
+                        data-job-status="applied"
+                        disabled={jobsControlsDisabled}
+                        onClick={() => {
+                          void executeJobStatusUpdate(currentJob, "applied");
+                        }}
+                      >
+                        I Applied
+                      </Button>
+                    </div>
+
+                    {currentJob.status === "rejected" && currentJob.notes ? (
+                      <div className="rounded-lg border border-destructive/25 bg-destructive/5 p-4">
+                        <div className="text-sm font-semibold text-destructive">Rejected notes</div>
+                        <div className="mt-2 text-sm text-foreground">{currentJob.notes}</div>
+                      </div>
+                    ) : null}
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="rounded-lg border border-border/70 bg-card p-4">
+                        <div className="text-sm font-semibold text-foreground">Keyword match</div>
+                        <dl className="mt-3 space-y-2 text-sm">
+                          <div className="flex items-center justify-between gap-4">
+                            <dt className="text-muted-foreground">Hard filter</dt>
+                            <dd className="text-right text-foreground">
+                              {criteriaDraft.hardIncludeTerms || "Not set"}
+                            </dd>
+                          </div>
+                          <div className="flex items-center justify-between gap-4">
+                            <dt className="text-muted-foreground">Exclude</dt>
+                            <dd className="text-right text-foreground">
+                              {criteriaDraft.hardExcludeTerms || "Not set"}
+                            </dd>
+                          </div>
+                          <div className="flex items-center justify-between gap-4">
+                            <dt className="text-muted-foreground">Keywords</dt>
+                            <dd className="text-right text-foreground">
+                              {criteriaDraft.additionalKeywords || "Not set"}
+                            </dd>
+                          </div>
+                        </dl>
+                      </div>
+                      <div className="rounded-lg border border-border/70 bg-card p-4">
+                        <div className="text-sm font-semibold text-foreground">Source</div>
+                        <ul className="mt-3 space-y-1 text-sm">
+                          {currentJobSourceAttributions.length > 0 ? (
+                            currentJobSourceAttributions.map((source) => (
+                              <li key={source.id} className="text-foreground">
+                                {source.name}
+                              </li>
+                            ))
+                          ) : (
+                            <li className="text-muted-foreground">Unknown source</li>
+                          )}
+                        </ul>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-border/70 bg-card p-4">
+                      <div className="text-sm font-semibold text-foreground">Optional fields</div>
+                      <dl className="mt-3 grid gap-2 text-sm md:grid-cols-2">
+                        <div className="flex items-center justify-between gap-4">
+                          <dt className="text-muted-foreground">Employment type</dt>
+                          <dd className="text-right text-foreground">
+                            {currentJob.employmentType || "Unknown"}
+                          </dd>
+                        </div>
+                        <div className="flex items-center justify-between gap-4">
+                          <dt className="text-muted-foreground">Confidence</dt>
+                          <dd className="text-right text-foreground">
+                            {Number.isFinite(Number(currentJob.confidence))
+                              ? Math.round(Number(currentJob.confidence))
+                              : "n/a"}
+                          </dd>
+                        </div>
+                        <div className="flex items-center justify-between gap-4">
+                          <dt className="text-muted-foreground">Duplicate sources</dt>
+                          <dd className="text-right text-foreground">{currentJob.duplicateCount || 1}</dd>
+                        </div>
+                        <div className="flex items-center justify-between gap-4">
+                          <dt className="text-muted-foreground">Source type</dt>
+                          <dd className="text-right text-foreground">{currentJobSourceKinds}</dd>
+                        </div>
+                      </dl>
+                    </div>
+
+                    <div className="rounded-lg border border-border/70 bg-secondary/20 p-4">
+                      <div className="text-sm font-semibold text-foreground">Job description</div>
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        {currentJob.summary || "No summary available."}
+                      </p>
+                      <ul className="mt-3 space-y-1 text-sm text-foreground">
+                        {(Array.isArray(currentJob.reasons) ? currentJob.reasons : []).length > 0 ? (
+                          currentJob.reasons.map((reason) => <li key={reason}>• {reason}</li>)
+                        ) : (
+                          <li>• No extracted description notes yet.</li>
+                        )}
+                      </ul>
+                    </div>
+                  </>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-border bg-secondary/20 p-6 text-sm text-muted-foreground">
+                    No jobs are available for the current filter.
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </CardContent>
+      </Card>
       <Dialog open={searchesDialogOpen} onOpenChange={setSearchesDialogOpen}>
         <DialogContent className="max-h-[90vh] max-w-[1220px] overflow-y-auto" data-searches-modal="1">
           <DialogHeader>
