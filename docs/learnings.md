@@ -223,3 +223,4 @@ As of 2026-03-06.
 - Avoid fixed-port QA startup (`node src/cli.js review`) in docs/instructions; use scripts that auto-pick an open port and print the active URL to prevent recurring `EADDRINUSE` confusion.
 - For cross-worktree collaboration, Cmd-R reflects local changes only. If another worktree is producing commits, QA must run an auto-follow mode (`review:follow`) or explicit pulls to avoid stale UI confusion.
 - QA startup friction should be one-time per machine, not per branch. Prefer an always-on local review agent that follows the current branch/upstream and serves a fixed URL for Cmd-R.
+- Harden npm build entrypoints against accidental positional args (for example copied checkmark glyphs). Vite treats stray tokens as project roots (`✅/index.html`) and hard-fails; wrapper scripts should ignore non-option args.

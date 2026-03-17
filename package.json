@@ -83,7 +83,7 @@
     "run:mock": "JOB_FINDER_REFRESH_PROFILE=mock node src/cli.js run",
     "run:live": "node src/cli.js run-live",
     "dashboard:web:dev": "vite --config src/review/web/vite.config.js",
-    "dashboard:web:build": "vite build --config src/review/web/vite.config.js",
+    "dashboard:web:build": "bash scripts/dashboard-web-build.sh",
     "dashboard:web:preview": "vite preview --config src/review/web/vite.config.js",
     "smoke:onboarding-auth": "node scripts/playwright-onboarding-auth-smoke.js",
     "test": "node --test"
