@@ -17,6 +17,15 @@ This plan follows [PLANS.md](../../PLANS.md).
 - [x] (2026-03-12) Implemented Jobs UI components + state wiring in React.
 - [x] (2026-03-12) Implement Jobs action wiring + status transitions + reject-reason dialog in React (`App.jsx`, `features/jobs/api.js`, `components/ui/dialog.jsx`, `test/review-jobs-api.test.js`).
 - [x] (2026-03-12) J4 verification complete: legacy + react Playwright smoke passed with artifacts (`2026-03-12-jobs-react-*-jobs.{png,json,log}`), plus full suite green (`npm test`).
+- [x] (2026-03-18) Approved Jobs IA/layout pass: add top-right monetization/value metrics, rebuild advanced constraints as a 3-column region, redesign widgets/filter-toolbar/results/detail layout, and keep all post-search narrowing state in one shared active-chip system.
+- [x] (2026-03-18) Add monthly search usage + jobs-stored cap data to the dashboard payload for the new top-right metrics.
+- [x] (2026-03-18) Replace Jobs table rows with the approved two-row summary card/list and update the detail pane header/action layout.
+- [x] (2026-03-18) Added monthly search usage persistence in onboarding settings, exposed monetization counters in `/api/dashboard`, and verified contract coverage in `test/onboarding-state.test.js`, `test/entitlements.test.js`, and `test/dashboard-api-contract.test.js`.
+- [x] (2026-03-18) Rebuilt the Jobs React IA/layout: header metrics, 3-column advanced constraints with in-card collapse controls, 4-column widgets strip, distinct Filters/Sort toolbar, unified active-chip rail, card-style results rows, and denser detail header/actions.
+- [x] (2026-03-18) Verified the Jobs IA/layout pass with `npm run dashboard:web:build`, targeted tests, `npm test`, and dual-mode Playwright smoke artifacts (`2026-03-18-jobs-ia-pass-{legacy,react}-jobs.*`).
+- [x] (2026-03-18) Approved Jobs refinement pass: converted advanced-search modules to shadcn accordion, attached Job sources tabs to the search box, replaced the salary matrix with paired salary/score histogram filters, removed the standalone Filters button and Max salary field, and moved Sort into the Results header.
+- [x] (2026-03-18) Verified the histogram/accordion refinement with targeted Jobs logic tests, `npm run dashboard:web:build`, `npm test`, and dual-mode Playwright smoke artifacts (`2026-03-18-jobs-histogram-refine-{legacy,react}-jobs.*`).
+- [x] (2026-03-19) Approved Jobs refinement follow-up landed: replaced modal-based source management with inline `Search / Ready / Disabled` tabs, simplified post-search numeric filtering to salary-only, removed redundant histogram outputs, and normalized accordion triggers to the standard shadcn affordance.
 
 ## Surprises & Discoveries
 
@@ -25,6 +34,8 @@ This plan follows [PLANS.md](../../PLANS.md).
 - The React worktree had no existing `src/review/web/src/features/jobs/` surface, so J2 added a mock-backed presentational model to keep the tab renderable before J1/J3 land.
 - Fresh worktrees may not have `node_modules` bootstrapped; `npm install` was required before the React build and CLI smoke tests could execute.
 - J4 React smoke initially failed because row-click in React does not mark viewed (only `Open Job/Open Search` does) and reject confirm label is `Reject job`; harness selectors were updated to match shipped UX semantics.
+- The original Jobs React pass concentrated too much derived UI state inside `App.jsx`, which made QA-driven layout changes brittle and hard to reason about. This pass should move widget/filter composition into tested helper functions instead of adding more inline state coupling.
+- Top-right monetization metrics are not just presentation. `searches used this month` and `jobs stored` require real runtime data, and the existing payload only exposed daily view limits.
 
 ## Decision Log
 
@@ -37,6 +48,48 @@ This plan follows [PLANS.md](../../PLANS.md).
 - Decision: Reject reason collection uses shadcn `Dialog` (not `window.prompt`).
   - Rationale: Better UX and deterministic testability.
   - Date: 2026-03-12
+- Decision: The Jobs page should use two top-right monetization/value counters in MVP: `Searches used this month` and `Jobs stored`.
+  - Rationale: These are the clearest value/paywall hooks and match the approved monetization framing better than daily view counts.
+  - Date: 2026-03-18
+- Decision: The advanced constraints region uses a 3-column layout where `Hard filter` spans columns 1-2 and `Additional keywords` occupies column 3, with collapse/expand controls inside each module header.
+  - Rationale: Keeps the power-search composer compact while preserving the distinction between import gates and scoring-only terms.
+  - Date: 2026-03-18
+- Decision: Widgets remain a 4-column strip with salary breakdown rendered as a clickable 2x2 matrix.
+  - Rationale: The matrix is the clearest MVP representation of salary buckets and is simpler than a histogram.
+  - Date: 2026-03-18
+- Decision: Post-search narrowing must resolve into one shared active-chip rail, with `Filters` and `Sort` presented as distinct controls.
+  - Rationale: Avoids one-off widget filter behavior and keeps state legible.
+  - Date: 2026-03-18
+- Decision: Results rows become a two-row summary plus a three-stat strip, and the detail pane removes `Job X of Y` while moving `Source` into chips.
+  - Rationale: The prior table was too cramped and the standalone source section wasted high-value detail space.
+  - Date: 2026-03-18
+- Decision: Jobs React smoke should treat direct Jobs workspace render as valid and should key off the current primary action (`Run search` / `View Job`) rather than legacy tabs and CTA labels.
+  - Rationale: The IA pass intentionally removed the old page-tab shell; verification must follow shipped UX, not obsolete structure.
+  - Date: 2026-03-18
+- Decision: Post-search distribution filtering will use a histogram interaction model, but salary is the only MVP numeric histogram.
+  - Rationale: Salary is the one high-value numeric filter users are likely to slice directly; score is better served by `Best match` and sort order.
+  - Date: 2026-03-19
+- Decision: `Job sources` should use an attached-tab treatment above the search composer, and advanced-search modules should use the shadcn accordion pattern.
+  - Rationale: These controls are secondary to the primary search/detail CTAs and should feel structurally attached, not like competing buttons.
+  - Date: 2026-03-18
+- Decision: The salary matrix is replaced by a salary histogram range filter, while source/posted move into a quieter accordion below the widgets.
+  - Rationale: Histogram filtering is valuable for salary, but score histograms do not justify the visual weight in MVP.
+  - Date: 2026-03-19
+- Decision: The first Jobs surface will use inline `Search / Ready / Disabled` tabs, and the searches modal is removed from the Jobs flow.
+  - Rationale: Search intent and source readiness are one setup-and-run workflow; modal separation obscures that relationship.
+  - Date: 2026-03-19
+- Decision: Score histogram is removed from MVP UI and moved to Icebox potential, while salary remains the one numeric distribution filter.
+  - Rationale: Score is already well served by sorting and the `Best match` tab; salary is the unique high-value numeric filter.
+  - Date: 2026-03-19
+- Decision: Salary filtering keeps only histogram + slider + min/max controls, with salary completeness surfaced locally through `With salary / Missing salary`.
+  - Rationale: The previous control over-explained itself and diluted the actual filtering interaction.
+  - Date: 2026-03-19
+- Decision: `Ready / Disabled` source management moves inline into the Jobs page via a connected tab treatment above the search composer, and the welcome CTA routes to the `Disabled` tab instead of reopening a modal.
+  - Rationale: Search and source readiness are one workflow; a modal split obscured the relationship and created unnecessary navigation overhead.
+  - Date: 2026-03-19
+- Decision: Sort is a quiet inline control in the Results header, and post-search filters use an accordion below widgets rather than a standalone `Filters` CTA.
+  - Rationale: `Run search` and `View Job` should remain the only strong CTAs; filter and sort controls need lower visual weight.
+  - Date: 2026-03-19
 
 ## Scope
 
@@ -53,12 +106,20 @@ This plan follows [PLANS.md](../../PLANS.md).
    - open job link flow.
 3. Keep existing backend API surface.
 4. Add behavior tests + Playwright smoke.
+5. Approved IA/layout refresh:
+   - top-right monetization/value counters
+   - advanced-constraints 3-column layout
+  - 4-column widgets strip with keyword stack + salary-focused numeric filtering
+  - separate `Filters` and `Sort` controls with one active-chip rail
+  - redesigned results rows and detail pane actions/header
 
 ### Out of Scope
 
 - Profile React migration.
 - Backend data-model redesign.
 - New ranking features.
+- LLM-driven `Why it fits`.
+- Employment-type normalization cleanup.
 
 ## Parallel Lanes
 
@@ -174,8 +235,11 @@ npm ci
 Required commands before merge:
 
 ```bash
+node --test test/entitlements.test.js
 node --test test/review-jobs-react-logic.test.js
+node --test test/review-jobs-react-ui-model.test.js
 node --test test/dashboard-api-contract.test.js
+npm run dashboard:web:build
 npm test
 node scripts/playwright-jobs-flow-smoke.js --artifact-prefix 2026-03-12-jobs-react --output-dir docs/roadmap/progress-merge --port 4513
 ```
@@ -198,3 +262,15 @@ node scripts/playwright-jobs-flow-smoke.js --artifact-prefix 2026-03-12-jobs-rea
   - `node scripts/playwright-jobs-flow-smoke.js --mode react ...`
   - `npm test`
 - Result: verification harness now passes in both legacy and react modes with evidence files in `docs/roadmap/progress-merge/`.
+- 2026-03-18 IA/layout verification:
+  - `node --test test/onboarding-state.test.js test/entitlements.test.js test/review-jobs-react-logic.test.js test/dashboard-api-contract.test.js`
+  - `npm run dashboard:web:build`
+  - `npm test`
+  - `node scripts/playwright-jobs-flow-smoke.js --artifact-prefix 2026-03-18-jobs-ia-pass --output-dir docs/roadmap/progress-merge --port 4516`
+  - `node scripts/playwright-jobs-flow-smoke.js --mode react --artifact-prefix 2026-03-18-jobs-ia-pass --output-dir docs/roadmap/progress-merge --port 4517`
+- Result: Jobs now exposes real monetization/value counters, advanced constraints are separated from the primary search bar, widget-driven filters resolve into one chip rail, results are scannable card rows, and the detail pane uses the approved CTA/action hierarchy.
+- 2026-03-19 search/sources/salary refinement verification:
+  - `node --test test/review-jobs-react-logic.test.js test/dashboard-api-contract.test.js test/entitlements.test.js test/onboarding-state.test.js`
+  - `npm run dashboard:web:build`
+  - `node scripts/playwright-jobs-flow-smoke.js --mode react --artifact-prefix 2026-03-19-jobs-search-sources-salary --output-dir docs/roadmap/progress-merge --port 4518`
+- Result: Jobs now uses inline `Search / Ready / Disabled` tabs, standard accordion affordances, salary-only numeric filtering, and an inline source-management panel instead of the old modal split.

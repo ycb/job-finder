@@ -78,6 +78,9 @@ export function sourceKindLabel(kind) {
   if (kind === "ro") {
     return "RemoteOK";
   }
+  if (kind === "mixed") {
+    return "Multiple";
+  }
   return "Unknown";
 }
 
@@ -123,6 +126,389 @@ function matchingSourceIdsByKind(sources, sourceFilter) {
       .filter((source) => sourceKindFromType(source.type) === normalizedFilter)
       .map((source) => source.id),
   );
+}
+
+export function parseTerms(value) {
+  const seen = new Set();
+  const terms = [];
+  for (const part of String(value || "").split(",")) {
+    const normalized = part.trim().toLowerCase();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    terms.push(normalized);
+  }
+  return terms;
+}
+
+export function parseSalaryValue(value) {
+  const text = String(value || "").toLowerCase();
+  if (!text) {
+    return 0;
+  }
+  const matches = [...text.matchAll(/([0-9]+(?:[.,][0-9]{3})*(?:\.[0-9]+)?)(\s*k)?/g)];
+  if (matches.length === 0) {
+    return 0;
+  }
+  const numbers = matches
+    .map((match) => {
+      const amount = Number(String(match[1] || "").replace(/,/g, ""));
+      if (!Number.isFinite(amount)) {
+        return 0;
+      }
+      return match[2] ? amount * 1000 : amount;
+    })
+    .filter((amount) => amount > 0);
+  if (numbers.length === 0) {
+    return 0;
+  }
+  return Math.max(...numbers);
+}
+
+export function formatCurrency(value) {
+  if (!Number.isFinite(Number(value)) || Number(value) <= 0) {
+    return "—";
+  }
+  return `$${Math.round(Number(value)).toLocaleString("en-US")}`;
+}
+
+export function jobSearchHaystack(job) {
+  return [
+    job?.title,
+    job?.summary,
+    Array.isArray(job?.reasons) ? job.reasons.join(" ") : "",
+    job?.location,
+    job?.company,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+export function countKeywordHits(jobs, term) {
+  if (!term) {
+    return 0;
+  }
+  const normalized = term.toLowerCase();
+  return asArray(jobs).reduce((count, job) => {
+    const haystack = jobSearchHaystack(job);
+    return haystack.includes(normalized) ? count + 1 : count;
+  }, 0);
+}
+
+export function normalizeTitleKey(value) {
+  const title = String(value || "").trim();
+  if (!title) {
+    return "Unknown";
+  }
+  return title;
+}
+
+export function computeTitleBreakdown(jobs, limit = 5) {
+  const counts = new Map();
+  for (const job of asArray(jobs)) {
+    const key = normalizeTitleKey(job?.title);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .slice(0, limit)
+    .map(([label, count]) => ({ label, count }));
+}
+
+export function computeSalarySummary(jobs) {
+  const values = asArray(jobs)
+    .map((job) => parseSalaryValue(job?.salaryText))
+    .filter((value) => Number.isFinite(value) && value > 0)
+    .sort((left, right) => left - right);
+
+  if (values.length === 0) {
+    return {
+      min: null,
+      avg: null,
+      max: null,
+      p75: null,
+      aboveAvgCount: 0,
+      topBandCount: 0,
+      withSalaryCount: 0,
+    };
+  }
+
+  const total = values.reduce((sum, value) => sum + value, 0);
+  const avg = total / values.length;
+  const p75Index = Math.floor((values.length - 1) * 0.75);
+  const p75 = values[p75Index] || values[values.length - 1];
+  const topBandCount = Math.max(1, Math.ceil(values.length * 0.25));
+  const topBandThreshold = values[Math.max(0, values.length - topBandCount)];
+  return {
+    min: values[0],
+    avg,
+    max: values[values.length - 1],
+    p75,
+    aboveAvgCount: values.filter((value) => value > avg).length,
+    topBandCount: values.filter((value) => value >= topBandThreshold).length,
+    withSalaryCount: values.length,
+  };
+}
+
+export function buildNumericHistogram(values = [], { bucketCount = 8 } = {}) {
+  const numericValues = asArray(values)
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value))
+    .sort((left, right) => left - right);
+
+  if (numericValues.length === 0) {
+    return {
+      min: null,
+      max: null,
+      withValueCount: 0,
+      buckets: [],
+    };
+  }
+
+  const min = numericValues[0];
+  const max = numericValues[numericValues.length - 1];
+  const resolvedBucketCount = Math.max(1, Math.floor(bucketCount) || 1);
+
+  if (min === max) {
+    return {
+      min,
+      max,
+      withValueCount: numericValues.length,
+      buckets: [
+        {
+          key: `${min}-${max}`,
+          min,
+          max,
+          count: numericValues.length,
+        },
+      ],
+    };
+  }
+
+  const width = (max - min) / resolvedBucketCount;
+  const buckets = Array.from({ length: resolvedBucketCount }, (_, index) => {
+    const bucketMin = min + width * index;
+    const bucketMax = index === resolvedBucketCount - 1 ? max : min + width * (index + 1);
+    return {
+      key: `${Math.round(bucketMin)}-${Math.round(bucketMax)}`,
+      min: Math.round(bucketMin),
+      max: Math.round(bucketMax),
+      count: 0,
+    };
+  });
+
+  for (const value of numericValues) {
+    const rawIndex = width === 0 ? 0 : Math.floor((value - min) / width);
+    const index = Math.min(resolvedBucketCount - 1, Math.max(0, rawIndex));
+    buckets[index].count += 1;
+  }
+
+  buckets[0].min = min;
+  buckets[buckets.length - 1].max = max;
+
+  return {
+    min,
+    max,
+    withValueCount: numericValues.length,
+    buckets,
+  };
+}
+
+export function buildJobsSalaryHistogram(jobs, options = {}) {
+  return buildNumericHistogram(
+    asArray(jobs)
+      .map((job) => parseSalaryValue(job?.salaryText))
+      .filter((value) => value > 0),
+    options,
+  );
+}
+
+export function buildJobsScoreHistogram(jobs, options = {}) {
+  return buildNumericHistogram(
+    asArray(jobs)
+      .map((job) => {
+        const raw = job?.score;
+        if (raw === null || raw === undefined || raw === "") {
+          return NaN;
+        }
+        return Number(raw);
+      })
+      .filter((value) => Number.isFinite(value)),
+    options,
+  );
+}
+
+export function countJobsInSalaryRange(jobs, range = null) {
+  const values = asArray(jobs)
+    .map((job) => parseSalaryValue(job?.salaryText))
+    .filter((value) => Number.isFinite(value) && value > 0);
+
+  if (!range || !Number.isFinite(Number(range.min)) || !Number.isFinite(Number(range.max))) {
+    return values.length;
+  }
+
+  const min = Number(range.min);
+  const max = Number(range.max);
+  return values.filter((value) => value >= min && value <= max).length;
+}
+
+export function countJobsInScoreRange(jobs, range = null) {
+  const values = asArray(jobs)
+    .map((job) => {
+      const raw = job?.score;
+      if (raw === null || raw === undefined || raw === "") {
+        return NaN;
+      }
+      return Number(raw);
+    })
+    .filter((value) => Number.isFinite(value));
+
+  if (!range || !Number.isFinite(Number(range.min)) || !Number.isFinite(Number(range.max))) {
+    return values.length;
+  }
+
+  const min = Number(range.min);
+  const max = Number(range.max);
+  return values.filter((value) => value >= min && value <= max).length;
+}
+
+export function buildJobsSalaryMatrix(jobs) {
+  const summary = computeSalarySummary(jobs);
+  const salaries = asArray(jobs)
+    .map((job) => parseSalaryValue(job?.salaryText))
+    .filter((value) => Number.isFinite(value) && value > 0);
+
+  const minToAvgCount =
+    Number.isFinite(summary.avg) && Number.isFinite(summary.min)
+      ? salaries.filter((value) => value >= summary.min && value <= summary.avg).length
+      : 0;
+
+  return {
+    withSalary: {
+      key: "has_salary",
+      label: "With salary",
+      count: summary.withSalaryCount,
+      value: formatCurrency(summary.min),
+    },
+    minToAvg: {
+      key: "min_to_avg",
+      label: "Min → Avg",
+      count: minToAvgCount,
+      value:
+        summary.min && summary.avg
+          ? `${formatCurrency(summary.min)} → ${formatCurrency(summary.avg)}`
+          : "—",
+    },
+    aboveAvg: {
+      key: "above_avg",
+      label: "Above avg",
+      count: summary.aboveAvgCount,
+      value: formatCurrency(summary.avg),
+    },
+    bestPaying: {
+      key: "best_paying",
+      label: "Best paying",
+      count: summary.topBandCount,
+      value: formatCurrency(summary.max),
+    },
+  };
+}
+
+export function ageInDays(timestamp) {
+  const parsed = Date.parse(String(timestamp || ""));
+  if (!Number.isFinite(parsed)) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return Math.floor((Date.now() - parsed) / (1000 * 60 * 60 * 24));
+}
+
+export function matchesPostedWindow(job, windowKey) {
+  if (windowKey === "all") {
+    return true;
+  }
+  const days = ageInDays(job?.postedAt);
+  if (!Number.isFinite(days)) {
+    return false;
+  }
+  if (windowKey === "24h") {
+    return days <= 1;
+  }
+  if (windowKey === "3d") {
+    return days <= 3;
+  }
+  if (windowKey === "1w") {
+    return days <= 7;
+  }
+  if (windowKey === "2w") {
+    return days <= 14;
+  }
+  if (windowKey === "1m") {
+    return days <= 30;
+  }
+  return true;
+}
+
+export function buildJobsActiveFilterChips({
+  sourceFilter = "all",
+  sourceOptions = [],
+  postedFilter = "all",
+  postedOptions = [],
+  salaryRangeFilter = null,
+  salaryPresenceFilter = "all",
+  widgetKeywordFilter = "",
+  widgetTitleFilter = "",
+} = {}) {
+  const chips = [];
+  if (sourceFilter !== "all") {
+    const match = asArray(sourceOptions).find((option) => option.kind === sourceFilter);
+    chips.push({
+      key: "source",
+      label: `Source: ${match?.label || sourceFilter}`,
+    });
+  }
+  if (postedFilter !== "all") {
+    const match = asArray(postedOptions).find((option) => option.value === postedFilter);
+    chips.push({
+      key: "posted",
+      label: `Posted: ${match?.label || postedFilter}`,
+    });
+  }
+  if (
+    salaryRangeFilter &&
+    Number.isFinite(Number(salaryRangeFilter.min)) &&
+    Number.isFinite(Number(salaryRangeFilter.max))
+  ) {
+    chips.push({
+      key: "salary-range",
+      label: `Salary: ${formatCurrency(salaryRangeFilter.min)} - ${formatCurrency(salaryRangeFilter.max)}`,
+    });
+  }
+  if (salaryPresenceFilter === "has_salary") {
+    chips.push({
+      key: "salary-presence",
+      label: "Salary: has salary",
+    });
+  } else if (salaryPresenceFilter === "missing_salary") {
+    chips.push({
+      key: "salary-presence",
+      label: "Salary: missing salary",
+    });
+  }
+  if (widgetKeywordFilter) {
+    chips.push({
+      key: "widget-keyword",
+      label: `Keyword: ${widgetKeywordFilter}`,
+    });
+  }
+  if (widgetTitleFilter) {
+    chips.push({
+      key: "widget-title",
+      label: `Title: ${widgetTitleFilter}`,
+    });
+  }
+  return chips;
 }
 
 function mapQueuesStatus(queues, jobId, status) {

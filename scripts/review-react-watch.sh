@@ -9,33 +9,19 @@ cleanup() {
 
 trap cleanup EXIT INT TERM
 
-pick_review_port() {
-  for port in 4311 4312 4313 4314 4315 4316 4317 4318 4319 4320; do
-    if ! lsof -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1; then
-      echo "${port}"
-      return 0
-    fi
-  done
-  return 1
-}
+REVIEW_PORT="${REVIEW_FIXED_PORT:-4311}"
 
-resolve_review_port() {
-  if [[ -n "${REVIEW_FIXED_PORT:-}" ]]; then
-    if lsof -iTCP:"${REVIEW_FIXED_PORT}" -sTCP:LISTEN >/dev/null 2>&1; then
-      echo "Requested fixed port ${REVIEW_FIXED_PORT} is already in use." >&2
-      return 1
-    fi
-    echo "${REVIEW_FIXED_PORT}"
-    return 0
-  fi
-
-  pick_review_port
-}
+if lsof -iTCP:"${REVIEW_PORT}" -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "review:react:watch failed: fixed port ${REVIEW_PORT} is already in use." >&2
+  echo "Run: npm run review:stop" >&2
+  exit 1
+fi
 
 echo "review:react:watch"
 echo "  cwd:    $(pwd)"
 echo "  branch: $(git branch --show-current)"
 echo "  commit: $(git rev-parse --short HEAD)"
+echo "  url:    http://127.0.0.1:${REVIEW_PORT}"
 echo
 echo "Starting Vite build watcher..."
 npm run dashboard:web:build -- --watch &
@@ -48,12 +34,6 @@ echo "Waiting for initial dist build..."
 until [[ -f "${DIST_INDEX_PRIMARY}" || -f "${DIST_INDEX_LEGACY}" ]]; do
   sleep 0.2
 done
-
-REVIEW_PORT="$(resolve_review_port || true)"
-if [[ -z "${REVIEW_PORT}" ]]; then
-  echo "No open review port found in 4311-4320." >&2
-  exit 1
-fi
 
 echo "Starting review server in React mode on port ${REVIEW_PORT}..."
 echo "Open Job Finder: http://127.0.0.1:${REVIEW_PORT}"

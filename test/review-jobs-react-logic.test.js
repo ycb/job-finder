@@ -4,7 +4,13 @@ import assert from "node:assert/strict";
 import {
   JOBS_PAGE_SIZE,
   applyViewedStatus,
+  buildJobsActiveFilterChips,
+  buildJobsSalaryHistogram,
+  buildJobsSalaryMatrix,
+  buildJobsScoreHistogram,
   buildSourceFilterOptions,
+  countJobsInSalaryRange,
+  countJobsInScoreRange,
   filterJobsBySource,
   getPageForSelectedJob,
   paginateJobs,
@@ -279,4 +285,107 @@ test("applyViewedStatus only marks new active jobs as viewed and can restore the
   assert.equal(noOp.changed, false);
   assert.equal(noOp.previousStatus, null);
   assert.equal(noOp.queues, queues);
+});
+
+test("buildJobsSalaryMatrix groups salary buckets for widgets", () => {
+  const matrix = buildJobsSalaryMatrix([
+    { id: "a", salaryText: "$100,000" },
+    { id: "b", salaryText: "$150,000" },
+    { id: "c", salaryText: "$220,000" },
+    { id: "d", salaryText: "$260,000" },
+  ]);
+
+  assert.equal(matrix.withSalary.count, 4);
+  assert.equal(matrix.minToAvg.count, 2);
+  assert.equal(matrix.aboveAvg.count, 2);
+  assert.equal(matrix.bestPaying.count, 1);
+});
+
+test("buildJobsSalaryHistogram returns an ordered salary distribution with counts and bounds", () => {
+  const histogram = buildJobsSalaryHistogram(
+    [
+      { id: "a", salaryText: "$100,000" },
+      { id: "b", salaryText: "$150,000" },
+      { id: "c", salaryText: "$220,000" },
+      { id: "d", salaryText: "$260,000" },
+    ],
+    { bucketCount: 4 },
+  );
+
+  assert.equal(histogram.withValueCount, 4);
+  assert.equal(histogram.min, 100000);
+  assert.equal(histogram.max, 260000);
+  assert.equal(histogram.buckets.length, 4);
+  assert.equal(
+    histogram.buckets.reduce((sum, bucket) => sum + bucket.count, 0),
+    4,
+  );
+  assert.equal(histogram.buckets[0].min, 100000);
+  assert.equal(histogram.buckets.at(-1).max, 260000);
+});
+
+test("buildJobsScoreHistogram returns an ordered score distribution with counts and bounds", () => {
+  const histogram = buildJobsScoreHistogram(
+    [
+      { id: "a", score: 35 },
+      { id: "b", score: 65 },
+      { id: "c", score: 72 },
+      { id: "d", score: 92 },
+    ],
+    { bucketCount: 5 },
+  );
+
+  assert.equal(histogram.withValueCount, 4);
+  assert.equal(histogram.min, 35);
+  assert.equal(histogram.max, 92);
+  assert.equal(histogram.buckets.length, 5);
+  assert.equal(
+    histogram.buckets.reduce((sum, bucket) => sum + bucket.count, 0),
+    4,
+  );
+  assert.equal(histogram.buckets[0].min, 35);
+  assert.equal(histogram.buckets.at(-1).max, 92);
+});
+
+test("buildJobsActiveFilterChips unifies explicit and widget-driven filters into one chip rail", () => {
+  const chips = buildJobsActiveFilterChips({
+    sourceFilter: "li",
+    sourceOptions: [{ kind: "li", label: "LinkedIn", count: 4 }],
+    postedFilter: "1w",
+    postedOptions: [{ value: "1w", label: "1 week", count: 3 }],
+    salaryRangeFilter: { min: 180000, max: 260000 },
+    salaryPresenceFilter: "missing_salary",
+    widgetKeywordFilter: "growth",
+    widgetTitleFilter: "Senior Product Manager",
+  });
+
+  assert.deepEqual(
+    chips.map((chip) => chip.label),
+    [
+      "Source: LinkedIn",
+      "Posted: 1 week",
+      "Salary: $180,000 - $260,000",
+      "Salary: missing salary",
+      "Keyword: growth",
+      "Title: Senior Product Manager",
+    ],
+  );
+});
+
+test("countJobsInSalaryRange and countJobsInScoreRange return exact matches for the selected range", () => {
+  const jobs = [
+    { id: "a", salaryText: "$120,000", score: 35 },
+    { id: "b", salaryText: "$180,000", score: 62 },
+    { id: "c", salaryText: "$245,000", score: 78 },
+    { id: "d", salaryText: "$310,000", score: 91 },
+    { id: "e", salaryText: "", score: null },
+  ];
+
+  assert.equal(countJobsInSalaryRange(jobs, { min: 170000, max: 260000 }), 2);
+  assert.equal(countJobsInSalaryRange(jobs, { min: 300000, max: 320000 }), 1);
+  assert.equal(countJobsInSalaryRange(jobs, null), 4);
+
+  assert.equal(countJobsInScoreRange(jobs, { min: 60, max: 90 }), 2);
+  assert.equal(countJobsInScoreRange(jobs, { min: 90, max: 100 }), 1);
+  assert.equal(countJobsInScoreRange(jobs, null), 4);
 });

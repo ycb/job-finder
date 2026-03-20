@@ -87,6 +87,7 @@ import {
 } from "../onboarding/source-access.js";
 import {
   getEffectiveOnboardingChannel,
+  incrementMonthlySearchUsage,
   loadUserSettings,
   markFirstRunCompleted,
   markOnboardingCompleted,
@@ -1403,6 +1404,7 @@ function buildDashboardData(limit = 200) {
   const nowMs = Date.now();
   const nowIso = new Date(nowMs).toISOString();
   const statsQueue = hydrateQueue(getAllJobsWithStatus(5_000), { includeRejected: true });
+  const jobsStoredCount = statsQueue.length;
   const scoresBySourceIdAndHash = new Map();
   for (const job of statsQueue) {
     const sourceIds = Array.isArray(job?.sourceIds) ? job.sourceIds : [];
@@ -1522,6 +1524,7 @@ function buildDashboardData(limit = 200) {
     },
     monetization: {
       ...entitlement,
+      jobsStored: jobsStoredCount,
       donationUrl:
         String(process.env.JOB_FINDER_DONATION_URL || "").trim() ||
         "https://github.com/sponsors"
@@ -7133,6 +7136,7 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
           forceRefresh,
           cacheTtlHours
         });
+        incrementMonthlySearchUsage();
         const settings = loadUserSettings().settings;
         const effectiveChannel = getEffectiveOnboardingChannel(settings);
         await recordAnalyticsEvent(

@@ -1,6 +1,7 @@
 import * as React from "react";
 import * as SelectPrimitive from "@radix-ui/react-select";
 import { cn } from "@/lib/utils";
+import { ChevronDown } from "lucide-react";
 
 const Select = SelectPrimitive.Root;
 const SelectGroup = SelectPrimitive.Group;
@@ -16,7 +17,9 @@ const SelectTrigger = React.forwardRef(({ className, children, ...props }, ref) 
     {...props}
   >
     {children}
-    <SelectPrimitive.Icon className="text-muted-foreground">▼</SelectPrimitive.Icon>
+    <SelectPrimitive.Icon asChild>
+      <ChevronDown className="h-4 w-4 text-muted-foreground" />
+    </SelectPrimitive.Icon>
   </SelectPrimitive.Trigger>
 ));
 SelectTrigger.displayName = SelectPrimitive.Trigger.displayName;

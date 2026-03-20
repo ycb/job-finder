@@ -1,0 +1,10 @@
+mode=legacy
+baseUrl=http://127.0.0.1:4517
+jobs_flow_check=pass
+checks=jobs_tab_render,jobs_pagination,source_filter_change,sort_change,mark_viewed,mark_applied,view_change_applied,mark_skipped,mark_rejected,view_change_rejected
+title=Job Finder Dashboard
+workspace=/var/folders/v4/wdj_cj_j67g67jwwhyv4hz8r0000gn/T/job-finder-jobs-smoke-XEeKjl
+screenshot=/Users/admin/.codex/worktrees/51f6/job-finder/docs/roadmap/progress-merge/2026-03-18-jobs-histogram-refine-legacy-jobs.png
+dashboard_json=/Users/admin/.codex/worktrees/51f6/job-finder/docs/roadmap/progress-merge/2026-03-18-jobs-histogram-refine-legacy-jobs-dashboard.json
+summary_json=/Users/admin/.codex/worktrees/51f6/job-finder/docs/roadmap/progress-merge/2026-03-18-jobs-histogram-refine-legacy-jobs-summary.json
+server_boot=direct startReviewServer()

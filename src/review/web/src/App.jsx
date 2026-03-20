@@ -19,6 +19,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import {
   Table,
   TableBody,
   TableCell,
@@ -27,11 +33,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Slider } from "@/components/ui/slider";
 import { ToastAction } from "@/components/ui/toast";
 import { Toaster } from "@/components/ui/toaster";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
+import { ChevronDown, X } from "lucide-react";
 import { buildConsentPayload } from "@/lib/onboarding";
 import {
   applyJobStatusToDashboard,
@@ -41,6 +49,10 @@ import {
   persistJobStatus,
   runAllSourcesAndSync,
 } from "@/features/jobs/api";
+import {
+  buildJobsActiveFilterChips,
+  buildJobsSalaryHistogram,
+} from "@/features/jobs/logic";
 import {
   buildSearchRows,
   computeSearchTotals,
@@ -392,6 +404,46 @@ function jobStatusSuccessCopy(status) {
   return { title: "Status updated", description: "The job status was updated." };
 }
 
+function formatHistogramRangeLabel(range, formatter = (value) => value) {
+  if (!range || !Number.isFinite(Number(range.min)) || !Number.isFinite(Number(range.max))) {
+    return "Not set";
+  }
+
+  const min = formatter(Number(range.min));
+  const max = formatter(Number(range.max));
+  return `${min} - ${max}`;
+}
+
+function clampRangeToBounds(range, bounds) {
+  if (
+    !range ||
+    !bounds ||
+    !Number.isFinite(Number(bounds.min)) ||
+    !Number.isFinite(Number(bounds.max))
+  ) {
+    return null;
+  }
+
+  const minBound = Number(bounds.min);
+  const maxBound = Number(bounds.max);
+  const nextMin = Math.min(Math.max(Number(range.min), minBound), maxBound);
+  const nextMax = Math.max(Math.min(Number(range.max), maxBound), nextMin);
+
+  return {
+    min: nextMin,
+    max: nextMax,
+  };
+}
+
+function bucketCountMax(histogram) {
+  return Math.max(
+    1,
+    ...(Array.isArray(histogram?.buckets)
+      ? histogram.buckets.map((bucket) => Number(bucket?.count) || 0)
+      : [0]),
+  );
+}
+
 function toneClassName(tone) {
   if (tone === "error") {
     return "bg-destructive";
@@ -436,15 +488,17 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState("");
   const [jobsView, setJobsView] = useState("all");
+  const [jobsTopTab, setJobsTopTab] = useState("search");
   const [jobsSort, setJobsSort] = useState("score");
   const [jobsSourceFilter, setJobsSourceFilter] = useState("all");
   const [jobsPostedFilter, setJobsPostedFilter] = useState("all");
-  const [jobsSalaryFloorFilter, setJobsSalaryFloorFilter] = useState("");
-  const [jobsSalaryCeilingFilter, setJobsSalaryCeilingFilter] = useState("");
-  const [jobsComposerCollapsed, setJobsComposerCollapsed] = useState(false);
+  const [jobsSalaryPresenceFilter, setJobsSalaryPresenceFilter] = useState("all");
+  const [jobsSalaryRangeFilter, setJobsSalaryRangeFilter] = useState(null);
+  const [jobsHardFilterExpanded, setJobsHardFilterExpanded] = useState(false);
+  const [jobsKeywordExpanded, setJobsKeywordExpanded] = useState(false);
+  const [jobsFiltersExpanded, setJobsFiltersExpanded] = useState(false);
   const [jobsWidgetKeywordFilter, setJobsWidgetKeywordFilter] = useState("");
   const [jobsWidgetTitleFilter, setJobsWidgetTitleFilter] = useState("");
-  const [jobsWidgetSalaryFilter, setJobsWidgetSalaryFilter] = useState("all");
   const [jobsPage, setJobsPage] = useState(1);
   const [selectedJobId, setSelectedJobId] = useState(null);
   const [criteriaDraft, setCriteriaDraft] = useState(() => normalizeSearchCriteriaDraft({}));
@@ -462,7 +516,6 @@ export default function App() {
     }
     return readSearchRunCadence(window.localStorage);
   });
-  const [searchesDialogOpen, setSearchesDialogOpen] = useState(false);
   const [consentDraft, setConsentDraft] = useState({
     legalAccepted: false,
     tosRiskAccepted: false,
@@ -531,7 +584,8 @@ export default function App() {
       (Array.isArray(dashboard?.queue) ? dashboard.queue.length : 0),
     );
     if (hasComposerCriteria && activeCount > 0) {
-      setJobsComposerCollapsed(true);
+      setJobsHardFilterExpanded(false);
+      setJobsKeywordExpanded(false);
     }
   }, [dashboard]);
 
@@ -564,8 +618,8 @@ export default function App() {
 
     const hasSeenToast = hasSeenSearchesWelcomeToast(window.localStorage, welcomeToastScope);
     const shouldShow = shouldShowSearchesWelcomeToast({
-      mainTab: searchesDialogOpen ? "searches" : "jobs",
-      searchState,
+      mainTab: jobsTopTab === "search" ? "searches" : "jobs",
+      searchState: "enabled",
       hasSeenToast,
     });
 
@@ -583,7 +637,10 @@ export default function App() {
             <ToastAction
               altText="Switch to disabled sources"
               className="w-fit"
-              onClick={() => setSearchState("disabled")}
+              onClick={() => {
+                setSearchState("disabled");
+                setJobsTopTab("disabled");
+              }}
             >
               Go to Disabled
             </ToastAction>
@@ -591,7 +648,7 @@ export default function App() {
         ),
       });
     }
-  }, [consentGateRequired, dashboard, searchesDialogOpen, searchState, toast, welcomeToastScope]);
+  }, [consentGateRequired, dashboard, jobsTopTab, toast, welcomeToastScope]);
 
   const searchRows = useMemo(
     () => buildSearchRows(rawSources, onboardingChecksBySourceId),
@@ -674,12 +731,31 @@ export default function App() {
       { value: "all", label: "All", count: jobsViewCounts.all },
       { value: "new", label: "New", count: jobsViewCounts.new },
       { value: "best_match", label: "Best match", count: jobsViewCounts.best_match },
+    ],
+    [jobsViewCounts],
+  );
+  const jobsDatasetOptions = useMemo(
+    () => [
+      { value: "all", label: "All", count: jobsViewCounts.all },
       { value: "applied", label: "Applied", count: jobsViewCounts.applied },
       { value: "skipped", label: "Skipped", count: jobsViewCounts.skipped },
       { value: "rejected", label: "Rejected", count: jobsViewCounts.rejected },
     ],
     [jobsViewCounts],
   );
+  const jobsDatasetValue = useMemo(
+    () =>
+      jobsView === "applied" || jobsView === "skipped" || jobsView === "rejected"
+        ? jobsView
+        : "all",
+    [jobsView],
+  );
+  const jobsDatasetLabel = useMemo(() => {
+    const option = jobsDatasetOptions.find((item) => item.value === jobsDatasetValue);
+    return option ? `${option.label} (${option.count})` : "All (0)";
+  }, [jobsDatasetOptions, jobsDatasetValue]);
+  const jobsAlternateDatasetActive =
+    jobsView === "applied" || jobsView === "skipped" || jobsView === "rejected";
   const jobsAllInSelectedView = useMemo(() => {
     if (jobsView === "applied") {
       return appliedJobs;
@@ -745,11 +821,6 @@ export default function App() {
     }));
   }, [jobsAllInSelectedView]);
   const filteredJobsBase = useMemo(() => {
-    const salaryFloor = Number(String(jobsSalaryFloorFilter || "").replace(/[^0-9]/g, ""));
-    const salaryCeiling = Number(String(jobsSalaryCeilingFilter || "").replace(/[^0-9]/g, ""));
-    const hasSalaryFloor = Number.isFinite(salaryFloor) && salaryFloor > 0;
-    const hasSalaryCeiling = Number.isFinite(salaryCeiling) && salaryCeiling > 0;
-
     return jobsAllInSelectedView.filter((job) => {
       if (
         jobsSourceFilter !== "all" &&
@@ -765,28 +836,17 @@ export default function App() {
       }
 
       const salaryValue = parseSalaryValue(job?.salaryText);
-      if (hasSalaryFloor && salaryValue > 0 && salaryValue < salaryFloor) {
+      if (jobsSalaryPresenceFilter === "has_salary" && salaryValue <= 0) {
         return false;
       }
-      if (hasSalaryCeiling && salaryValue > 0 && salaryValue > salaryCeiling) {
+      if (jobsSalaryPresenceFilter === "missing_salary" && salaryValue > 0) {
         return false;
       }
 
       return true;
     });
-  }, [
-    jobsAllInSelectedView,
-    jobsSourceFilter,
-    sourceKindBySourceId,
-    jobsPostedFilter,
-    jobsSalaryFloorFilter,
-    jobsSalaryCeilingFilter,
-  ]);
-  const jobsSalarySummaryBase = useMemo(
-    () => computeSalarySummary(filteredJobsBase),
-    [filteredJobsBase],
-  );
-  const filteredJobs = useMemo(
+  }, [jobsAllInSelectedView, jobsPostedFilter, jobsSalaryPresenceFilter, jobsSourceFilter, sourceKindBySourceId]);
+  const jobsWidgetFilteredBase = useMemo(
     () =>
       filteredJobsBase.filter((job) => {
         if (jobsWidgetTitleFilter && normalizeTitleKey(job?.title) !== jobsWidgetTitleFilter) {
@@ -800,40 +860,55 @@ export default function App() {
           }
         }
 
-        if (jobsWidgetSalaryFilter !== "all") {
-          const salaryValue = parseSalaryValue(job?.salaryText);
-          if (jobsWidgetSalaryFilter === "has_salary" && salaryValue <= 0) {
+        return true;
+      }),
+    [filteredJobsBase, jobsWidgetKeywordFilter, jobsWidgetTitleFilter],
+  );
+  const salaryHistogramJobs = useMemo(
+    () => jobsWidgetFilteredBase,
+    [jobsWidgetFilteredBase],
+  );
+  const jobsSalaryHistogram = useMemo(
+    () => buildJobsSalaryHistogram(salaryHistogramJobs, { bucketCount: 10 }),
+    [salaryHistogramJobs],
+  );
+  const jobsWithSalaryCount = useMemo(
+    () =>
+      salaryHistogramJobs.reduce(
+        (count, job) => count + (parseSalaryValue(job?.salaryText) > 0 ? 1 : 0),
+        0,
+      ),
+    [salaryHistogramJobs],
+  );
+  const jobsMissingSalaryCount = useMemo(
+    () => Math.max(0, jobsWidgetFilteredBase.length - jobsWithSalaryCount),
+    [jobsWidgetFilteredBase.length, jobsWithSalaryCount],
+  );
+  const filteredJobs = useMemo(
+    () =>
+      jobsWidgetFilteredBase.filter((job) => {
+        const salaryValue = parseSalaryValue(job?.salaryText);
+        if (
+          jobsSalaryRangeFilter &&
+          Number.isFinite(Number(jobsSalaryRangeFilter.min)) &&
+          Number.isFinite(Number(jobsSalaryRangeFilter.max))
+        ) {
+          if (
+            salaryValue <= 0 ||
+            salaryValue < Number(jobsSalaryRangeFilter.min) ||
+            salaryValue > Number(jobsSalaryRangeFilter.max)
+          ) {
             return false;
-          }
-          if (jobsWidgetSalaryFilter === "above_avg") {
-            if (!Number.isFinite(jobsSalarySummaryBase.avg) || salaryValue <= jobsSalarySummaryBase.avg) {
-              return false;
-            }
-          }
-          if (jobsWidgetSalaryFilter === "top_band") {
-            if (!Number.isFinite(jobsSalarySummaryBase.p75) || salaryValue < jobsSalarySummaryBase.p75) {
-              return false;
-            }
           }
         }
 
         return true;
       }),
-    [
-      filteredJobsBase,
-      jobsWidgetKeywordFilter,
-      jobsWidgetSalaryFilter,
-      jobsWidgetTitleFilter,
-      jobsSalarySummaryBase.avg,
-      jobsSalarySummaryBase.p75,
-    ],
+    [jobsSalaryRangeFilter, jobsWidgetFilteredBase],
   );
   const sortedJobs = useMemo(() => rankJobs(filteredJobs, jobsSort), [filteredJobs, jobsSort]);
   const jobsKeywordWidgets = useMemo(() => {
-    const terms = parseTerms(criteriaDraft.additionalKeywords).slice(0, 3);
-    while (terms.length < 3) {
-      terms.push("");
-    }
+    const terms = parseTerms(criteriaDraft.additionalKeywords);
     return terms.map((term, index) => ({
       key: term || `kw-${index + 1}`,
       term,
@@ -845,7 +920,6 @@ export default function App() {
     () => computeTitleBreakdown(filteredJobsBase, 5),
     [filteredJobsBase],
   );
-  const jobsSalarySummary = useMemo(() => computeSalarySummary(filteredJobs), [filteredJobs]);
   const jobsAverageScore = useMemo(() => {
     const scores = filteredJobs
       .map((job) => Number(job?.score))
@@ -855,29 +929,29 @@ export default function App() {
     }
     return scores.reduce((sum, score) => sum + score, 0) / scores.length;
   }, [filteredJobs]);
-  const activeWidgetFilterChips = useMemo(() => {
-    const chips = [];
-    if (jobsWidgetKeywordFilter) {
-      chips.push({
-        key: "widget-keyword",
-        label: `Keyword: ${jobsWidgetKeywordFilter}`,
-      });
-    }
-    if (jobsWidgetTitleFilter) {
-      chips.push({
-        key: "widget-title",
-        label: `Title: ${jobsWidgetTitleFilter}`,
-      });
-    }
-    if (jobsWidgetSalaryFilter === "has_salary") {
-      chips.push({ key: "widget-salary", label: "Salary: has value" });
-    } else if (jobsWidgetSalaryFilter === "above_avg") {
-      chips.push({ key: "widget-salary", label: "Salary: above avg" });
-    } else if (jobsWidgetSalaryFilter === "top_band") {
-      chips.push({ key: "widget-salary", label: "Salary: top band" });
-    }
-    return chips;
-  }, [jobsWidgetKeywordFilter, jobsWidgetSalaryFilter, jobsWidgetTitleFilter]);
+  const activeFilterChips = useMemo(
+    () =>
+      buildJobsActiveFilterChips({
+        sourceFilter: jobsSourceFilter,
+        sourceOptions: jobSourceFilters,
+        postedFilter: jobsPostedFilter,
+        postedOptions: jobPostedFilters,
+        salaryRangeFilter: jobsSalaryRangeFilter,
+        salaryPresenceFilter: jobsSalaryPresenceFilter,
+        widgetKeywordFilter: jobsWidgetKeywordFilter,
+        widgetTitleFilter: jobsWidgetTitleFilter,
+      }),
+    [
+      jobPostedFilters,
+      jobSourceFilters,
+      jobsPostedFilter,
+      jobsSalaryPresenceFilter,
+      jobsSalaryRangeFilter,
+      jobsSourceFilter,
+      jobsWidgetKeywordFilter,
+      jobsWidgetTitleFilter,
+    ],
+  );
   const jobsById = useMemo(() => {
     const lookup = Object.create(null);
     for (const group of [activeJobs, appliedJobs, skippedJobs, rejectedJobs]) {
@@ -927,6 +1001,26 @@ export default function App() {
     }
     return sourceKindLabel([...kinds][0]);
   }, [currentJobSourceAttributions]);
+  const monetizationMetrics = useMemo(() => {
+    const monetization =
+      dashboard?.monetization && typeof dashboard.monetization === "object"
+        ? dashboard.monetization
+        : {};
+    return {
+      searchesUsed: Number.isFinite(Number(monetization.searchesUsedThisMonth))
+        ? Math.max(0, Math.round(Number(monetization.searchesUsedThisMonth)))
+        : 0,
+      searchLimit: Number.isFinite(Number(monetization.monthlySearchLimit))
+        ? Math.max(0, Math.round(Number(monetization.monthlySearchLimit)))
+        : 10,
+      jobsStored: Number.isFinite(Number(monetization.jobsStored))
+        ? Math.max(0, Math.round(Number(monetization.jobsStored)))
+        : 0,
+      jobsLimit: Number.isFinite(Number(monetization.jobsInDbLimit))
+        ? Math.max(0, Math.round(Number(monetization.jobsInDbLimit)))
+        : 500,
+    };
+  }, [dashboard]);
 
   useEffect(() => {
     if (jobsSourceFilter === "all") {
@@ -941,6 +1035,22 @@ export default function App() {
   }, [jobSourceFilters, jobsSourceFilter]);
 
   useEffect(() => {
+    setJobsSalaryRangeFilter((current) => {
+      const next = clampRangeToBounds(current, jobsSalaryHistogram);
+      if (!current && !next) {
+        return current;
+      }
+      if (!next) {
+        return null;
+      }
+      if (current && current.min === next.min && current.max === next.max) {
+        return current;
+      }
+      return next;
+    });
+  }, [jobsSalaryHistogram]);
+
+  useEffect(() => {
     setJobsPage(1);
     setSelectedJobId(sortedJobs[0]?.id || null);
   }, [
@@ -948,11 +1058,10 @@ export default function App() {
     jobsSort,
     jobsView,
     jobsPostedFilter,
-    jobsSalaryFloorFilter,
-    jobsSalaryCeilingFilter,
+    jobsSalaryPresenceFilter,
+    jobsSalaryRangeFilter,
     jobsWidgetKeywordFilter,
     jobsWidgetTitleFilter,
-    jobsWidgetSalaryFilter,
   ]);
 
   useEffect(() => {
@@ -1341,10 +1450,12 @@ export default function App() {
         title: "Jobs refreshed",
         description: buildRunAllDescription(runAllPayload, refreshedDashboard),
       });
-      setJobsComposerCollapsed(true);
+      setJobsHardFilterExpanded(false);
+      setJobsKeywordExpanded(false);
+      setJobsFiltersExpanded(false);
       setJobsWidgetKeywordFilter("");
       setJobsWidgetTitleFilter("");
-      setJobsWidgetSalaryFilter("all");
+      setJobsSalaryRangeFilter(null);
     } catch (error) {
       const authSources = Array.isArray(error?.payload?.authSources) ? error.payload.authSources : [];
       const authSourceLabels = authSources
@@ -1424,6 +1535,143 @@ export default function App() {
       setJobsPage(Math.floor(nextIndex / JOBS_PAGE_SIZE) + 1);
     },
     [selectedJobId, sortedJobs],
+  );
+
+  const renderRangeHistogramFilter = useCallback(
+    ({
+      title,
+      histogram,
+      selectedRange,
+      onSelectRange,
+      formatter,
+      sliderStep,
+      headerAccessory = null,
+    }) => {
+      const buckets = Array.isArray(histogram?.buckets) ? histogram.buckets : [];
+      const maxCount = bucketCountMax(histogram);
+      const hasBounds =
+        Number.isFinite(Number(histogram?.min)) && Number.isFinite(Number(histogram?.max));
+      const effectiveRange = selectedRange || (hasBounds ? { min: histogram.min, max: histogram.max } : null);
+      const sliderValue = effectiveRange ? [Number(effectiveRange.min), Number(effectiveRange.max)] : [0, 0];
+      const showHeader = Boolean(title) || Boolean(headerAccessory);
+
+      return (
+        <div className="space-y-4 rounded-xl border border-border/70 bg-card p-4">
+          {showHeader ? (
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-2">
+                {title ? <div className="text-sm font-semibold text-foreground">{title}</div> : null}
+                {headerAccessory}
+              </div>
+            </div>
+          ) : null}
+
+          {buckets.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border bg-secondary/10 px-3 py-6 text-sm text-muted-foreground">
+              No salary data is available for the current result set.
+            </div>
+          ) : (
+            <>
+              <div className="space-y-4">
+                <div className="flex h-40 items-end gap-2 rounded-lg border border-border/60 bg-secondary/10 px-3 py-3">
+                  {buckets.map((bucket) => {
+                    const bucketMin = Number(bucket.min);
+                    const bucketMax = Number(bucket.max);
+                    const inSelectedRange =
+                      !selectedRange ||
+                      (bucketMax >= Number(selectedRange.min) && bucketMin <= Number(selectedRange.max));
+                    const heightPct = maxCount > 0 ? (Number(bucket.count || 0) / maxCount) * 100 : 0;
+                    return (
+                      <TooltipProvider key={bucket.key} delayDuration={120}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              className="group flex h-full min-w-0 flex-1 flex-col justify-end gap-2"
+                              onClick={() =>
+                                onSelectRange(
+                                  selectedRange &&
+                                    Number(selectedRange.min) === bucketMin &&
+                                    Number(selectedRange.max) === bucketMax
+                                    ? null
+                                    : { min: bucketMin, max: bucketMax },
+                                )
+                              }
+                            >
+                              <span className="text-[10px] font-medium text-muted-foreground">
+                                {bucket.count}
+                              </span>
+                              <div className="flex flex-1 items-end">
+                                <div
+                                  className={cn(
+                                    "w-full rounded-t-md border border-border/60 transition",
+                                    inSelectedRange
+                                      ? "bg-foreground/85"
+                                      : "bg-secondary/30 group-hover:bg-secondary/50",
+                                  )}
+                                  style={{
+                                    height: `${Math.max(heightPct, Number(bucket.count || 0) > 0 ? 18 : 6)}%`,
+                                  }}
+                                />
+                              </div>
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent className="bg-card">
+                            <div className="space-y-1 text-xs">
+                              <div>{formatHistogramRangeLabel(bucket, formatter)}</div>
+                              <div>{bucket.count} jobs</div>
+                            </div>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    );
+                  })}
+                </div>
+
+                <Slider
+                  className="px-1"
+                  min={Number(histogram.min)}
+                  max={Number(histogram.max)}
+                  step={sliderStep}
+                  value={sliderValue}
+                  onValueChange={(values) => {
+                    if (!Array.isArray(values) || values.length !== 2) {
+                      return;
+                    }
+                    onSelectRange(
+                      clampRangeToBounds(
+                        { min: Math.min(...values), max: Math.max(...values) },
+                        histogram,
+                      ),
+                    );
+                  }}
+                />
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-lg border border-border/60 bg-secondary/10 px-3 py-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Minimum
+                    </div>
+                    <div className="mt-1 text-sm font-semibold text-foreground">
+                      {formatter(Number(effectiveRange?.min ?? histogram.min))}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-border/60 bg-secondary/10 px-3 py-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Maximum
+                    </div>
+                    <div className="mt-1 text-sm font-semibold text-foreground">
+                      {formatter(Number(effectiveRange?.max ?? histogram.max))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      );
+    },
+    [],
   );
 
   if (loading && !dashboard) {
@@ -1527,43 +1775,80 @@ export default function App() {
               <CardTitle>Job Finder</CardTitle>
               <CardDescription>Search across sites to find your best matches</CardDescription>
             </div>
-            <div className="w-full lg:w-auto">
-              <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                <h3 className="text-sm font-semibold text-foreground">Job sources</h3>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-auto w-full justify-start px-3 py-2 sm:w-auto"
-                  data-jobs-open-searches="1"
-                  onClick={() => setSearchesDialogOpen(true)}
-                >
-                  <span className="flex flex-wrap items-center gap-2">
-                    <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-1 text-xs font-semibold text-secondary-foreground">
-                      <span className="h-2 w-2 rounded-full bg-emerald-600" aria-hidden="true" />
-                      Ready ({sourceReadinessRollup.ready})
+            <div className="flex w-full flex-col gap-3 lg:w-auto lg:min-w-[420px] lg:items-end">
+              <div className="grid w-full gap-2 sm:grid-cols-2 lg:w-auto">
+                <div className="rounded-xl border border-border/80 bg-card px-4 py-3 text-left">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Searches used
+                  </div>
+                  <div className="mt-1 text-2xl font-semibold text-foreground">
+                    {monetizationMetrics.searchesUsed}
+                    <span className="ml-2 text-sm font-medium text-muted-foreground">
+                      / {monetizationMetrics.searchLimit}
                     </span>
-                    {sourceReadinessRollup.actionNeeded > 0 ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-1 text-xs font-semibold text-secondary-foreground">
-                        <span className="h-2 w-2 rounded-full bg-amber-600" aria-hidden="true" />
-                        Action needed ({sourceReadinessRollup.actionNeeded})
-                      </span>
-                    ) : null}
-                    {sourceReadinessRollup.disabled > 0 ? (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-muted px-2 py-1 text-xs font-semibold text-muted-foreground">
-                        <span className="h-2 w-2 rounded-full bg-muted-foreground/80" aria-hidden="true" />
-                        Disabled ({sourceReadinessRollup.disabled})
-                      </span>
-                    ) : null}
-                  </span>
-                </Button>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-border/80 bg-card px-4 py-3 text-left">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Jobs stored
+                  </div>
+                  <div className="mt-1 text-2xl font-semibold text-foreground">
+                    {monetizationMetrics.jobsStored}
+                    <span className="ml-2 text-sm font-medium text-muted-foreground">
+                      / {monetizationMetrics.jobsLimit}
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Card>
+          <div className="space-y-0">
+            <div className="mb-0 flex justify-end">
+              <Tabs
+                value={jobsTopTab}
+                onValueChange={(value) => {
+                  setJobsTopTab(value);
+                  if (value === "enabled" || value === "disabled") {
+                    setSearchState(value);
+                  }
+                }}
+                className="-mb-px"
+              >
+                <TabsList className="h-auto gap-0 rounded-t-xl rounded-b-none border border-border/80 border-b-0 bg-transparent p-0">
+                  <TabsTrigger
+                    value="search"
+                    className="rounded-none rounded-tl-xl border-r border-border/80 px-6 py-3 data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=inactive]:bg-secondary/20"
+                  >
+                    Search
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="enabled"
+                    className="rounded-none border-r border-border/80 px-6 py-3 data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=inactive]:bg-secondary/20"
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <span className={cn("h-2.5 w-2.5 rounded-full", toneClassName("ok"))} />
+                      Ready ({sourceReadinessRollup.ready})
+                    </span>
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="disabled"
+                    className="rounded-none rounded-tr-xl px-6 py-3 data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=inactive]:bg-secondary/20"
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <span className={cn("h-2.5 w-2.5 rounded-full", toneClassName("muted"))} />
+                      Disabled ({sourceReadinessRollup.disabled})
+                    </span>
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </div>
+            <Card className="rounded-tr-none">
             <CardContent className="space-y-4 pt-6">
-              <div className="grid gap-2 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_220px_220px_auto_auto]">
+              {jobsTopTab === "search" ? (
+                <>
+              <div className="grid gap-2 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_220px_220px_auto]">
                 <label className="block text-sm font-medium text-foreground">
                   Job title
                   <input
@@ -1637,489 +1922,530 @@ export default function App() {
                     {criteriaBusy ? "Running search..." : "Run search"}
                   </Button>
                 </div>
-                <div className="flex items-end">
-                  <Button
-                    className="h-10 w-full"
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setJobsComposerCollapsed((current) => !current)}
-                  >
-                    {jobsComposerCollapsed ? "Edit filters" : "Collapse"}
-                  </Button>
-                </div>
               </div>
 
-              <div className="grid gap-4 lg:grid-cols-2">
-                <div className="rounded-lg border border-border/70 bg-secondary/20 p-4">
-                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
-                    <span>Hard filter</span>
-                    <TooltipProvider delayDuration={150}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground"
-                            aria-label="Hard filter info"
-                            onClick={() =>
-                              toast({
-                                title: "Hard filter",
-                                description: "Only jobs with these words will be imported.",
-                              })
-                            }
-                          >
-                            i
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>Only jobs with these words will be imported.</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </div>
-                  {jobsComposerCollapsed ? (
-                    <div className="space-y-2 text-sm">
-                      <div>
-                        <span className="font-medium text-foreground">Must include: </span>
-                        <span className="text-muted-foreground">
-                          {criteriaDraft.hardIncludeTerms || "Not set"}
-                        </span>
+              <div className="grid gap-4 lg:grid-cols-3">
+                <div className="rounded-lg border border-border/70 bg-secondary/20 p-4 lg:col-span-2">
+                  <Accordion
+                    type="single"
+                    collapsible
+                    value={jobsHardFilterExpanded ? "hard-filter" : ""}
+                    onValueChange={(value) => setJobsHardFilterExpanded(value === "hard-filter")}
+                  >
+                    <AccordionItem value="hard-filter" className="border-none">
+                      <div className="flex items-center justify-between gap-3">
+                        <TooltipProvider delayDuration={150}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className="text-sm font-semibold text-foreground">Hard filter</div>
+                            </TooltipTrigger>
+                            <TooltipContent className="bg-card">
+                              <p>Only jobs with these words will be imported.</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                        <AccordionTrigger className="w-auto flex-none py-0 hover:no-underline">
+                          <span className="sr-only">Toggle hard filter</span>
+                        </AccordionTrigger>
                       </div>
-                      <div>
-                        <span className="font-medium text-foreground">Must not include: </span>
-                        <span className="text-muted-foreground">
-                          {criteriaDraft.hardExcludeTerms || "Not set"}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="font-medium text-foreground">Match mode: </span>
-                        <span className="text-muted-foreground">
-                          {criteriaDraft.hardIncludeMode === "or" ? "Any required term" : "All required terms"}
-                        </span>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <label className="block text-sm font-medium text-foreground">
-                          Must include
-                          <input
-                            className={FIELD_CLASSNAME}
-                            data-jobs-criteria-hard-include-terms="1"
-                            placeholder="ml platform, healthcare"
-                            value={criteriaDraft.hardIncludeTerms}
-                            onChange={(event) =>
-                              setCriteriaDraft((current) => ({
-                                ...current,
-                                hardIncludeTerms: event.target.value,
-                              }))
-                            }
-                          />
-                        </label>
-                        <label className="block text-sm font-medium text-foreground">
-                          Must not include
-                          <input
-                            className={FIELD_CLASSNAME}
-                            data-jobs-criteria-hard-exclude-terms="1"
-                            placeholder="intern, contract"
-                            value={criteriaDraft.hardExcludeTerms}
-                            onChange={(event) =>
-                              setCriteriaDraft((current) => ({
-                                ...current,
-                                hardExcludeTerms: event.target.value,
-                              }))
-                            }
-                          />
-                        </label>
-                      </div>
-                      <fieldset
-                        className="mt-3 block text-sm font-medium text-foreground"
-                        data-jobs-criteria-hard-include-mode="1"
-                      >
-                        <legend>Match mode</legend>
-                        <div className="mt-2 inline-flex rounded-md border border-input bg-card p-1">
-                          <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
+                      {!jobsHardFilterExpanded ? (
+                        <div className="mt-3 space-y-2 text-sm">
+                          <div>
+                            <span className="font-medium text-foreground">Must include: </span>
+                            <span className="text-muted-foreground">
+                              {criteriaDraft.hardIncludeTerms || "Not set"}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="font-medium text-foreground">Must not include: </span>
+                            <span className="text-muted-foreground">
+                              {criteriaDraft.hardExcludeTerms || "Not set"}
+                            </span>
+                          </div>
+                        </div>
+                      ) : null}
+                      <AccordionContent className="space-y-4">
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <label className="block text-sm font-medium text-foreground">
+                            Must include
                             <input
-                              type="radio"
-                              name="hard-include-mode"
-                              value="and"
-                              checked={criteriaDraft.hardIncludeMode === "and"}
+                              className={FIELD_CLASSNAME}
+                              data-jobs-criteria-hard-include-terms="1"
+                              placeholder="ml platform, healthcare"
+                              value={criteriaDraft.hardIncludeTerms}
                               onChange={(event) =>
                                 setCriteriaDraft((current) => ({
                                   ...current,
-                                  hardIncludeMode: event.target.value,
+                                  hardIncludeTerms: event.target.value,
                                 }))
                               }
                             />
-                            All
                           </label>
-                          <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
+                          <label className="block text-sm font-medium text-foreground">
+                            Must not include
                             <input
-                              type="radio"
-                              name="hard-include-mode"
-                              value="or"
-                              checked={criteriaDraft.hardIncludeMode === "or"}
+                              className={FIELD_CLASSNAME}
+                              data-jobs-criteria-hard-exclude-terms="1"
+                              placeholder="intern, contract"
+                              value={criteriaDraft.hardExcludeTerms}
                               onChange={(event) =>
                                 setCriteriaDraft((current) => ({
                                   ...current,
-                                  hardIncludeMode: event.target.value,
+                                  hardExcludeTerms: event.target.value,
                                 }))
                               }
                             />
-                            Any
                           </label>
                         </div>
-                      </fieldset>
-                    </>
-                  )}
+                        <fieldset
+                          className="block text-sm font-medium text-foreground"
+                          data-jobs-criteria-hard-include-mode="1"
+                        >
+                          <legend>Match mode</legend>
+                          <div className="mt-2 inline-flex rounded-md border border-input bg-card p-1">
+                            <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
+                              <input
+                                type="radio"
+                                name="hard-include-mode"
+                                value="and"
+                                checked={criteriaDraft.hardIncludeMode === "and"}
+                                onChange={(event) =>
+                                  setCriteriaDraft((current) => ({
+                                    ...current,
+                                    hardIncludeMode: event.target.value,
+                                  }))
+                                }
+                              />
+                              All
+                            </label>
+                            <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
+                              <input
+                                type="radio"
+                                name="hard-include-mode"
+                                value="or"
+                                checked={criteriaDraft.hardIncludeMode === "or"}
+                                onChange={(event) =>
+                                  setCriteriaDraft((current) => ({
+                                    ...current,
+                                    hardIncludeMode: event.target.value,
+                                  }))
+                                }
+                              />
+                              Any
+                            </label>
+                          </div>
+                        </fieldset>
+                      </AccordionContent>
+                    </AccordionItem>
+                  </Accordion>
                 </div>
 
                 <div className="rounded-lg border border-border/70 bg-secondary/10 p-4">
-                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
-                    <span>Additional keywords</span>
-                    <TooltipProvider delayDuration={150}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground"
-                            aria-label="Additional keywords info"
-                            onClick={() =>
-                              toast({
-                                title: "Additional keywords",
-                                description: "Jobs with these keywords will receive higher scores.",
-                              })
-                            }
-                          >
-                            i
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>Jobs with these keywords will receive higher scores.</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </div>
-                  {jobsComposerCollapsed ? (
-                    <div className="space-y-2 text-sm">
-                      <div>
-                        <span className="font-medium text-foreground">Keywords: </span>
-                        <span className="text-muted-foreground">
-                          {criteriaDraft.additionalKeywords || "Not set"}
-                        </span>
+                  <Accordion
+                    type="single"
+                    collapsible
+                    value={jobsKeywordExpanded ? "keywords" : ""}
+                    onValueChange={(value) => setJobsKeywordExpanded(value === "keywords")}
+                  >
+                    <AccordionItem value="keywords" className="border-none">
+                      <div className="flex items-center justify-between gap-3">
+                        <TooltipProvider delayDuration={150}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className="text-sm font-semibold text-foreground">Additional keywords</div>
+                            </TooltipTrigger>
+                            <TooltipContent className="bg-card">
+                              <p>Jobs with these keywords will receive higher scores.</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                        <AccordionTrigger className="w-auto flex-none py-0 hover:no-underline">
+                          <span className="sr-only">Toggle additional keywords</span>
+                        </AccordionTrigger>
                       </div>
-                      <div>
-                        <span className="font-medium text-foreground">Match mode: </span>
-                        <span className="text-muted-foreground">
-                          {criteriaDraft.additionalKeywordMode === "or"
-                            ? "Any keyword"
-                            : "All keywords"}
-                        </span>
+                      {!jobsKeywordExpanded ? (
+                        <div className="mt-3 space-y-2 text-sm">
+                          <div>
+                            <span className="font-medium text-foreground">Keywords: </span>
+                            <span className="text-muted-foreground">
+                              {criteriaDraft.additionalKeywords || "Not set"}
+                            </span>
+                          </div>
+                        </div>
+                      ) : null}
+                      <AccordionContent className="space-y-4">
+                        <label className="block text-sm font-medium text-foreground">
+                          Keywords
+                          <input
+                            className={FIELD_CLASSNAME}
+                            data-jobs-criteria-additional-keywords="1"
+                            placeholder="ai tooling, growth, marketplace"
+                            value={criteriaDraft.additionalKeywords}
+                            onChange={(event) =>
+                              setCriteriaDraft((current) => ({
+                                ...current,
+                                additionalKeywords: event.target.value,
+                              }))
+                            }
+                          />
+                        </label>
+                        <fieldset
+                          className="block text-sm font-medium text-foreground"
+                          data-jobs-criteria-additional-keyword-mode="1"
+                        >
+                          <legend>Match mode</legend>
+                          <div className="mt-2 inline-flex rounded-md border border-input bg-card p-1">
+                            <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
+                              <input
+                                type="radio"
+                                name="additional-keyword-mode"
+                                value="and"
+                                checked={criteriaDraft.additionalKeywordMode === "and"}
+                                onChange={(event) =>
+                                  setCriteriaDraft((current) => ({
+                                    ...current,
+                                    additionalKeywordMode: event.target.value,
+                                  }))
+                                }
+                              />
+                              All
+                            </label>
+                            <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
+                              <input
+                                type="radio"
+                                name="additional-keyword-mode"
+                                value="or"
+                                checked={criteriaDraft.additionalKeywordMode === "or"}
+                                onChange={(event) =>
+                                  setCriteriaDraft((current) => ({
+                                    ...current,
+                                    additionalKeywordMode: event.target.value,
+                                  }))
+                                }
+                              />
+                              Any
+                            </label>
+                          </div>
+                        </fieldset>
+                      </AccordionContent>
+                    </AccordionItem>
+                  </Accordion>
+                </div>
+              </div>
+                </>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="space-y-1">
+                      <div className="text-base font-semibold text-foreground">Sources</div>
+                      <div className="text-sm text-muted-foreground">
+                        Manage enabled sources, authentication checks, and per-source refresh actions.
                       </div>
                     </div>
-                  ) : (
-                    <>
-                      <label className="block text-sm font-medium text-foreground">
-                        Keywords
-                        <input
-                          className={FIELD_CLASSNAME}
-                          data-jobs-criteria-additional-keywords="1"
-                          placeholder="ai tooling, growth, marketplace"
-                          value={criteriaDraft.additionalKeywords}
-                          onChange={(event) =>
-                            setCriteriaDraft((current) => ({
-                              ...current,
-                              additionalKeywords: event.target.value,
-                            }))
-                          }
-                        />
+                    {selectedSearchState === "enabled" ? (
+                      <label className="w-full text-sm font-medium text-foreground sm:ml-auto sm:w-64">
+                        Search frequency
+                        <Select value={searchRunCadence} onValueChange={setSearchRunCadence}>
+                          <SelectTrigger id="search-run-cadence" className="mt-2 w-full">
+                            <SelectValue placeholder="Select search frequency" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              <SelectLabel>Run cadence</SelectLabel>
+                              <SelectItem value="12h">12h (recommended)</SelectItem>
+                              <SelectItem value="daily">Daily</SelectItem>
+                              <SelectItem value="weekly">Weekly</SelectItem>
+                              <SelectItem value="cached">Use cached results (dev)</SelectItem>
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
                       </label>
-                      <fieldset
-                        className="mt-3 block text-sm font-medium text-foreground"
-                        data-jobs-criteria-additional-keyword-mode="1"
-                      >
-                        <legend>Match mode</legend>
-                        <div className="mt-2 inline-flex rounded-md border border-input bg-card p-1">
-                          <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
-                            <input
-                              type="radio"
-                              name="additional-keyword-mode"
-                              value="and"
-                              checked={criteriaDraft.additionalKeywordMode === "and"}
-                              onChange={(event) =>
-                                setCriteriaDraft((current) => ({
-                                  ...current,
-                                  additionalKeywordMode: event.target.value,
-                                }))
-                              }
-                            />
-                            All
-                          </label>
-                          <label className="inline-flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium text-foreground has-[:checked]:bg-secondary has-[:checked]:text-secondary-foreground">
-                            <input
-                              type="radio"
-                              name="additional-keyword-mode"
-                              value="or"
-                              checked={criteriaDraft.additionalKeywordMode === "or"}
-                              onChange={(event) =>
-                                setCriteriaDraft((current) => ({
-                                  ...current,
-                                  additionalKeywordMode: event.target.value,
-                                }))
-                              }
-                            />
-                            Any
-                          </label>
-                        </div>
-                      </fieldset>
-                    </>
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <div className="flex flex-wrap gap-2">
-            {jobsViewTabs.map((tab) => (
-              <Button
-                key={tab.value}
-                size="sm"
-                variant={jobsView === tab.value ? "default" : "outline"}
-                data-jobs-view={tab.value}
-                disabled={jobsControlsDisabled}
-                onClick={() => setJobsView(tab.value)}
-              >
-                {tab.label} ({tab.count})
-              </Button>
-            ))}
-          </div>
-
-          <div className="grid gap-3 lg:grid-cols-4">
-            <div className="space-y-3">
-              <Card>
-                <CardContent className="space-y-1 pt-6">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Total jobs</div>
-                  <div className="text-3xl font-semibold text-foreground">{sortedJobs.length}</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="space-y-1 pt-6">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Avg score</div>
-                  <div className="text-3xl font-semibold text-foreground">
-                    {jobsAverageScore === null ? "—" : Math.round(jobsAverageScore)}
+                    ) : null}
                   </div>
-                </CardContent>
-              </Card>
-            </div>
 
-            <div className="space-y-3">
-              {jobsKeywordWidgets.map((widget) => (
-                <Card key={widget.key}>
-                  <CardContent className="space-y-1 pt-5">
-                    <button
-                      type="button"
-                      className={cn(
-                        "block w-full rounded-md px-1 py-1 text-left",
-                        widget.term && jobsWidgetKeywordFilter === widget.term
-                          ? "bg-secondary/40"
-                          : "hover:bg-secondary/20",
-                      )}
-                      disabled={!widget.term}
-                      onClick={() =>
-                        setJobsWidgetKeywordFilter((current) =>
-                          current === widget.term ? "" : widget.term,
-                        )
-                      }
-                    >
-                      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        {widget.label}
-                      </div>
-                      <div className="text-2xl font-semibold text-foreground">{widget.value}</div>
-                    </button>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Source</TableHead>
+                        <TableHead>Last Run</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Found</TableHead>
+                        <TableHead>Filtered</TableHead>
+                        <TableHead>Dupes</TableHead>
+                        <TableHead>Imported</TableHead>
+                        <TableHead>Avg Score</TableHead>
+                        <TableHead className="w-[116px] pr-1">Action</TableHead>
+                        <TableHead className="w-[44px] pl-1 pr-2">
+                          <span className="sr-only">More actions</span>
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredRows.map((row) => {
+                        const statusPresentation = presentSearchStatus(row);
+                        const hasStatusDetails =
+                          Boolean(statusPresentation.statusDetail) ||
+                          Boolean(statusPresentation.formatterDetail);
+                        const runNowDisabled = controlsDisabled || !row.manualRefreshAllowed;
+                        const runNowLabel = runNowDisabled
+                          ? row.manualRefreshNextEligibleAt
+                            ? `Available in ${formatDurationFromNow(row.manualRefreshNextEligibleAt)}`
+                            : "Run now"
+                          : "Run now";
 
-            <Card className="h-full">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Titles</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-1 text-sm">
-                {jobsTitleBreakdown.length > 0 ? (
-                  jobsTitleBreakdown.map((item) => (
-                    <button
-                      key={item.label}
-                      type="button"
-                      className={cn(
-                        "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left hover:bg-secondary/20",
-                        jobsWidgetTitleFilter === item.label ? "bg-secondary/40" : "",
-                      )}
-                      onClick={() =>
-                        setJobsWidgetTitleFilter((current) =>
-                          current === item.label ? "" : item.label,
-                        )
-                      }
-                    >
-                      <span className="truncate text-muted-foreground">{item.label}</span>
-                      <span className="font-semibold text-foreground">{item.count}</span>
-                    </button>
-                  ))
-                ) : (
-                  <div className="text-muted-foreground">No title data</div>
-                )}
-              </CardContent>
-            </Card>
-            <Card className="h-full">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Salaries</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-1 text-sm">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-muted-foreground">Min</span>
-                  <span className="font-semibold text-foreground">{formatCurrency(jobsSalarySummary.min)}</span>
+                        return (
+                          <TableRow key={row.id} className={cn(!row.enabled && "bg-secondary/20")}>
+                            <TableCell>
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-semibold text-foreground">{row.label}</span>
+                                  {row.searchUrl ? (
+                                    <a
+                                      href={row.searchUrl}
+                                      target="_blank"
+                                      rel="noreferrer noopener"
+                                      className="text-sm text-muted-foreground hover:text-foreground"
+                                    >
+                                      ↗
+                                    </a>
+                                  ) : null}
+                                </div>
+                                <div className="text-xs text-muted-foreground">{row.id}</div>
+                              </div>
+                            </TableCell>
+                            <TableCell>{formatRelativeTimestamp(row.capturedAt) || "Never"}</TableCell>
+                            <TableCell>
+                              <div className="flex items-start gap-2">
+                                <span className="inline-flex items-center gap-2 rounded-full bg-secondary/40 px-3 py-1 text-sm font-semibold text-foreground">
+                                  <span className={cn("h-2.5 w-2.5 rounded-full", toneClassName(row.readiness?.tone))} />
+                                  {statusPresentation.label}
+                                </span>
+                                {hasStatusDetails ? (
+                                  <TooltipProvider delayDuration={150}>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <button
+                                          type="button"
+                                          className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-border text-sm font-semibold text-muted-foreground hover:text-foreground"
+                                          aria-label="Show status details"
+                                        >
+                                          i
+                                        </button>
+                                      </TooltipTrigger>
+                                      <TooltipContent className="max-w-sm bg-card text-left">
+                                        <div className="space-y-1">
+                                          {statusPresentation.statusDetail ? (
+                                            <div>{statusPresentation.statusDetail}</div>
+                                          ) : null}
+                                          {statusPresentation.formatterDetail ? (
+                                            <div>{statusPresentation.formatterDetail}</div>
+                                          ) : null}
+                                        </div>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
+                                ) : null}
+                              </div>
+                            </TableCell>
+                            <TableCell>{statusPresentation.foundLabel}</TableCell>
+                            <TableCell>{row.filteredCount}</TableCell>
+                            <TableCell>{row.dedupedCount}</TableCell>
+                            <TableCell>{row.importedCount}</TableCell>
+                            <TableCell>{row.avgScore === null ? "n/a" : row.avgScore}</TableCell>
+                            <TableCell className="align-middle pr-1">
+                              {row.enabled ? (
+                                <Button
+                                  size="sm"
+                                  variant={runNowDisabled ? "secondary" : "default"}
+                                  className="min-w-[140px] justify-center"
+                                  disabled={runNowDisabled}
+                                  onClick={() => {
+                                    void handleRunSourceNow(row.id);
+                                  }}
+                                >
+                                  {runNowLabel}
+                                </Button>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  className="min-w-[104px] justify-center"
+                                  disabled={controlsDisabled}
+                                  onClick={() => {
+                                    void handleEnableSource(row.id, row.label);
+                                  }}
+                                >
+                                  Enable
+                                </Button>
+                              )}
+                            </TableCell>
+                            <TableCell className="align-middle pl-1 pr-2">
+                              {row.enabled ? (
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-11 w-11"
+                                  disabled={controlsDisabled}
+                                  onClick={() => {
+                                    void handleDisableSource(row.id, row.label);
+                                  }}
+                                >
+                                  …
+                                </Button>
+                              ) : null}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                      <TableRow className="bg-secondary/20">
+                        <TableCell className="font-semibold">{totals.stateLabel}</TableCell>
+                        <TableCell>—</TableCell>
+                        <TableCell>—</TableCell>
+                        <TableCell>{totals.foundLabel}</TableCell>
+                        <TableCell>{totals.filtered}</TableCell>
+                        <TableCell>{totals.deduped}</TableCell>
+                        <TableCell>{totals.imported}</TableCell>
+                        <TableCell>{totals.avgScore}</TableCell>
+                        <TableCell>—</TableCell>
+                        <TableCell>—</TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
                 </div>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-muted-foreground">Avg</span>
-                  <span className="font-semibold text-foreground">{formatCurrency(jobsSalarySummary.avg)}</span>
-                </div>
-                <button
-                  type="button"
-                  className={cn(
-                    "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left hover:bg-secondary/20",
-                    jobsWidgetSalaryFilter === "has_salary" ? "bg-secondary/40" : "",
-                  )}
-                  onClick={() =>
-                    setJobsWidgetSalaryFilter((current) =>
-                      current === "has_salary" ? "all" : "has_salary",
-                    )
-                  }
-                >
-                  <span className="text-muted-foreground">With salary</span>
-                  <span className="font-semibold text-foreground">{jobsSalarySummaryBase.withSalaryCount}</span>
-                </button>
-                <button
-                  type="button"
-                  className={cn(
-                    "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left hover:bg-secondary/20",
-                    jobsWidgetSalaryFilter === "above_avg" ? "bg-secondary/40" : "",
-                  )}
-                  onClick={() =>
-                    setJobsWidgetSalaryFilter((current) =>
-                      current === "above_avg" ? "all" : "above_avg",
-                    )
-                  }
-                >
-                  <span className="text-muted-foreground">Above avg</span>
-                  <span className="font-semibold text-foreground">{jobsSalarySummaryBase.aboveAvgCount}</span>
-                </button>
-                <button
-                  type="button"
-                  className={cn(
-                    "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left hover:bg-secondary/20",
-                    jobsWidgetSalaryFilter === "top_band" ? "bg-secondary/40" : "",
-                  )}
-                  onClick={() =>
-                    setJobsWidgetSalaryFilter((current) =>
-                      current === "top_band" ? "all" : "top_band",
-                    )
-                  }
-                >
-                  <span className="text-muted-foreground">Top band</span>
-                  <span className="font-semibold text-foreground">{jobsSalarySummaryBase.topBandCount}</span>
-                </button>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-muted-foreground">Highest</span>
-                  <span className="font-semibold text-foreground">{formatCurrency(jobsSalarySummary.max)}</span>
-                </div>
-              </CardContent>
+              )}
+            </CardContent>
             </Card>
           </div>
 
-          <Card>
-            <CardContent className="pt-5">
-              <div className="grid gap-2 lg:grid-cols-[minmax(0,1.4fr)_220px_220px_220px_220px]">
-                <label className="block text-sm font-medium text-foreground">
-                  Source
-                  <select
-                    className={FIELD_CLASSNAME}
-                    value={jobsSourceFilter}
-                    onChange={(event) => setJobsSourceFilter(event.target.value)}
+          <div className="flex flex-col gap-3 lg:flex-row lg:flex-nowrap lg:items-center lg:justify-between">
+            <div className="flex flex-wrap gap-2 lg:min-w-0 lg:flex-nowrap lg:items-center">
+              <Select value={jobsDatasetValue} onValueChange={setJobsView}>
+                <SelectTrigger
+                  className={cn(
+                    "h-9 w-auto min-w-0 max-w-fit rounded-md px-4 text-sm font-medium shadow-none",
+                    !jobsAlternateDatasetActive && jobsView === "all"
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-input bg-card text-foreground",
+                  )}
+                  aria-label="Jobs dataset view"
+                >
+                  <SelectValue>{jobsDatasetLabel}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {jobsDatasetOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label} ({option.count})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {!jobsAlternateDatasetActive ? (
+                <>
+                  <Button
+                    size="sm"
+                    variant={jobsView === "new" ? "default" : "outline"}
+                    data-jobs-view="new"
+                    disabled={jobsControlsDisabled}
+                    onClick={() => setJobsView("new")}
                   >
-                    <option value="all">All ({jobsAllInSelectedView.length})</option>
-                    {jobSourceFilters.map((filter) => (
-                      <option key={filter.kind} value={filter.kind}>
-                        {filter.label} ({filter.count})
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block text-sm font-medium text-foreground">
-                  Posted
-                  <select
-                    className={FIELD_CLASSNAME}
-                    value={jobsPostedFilter}
-                    onChange={(event) => setJobsPostedFilter(event.target.value)}
+                    New ({jobsViewCounts.new})
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={jobsView === "best_match" ? "default" : "outline"}
+                    data-jobs-view="best_match"
+                    disabled={jobsControlsDisabled}
+                    onClick={() => setJobsView("best_match")}
+                    >
+                      Best match ({jobsViewCounts.best_match})
+                    </Button>
+                  </>
+                ) : null}
+            </div>
+            <div className="min-w-0 lg:flex-1">
+              <div className="flex flex-wrap items-center justify-end gap-2 lg:flex-nowrap">
+                {jobsFiltersExpanded ? (
+                  <>
+                    <select
+                      className="h-9 min-w-[140px] rounded-md border border-input bg-card px-3 text-sm font-medium text-foreground shadow-none outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+                      value={jobsSourceFilter}
+                      onChange={(event) => setJobsSourceFilter(event.target.value)}
+                    >
+                      <option value="all">Source</option>
+                      {jobSourceFilters.map((filter) => (
+                        <option key={filter.kind} value={filter.kind}>
+                          {filter.label} ({filter.count})
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      className="h-9 min-w-[150px] rounded-md border border-input bg-card px-3 text-sm font-medium text-foreground shadow-none outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+                      value={jobsPostedFilter}
+                      onChange={(event) => setJobsPostedFilter(event.target.value)}
+                    >
+                      <option value="all">Posted</option>
+                      {jobPostedFilters
+                        .filter((filter) => filter.value !== "all")
+                        .map((filter) => (
+                          <option key={filter.value} value={filter.value}>
+                            {filter.label} ({filter.count})
+                          </option>
+                        ))}
+                    </select>
+                    <select
+                      className="h-9 min-w-[150px] rounded-md border border-input bg-card px-3 text-sm font-medium text-foreground shadow-none outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+                      value={jobsSalaryPresenceFilter}
+                      onChange={(event) => setJobsSalaryPresenceFilter(event.target.value)}
+                    >
+                      <option value="all">Salary</option>
+                      <option value="has_salary">Has salary ({jobsWithSalaryCount})</option>
+                      <option value="missing_salary">Missing salary ({jobsMissingSalaryCount})</option>
+                    </select>
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      className="h-9 w-9 shrink-0 rounded-full"
+                      aria-label="Close filters"
+                      onClick={() => setJobsFiltersExpanded(false)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0 gap-2 font-semibold"
+                    onClick={() => setJobsFiltersExpanded(true)}
                   >
-                    {jobPostedFilters.map((filter) => (
-                      <option key={filter.value} value={filter.value}>
-                        {filter.label} ({filter.count})
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block text-sm font-medium text-foreground">
-                  Sort
-                  <select
-                    className={FIELD_CLASSNAME}
-                    value={jobsSort}
-                    onChange={(event) => setJobsSort(event.target.value)}
-                  >
-                    <option value="score">Score</option>
-                    <option value="date">Date posted</option>
-                    <option value="salary">Salary</option>
-                  </select>
-                </label>
-                <label className="block text-sm font-medium text-foreground">
-                  Min salary
-                  <input
-                    className={FIELD_CLASSNAME}
-                    inputMode="numeric"
-                    placeholder="$120,000"
-                    value={formatSalaryMaskInput(jobsSalaryFloorFilter)}
-                    onChange={(event) => setJobsSalaryFloorFilter(formatSalaryMaskInput(event.target.value))}
-                  />
-                </label>
-                <label className="block text-sm font-medium text-foreground">
-                  Max salary
-                  <input
-                    className={FIELD_CLASSNAME}
-                    inputMode="numeric"
-                    placeholder="$350,000"
-                    value={formatSalaryMaskInput(jobsSalaryCeilingFilter)}
-                    onChange={(event) => setJobsSalaryCeilingFilter(formatSalaryMaskInput(event.target.value))}
-                  />
-                </label>
+                    Filters
+                    <ChevronDown className="h-4 w-4" />
+                  </Button>
+                )}
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
-          {activeWidgetFilterChips.length > 0 ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Widget filters
-              </span>
-              {activeWidgetFilterChips.map((chip) => (
+          {activeFilterChips.length > 0 ? (
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <span className="shrink-0 text-sm font-medium text-muted-foreground">Filters applied</span>
+              {activeFilterChips.map((chip) => (
                 <button
                   key={chip.key}
                   type="button"
-                  className="rounded-full border border-border/80 bg-secondary/30 px-3 py-1 text-xs font-medium text-foreground hover:bg-secondary/40"
+                  className="shrink-0 rounded-full border border-border/80 bg-secondary/30 px-3 py-1 text-xs font-medium text-foreground hover:bg-secondary/40"
                   onClick={() => {
-                    if (chip.key === "widget-keyword") {
+                    if (chip.key === "source") {
+                      setJobsSourceFilter("all");
+                    } else if (chip.key === "posted") {
+                      setJobsPostedFilter("all");
+                    } else if (chip.key === "salary-range") {
+                      setJobsSalaryRangeFilter(null);
+                    } else if (chip.key === "salary-presence") {
+                      setJobsSalaryPresenceFilter("all");
+                    } else if (chip.key === "widget-keyword") {
                       setJobsWidgetKeywordFilter("");
                     } else if (chip.key === "widget-title") {
                       setJobsWidgetTitleFilter("");
-                    } else if (chip.key === "widget-salary") {
-                      setJobsWidgetSalaryFilter("all");
                     }
                   }}
                 >
@@ -2129,10 +2455,14 @@ export default function App() {
               <Button
                 size="sm"
                 variant="outline"
+                className="shrink-0"
                 onClick={() => {
+                  setJobsSourceFilter("all");
+                  setJobsPostedFilter("all");
+                  setJobsSalaryPresenceFilter("all");
+                  setJobsSalaryRangeFilter(null);
                   setJobsWidgetKeywordFilter("");
                   setJobsWidgetTitleFilter("");
-                  setJobsWidgetSalaryFilter("all");
                 }}
               >
                 Clear all
@@ -2140,14 +2470,126 @@ export default function App() {
             </div>
           ) : null}
 
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,1.15fr)_minmax(0,1.15fr)]">
+            <div className="space-y-4">
+              <Card className="min-h-[172px]">
+                <CardContent className="flex h-full flex-col justify-between pt-6">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Total jobs</div>
+                  <div className="text-5xl font-semibold text-foreground">{sortedJobs.length}</div>
+                </CardContent>
+              </Card>
+              <Card className="min-h-[172px]">
+                <CardContent className="flex h-full flex-col justify-between pt-6">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Avg score</div>
+                  <div className="text-5xl font-semibold text-foreground">
+                    {jobsAverageScore === null ? "—" : Math.round(jobsAverageScore)}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            <Card className="min-h-[360px]">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm">Keywords</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="max-h-[280px] space-y-3 overflow-y-auto pr-1">
+                  {(jobsKeywordWidgets.length > 0 ? jobsKeywordWidgets : [
+                    { key: "kw-1", term: "", label: "KW#1", value: 0 },
+                    { key: "kw-2", term: "", label: "KW#2", value: 0 },
+                    { key: "kw-3", term: "", label: "KW#3", value: 0 },
+                  ]).map((widget) => (
+                    <button
+                      key={widget.key}
+                      type="button"
+                      className={cn(
+                        "block w-full rounded-lg border border-border/70 px-3 py-3 text-left",
+                        widget.term && jobsWidgetKeywordFilter === widget.term
+                          ? "bg-secondary/40"
+                          : "hover:bg-secondary/20",
+                      )}
+                      disabled={!widget.term}
+                      onClick={() =>
+                        setJobsWidgetKeywordFilter((current) => (current === widget.term ? "" : widget.term))
+                      }
+                    >
+                      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {widget.label}
+                      </div>
+                      <div className="mt-1 text-2xl font-semibold text-foreground">{widget.value}</div>
+                    </button>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="min-h-[360px]">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm">Titles</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                {jobsTitleBreakdown.length > 0 ? (
+                  jobsTitleBreakdown.map((item) => (
+                    <button
+                      key={item.label}
+                      type="button"
+                      className={cn(
+                        "flex w-full items-center justify-between gap-3 rounded-lg border border-transparent px-3 py-2 text-left hover:bg-secondary/20",
+                        jobsWidgetTitleFilter === item.label ? "bg-secondary/40" : "",
+                      )}
+                      onClick={() =>
+                        setJobsWidgetTitleFilter((current) => (current === item.label ? "" : item.label))
+                      }
+                    >
+                      <span className="truncate text-foreground">{item.label}</span>
+                      <span className="font-semibold text-muted-foreground">{item.count}</span>
+                    </button>
+                  ))
+                ) : (
+                  <div className="text-muted-foreground">No title data</div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="min-h-[360px]">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm">Salary ({jobsWithSalaryCount})</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {renderRangeHistogramFilter({
+                  title: null,
+                  histogram: jobsSalaryHistogram,
+                  selectedRange: jobsSalaryRangeFilter,
+                  onSelectRange: setJobsSalaryRangeFilter,
+                  formatter: formatCurrency,
+                  sliderStep: 1000,
+                })}
+              </CardContent>
+            </Card>
+          </div>
+
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
             <Card>
               <CardHeader className="pb-3">
-                <div className="flex items-center justify-between gap-3">
-                  <CardTitle className="text-base">Results</CardTitle>
-                  <div className="text-sm text-muted-foreground">
-                    {sortedJobs.length === 0 ? "0" : (currentPage - 1) * JOBS_PAGE_SIZE + 1}-
-                    {Math.min(currentPage * JOBS_PAGE_SIZE, sortedJobs.length)} / {sortedJobs.length}
+                <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                  <div className="space-y-1">
+                    <CardTitle className="text-base">Results</CardTitle>
+                    <div className="text-sm text-muted-foreground">
+                      {sortedJobs.length === 0 ? "0" : (currentPage - 1) * JOBS_PAGE_SIZE + 1}-
+                      {Math.min(currentPage * JOBS_PAGE_SIZE, sortedJobs.length)} / {sortedJobs.length}
+                    </div>
+                  </div>
+                  <div className="flex min-w-[220px] items-center justify-end gap-2">
+                    <span className="text-sm font-medium text-muted-foreground">Sort by</span>
+                    <select
+                      className="h-10 min-w-[180px] rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground shadow-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+                      value={jobsSort}
+                      onChange={(event) => setJobsSort(event.target.value)}
+                    >
+                      <option value="score">Score</option>
+                      <option value="date">Date posted</option>
+                      <option value="salary">Salary</option>
+                    </select>
                   </div>
                 </div>
               </CardHeader>
@@ -2157,55 +2599,52 @@ export default function App() {
                     No jobs match the current filters.
                   </div>
                 ) : (
-                  <div className="overflow-hidden rounded-lg border border-border/70">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Title</TableHead>
-                          <TableHead>Salary</TableHead>
-                          <TableHead>Date posted</TableHead>
-                          <TableHead>Score</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {pagedJobs.map((job) => {
-                          const isSelected = currentJob?.id === job.id;
-                          return (
-                            <TableRow
-                              key={job.id}
-                              data-job-row={job.id}
-                              className={cn(
-                                "cursor-pointer",
-                                isSelected ? "bg-secondary/40" : "hover:bg-secondary/20",
-                              )}
-                              onClick={() => setSelectedJobId(job.id)}
-                            >
-                              <TableCell>
-                                <div className="font-medium text-foreground">{job.title}</div>
-                                <div className="text-xs text-muted-foreground">
-                                  {job.company || "Unknown company"} · {job.location || "Unknown location"}
+                  <div className="space-y-3">
+                    {pagedJobs.map((job) => {
+                      const isSelected = currentJob?.id === job.id;
+                      return (
+                        <button
+                          key={job.id}
+                          type="button"
+                          data-job-row={job.id}
+                          className={cn(
+                            "w-full rounded-xl border border-border/70 px-4 py-4 text-left transition",
+                            isSelected ? "bg-secondary/35" : "hover:bg-secondary/15",
+                          )}
+                          onClick={() => setSelectedJobId(job.id)}
+                        >
+                          <div className="space-y-3">
+                            <div className="space-y-2">
+                              <div className="text-lg font-semibold text-foreground">{job.title}</div>
+                              <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                                <span>{job.company || "Unknown company"}</span>
+                                <span>•</span>
+                                <span>{job.location || "Unknown location"}</span>
+                                <span className="rounded-full bg-secondary px-2 py-1 text-[11px] font-semibold text-secondary-foreground">
+                                  {formatJobStatus(job.status)}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="grid gap-3 text-sm sm:grid-cols-3">
+                              <div>
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Salary</div>
+                                <div className="mt-1 font-medium text-foreground">{job.salaryText || "—"}</div>
+                              </div>
+                              <div>
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Date posted</div>
+                                <div className="mt-1 font-medium text-foreground">{formatJobFreshness(job)}</div>
+                              </div>
+                              <div>
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Score</div>
+                                <div className="mt-1 font-medium text-foreground">
+                                  {Number.isFinite(Number(job.score)) ? Math.round(Number(job.score)) : "n/a"}
                                 </div>
-                                <div className="mt-1 flex flex-wrap gap-1">
-                                  <span className="rounded bg-secondary px-2 py-0.5 text-[11px] text-secondary-foreground">
-                                    {formatJobStatus(job.status)}
-                                  </span>
-                                  {job.bucket === "high_signal" ? (
-                                    <span className="rounded bg-secondary px-2 py-0.5 text-[11px] text-secondary-foreground">
-                                      best match
-                                    </span>
-                                  ) : null}
-                                </div>
-                              </TableCell>
-                              <TableCell>{job.salaryText || "—"}</TableCell>
-                              <TableCell>{formatJobFreshness(job)}</TableCell>
-                              <TableCell>
-                                {Number.isFinite(Number(job.score)) ? Math.round(Number(job.score)) : "n/a"}
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
+                              </div>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
                 <div className="flex items-center justify-between gap-2">
@@ -2237,10 +2676,6 @@ export default function App() {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <CardTitle className="text-base">Job detail</CardTitle>
-                    <CardDescription>
-                      Job {currentJobPosition.index >= 0 ? currentJobPosition.index + 1 : 0} of{" "}
-                      {currentJobPosition.total}
-                    </CardDescription>
                   </div>
                   <div className="flex items-center gap-2">
                     <Button
@@ -2269,31 +2704,35 @@ export default function App() {
               <CardContent className="space-y-4">
                 {currentJob ? (
                   <>
-                    <div className="space-y-1">
-                      <div className="text-xl font-semibold text-foreground">{currentJob.title}</div>
-                      <div className="text-sm text-muted-foreground">
-                        {currentJob.company || "Unknown company"} · {currentJob.location || "Unknown location"}
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="space-y-3">
+                        <div className="space-y-1">
+                          <div className="text-2xl font-semibold text-foreground">{currentJob.title}</div>
+                          <div className="text-sm text-muted-foreground">
+                            {currentJob.company || "Unknown company"} · {currentJob.location || "Unknown location"}
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                          <span className="rounded-full bg-secondary px-2 py-1">
+                            Status: {formatJobStatus(currentJob.status)}
+                          </span>
+                          {currentJob.bucket === "high_signal" ? (
+                            <span className="rounded-full bg-secondary px-2 py-1">best match</span>
+                          ) : null}
+                          {currentJobSourceAttributions.length > 0
+                            ? currentJobSourceAttributions.map((source) => (
+                                <span key={source.id} className="rounded-full border border-border/70 px-2 py-1">
+                                  {source.name}
+                                </span>
+                              ))
+                            : (
+                              <span className="rounded-full border border-border/70 px-2 py-1">Unknown source</span>
+                            )}
+                        </div>
                       </div>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                      <span className="rounded-full bg-secondary px-2 py-1">
-                        Date posted: {formatJobFreshness(currentJob)}
-                      </span>
-                      <span className="rounded-full bg-secondary px-2 py-1">
-                        Salary: {currentJob.salaryText || "Unknown"}
-                      </span>
-                      <span className="rounded-full bg-secondary px-2 py-1">
-                        Score: {Number.isFinite(Number(currentJob.score)) ? Math.round(Number(currentJob.score)) : "n/a"}
-                      </span>
-                      <span className="rounded-full bg-secondary px-2 py-1">
-                        Status: {formatJobStatus(currentJob.status)}
-                      </span>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
                       <Button
                         data-job-open="1"
+                        className="min-w-[152px] self-start"
                         disabled={jobsControlsDisabled || !currentJob.reviewTarget?.url}
                         onClick={() => {
                           void handleOpenCurrentJob();
@@ -2301,6 +2740,26 @@ export default function App() {
                       >
                         {currentJob.reviewTarget?.mode === "search" ? "Open Search" : "View Job"}
                       </Button>
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <div className="rounded-lg border border-border/70 bg-card px-4 py-3">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Date posted</div>
+                        <div className="mt-1 text-base font-semibold text-foreground">{formatJobFreshness(currentJob)}</div>
+                      </div>
+                      <div className="rounded-lg border border-border/70 bg-card px-4 py-3">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Salary</div>
+                        <div className="mt-1 text-base font-semibold text-foreground">{currentJob.salaryText || "Unknown"}</div>
+                      </div>
+                      <div className="rounded-lg border border-border/70 bg-card px-4 py-3">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Score</div>
+                        <div className="mt-1 text-base font-semibold text-foreground">
+                          {Number.isFinite(Number(currentJob.score)) ? Math.round(Number(currentJob.score)) : "n/a"}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-3">
                       <Button
                         variant="outline"
                         data-job-status="rejected"
@@ -2370,47 +2829,32 @@ export default function App() {
                         </dl>
                       </div>
                       <div className="rounded-lg border border-border/70 bg-card p-4">
-                        <div className="text-sm font-semibold text-foreground">Source</div>
-                        <ul className="mt-3 space-y-1 text-sm">
-                          {currentJobSourceAttributions.length > 0 ? (
-                            currentJobSourceAttributions.map((source) => (
-                              <li key={source.id} className="text-foreground">
-                                {source.name}
-                              </li>
-                            ))
-                          ) : (
-                            <li className="text-muted-foreground">Unknown source</li>
-                          )}
-                        </ul>
+                        <div className="text-sm font-semibold text-foreground">Optional fields</div>
+                        <dl className="mt-3 grid gap-2 text-sm">
+                          <div className="flex items-center justify-between gap-4">
+                            <dt className="text-muted-foreground">Employment type</dt>
+                            <dd className="text-right text-foreground">
+                              {currentJob.employmentType || "Unknown"}
+                            </dd>
+                          </div>
+                          <div className="flex items-center justify-between gap-4">
+                            <dt className="text-muted-foreground">Confidence</dt>
+                            <dd className="text-right text-foreground">
+                              {Number.isFinite(Number(currentJob.confidence))
+                                ? Math.round(Number(currentJob.confidence))
+                                : "n/a"}
+                            </dd>
+                          </div>
+                          <div className="flex items-center justify-between gap-4">
+                            <dt className="text-muted-foreground">Duplicate sources</dt>
+                            <dd className="text-right text-foreground">{currentJob.duplicateCount || 1}</dd>
+                          </div>
+                          <div className="flex items-center justify-between gap-4">
+                            <dt className="text-muted-foreground">Source type</dt>
+                            <dd className="text-right text-foreground">{currentJobSourceKinds}</dd>
+                          </div>
+                        </dl>
                       </div>
-                    </div>
-
-                    <div className="rounded-lg border border-border/70 bg-card p-4">
-                      <div className="text-sm font-semibold text-foreground">Optional fields</div>
-                      <dl className="mt-3 grid gap-2 text-sm md:grid-cols-2">
-                        <div className="flex items-center justify-between gap-4">
-                          <dt className="text-muted-foreground">Employment type</dt>
-                          <dd className="text-right text-foreground">
-                            {currentJob.employmentType || "Unknown"}
-                          </dd>
-                        </div>
-                        <div className="flex items-center justify-between gap-4">
-                          <dt className="text-muted-foreground">Confidence</dt>
-                          <dd className="text-right text-foreground">
-                            {Number.isFinite(Number(currentJob.confidence))
-                              ? Math.round(Number(currentJob.confidence))
-                              : "n/a"}
-                          </dd>
-                        </div>
-                        <div className="flex items-center justify-between gap-4">
-                          <dt className="text-muted-foreground">Duplicate sources</dt>
-                          <dd className="text-right text-foreground">{currentJob.duplicateCount || 1}</dd>
-                        </div>
-                        <div className="flex items-center justify-between gap-4">
-                          <dt className="text-muted-foreground">Source type</dt>
-                          <dd className="text-right text-foreground">{currentJobSourceKinds}</dd>
-                        </div>
-                      </dl>
                     </div>
 
                     <div className="rounded-lg border border-border/70 bg-secondary/20 p-4">
@@ -2437,251 +2881,6 @@ export default function App() {
           </div>
         </CardContent>
       </Card>
-      <Dialog open={searchesDialogOpen} onOpenChange={setSearchesDialogOpen}>
-        <DialogContent className="max-h-[90vh] max-w-[1220px] overflow-y-auto" data-searches-modal="1">
-          <DialogHeader>
-            <DialogTitle>My Job Searches</DialogTitle>
-            <DialogDescription>
-              Manage enabled sources, authentication checks, and per-source refresh actions.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-0">
-            <div className="mb-0 flex justify-end">
-              <Tabs
-                value={selectedSearchState}
-                onValueChange={setSearchState}
-                className="-mb-px"
-              >
-                <TabsList className="h-auto gap-0 rounded-t-xl rounded-b-none border border-border/80 border-b-0 bg-transparent p-0">
-                  <TabsTrigger
-                    value="enabled"
-                    className="rounded-none rounded-tl-xl border-r border-border/80 px-6 py-3 data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=inactive]:bg-secondary/20"
-                  >
-                    Enabled ({enabledRows.length})
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="disabled"
-                    className="rounded-none rounded-tr-xl px-6 py-3 data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=inactive]:bg-secondary/20"
-                  >
-                    Disabled ({disabledRows.length})
-                  </TabsTrigger>
-                </TabsList>
-              </Tabs>
-            </div>
-            <Card className="searches-card rounded-tr-none">
-              <CardHeader className="pb-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <CardTitle className="pt-1 text-base">Sources</CardTitle>
-                  {selectedSearchState === "enabled" ? (
-                    <label className="w-full text-sm font-medium text-foreground sm:ml-auto sm:w-64">
-                      Search frequency
-                      <Select value={searchRunCadence} onValueChange={setSearchRunCadence}>
-                        <SelectTrigger id="search-run-cadence" className="mt-2 w-full">
-                          <SelectValue placeholder="Select search frequency" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectGroup>
-                            <SelectLabel>Run cadence</SelectLabel>
-                            <SelectItem value="12h">12h (recommended)</SelectItem>
-                            <SelectItem value="daily">Daily</SelectItem>
-                            <SelectItem value="weekly">Weekly</SelectItem>
-                            <SelectItem value="cached">Use cached results (dev)</SelectItem>
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                    </label>
-                  ) : null}
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Source</TableHead>
-                      <TableHead>Last Run</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Found</TableHead>
-                      <TableHead>Filtered</TableHead>
-                      <TableHead>Dupes</TableHead>
-                      <TableHead>Imported</TableHead>
-                      <TableHead>Avg Score</TableHead>
-                      <TableHead className="w-[116px] pr-1">Action</TableHead>
-                      <TableHead className="w-[44px] pl-1 pr-2">
-                        <span className="sr-only">More actions</span>
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredRows.map((row) => {
-                      const statusPresentation = presentSearchStatus(row);
-                      const hasStatusDetails =
-                        Boolean(statusPresentation.statusDetail) ||
-                        Boolean(statusPresentation.formatterDetail);
-                      const runNowDisabled = controlsDisabled || !row.manualRefreshAllowed;
-                      const runNowLabel = runNowDisabled
-                        ? row.manualRefreshNextEligibleAt
-                          ? `Available in ${formatDurationFromNow(row.manualRefreshNextEligibleAt)}`
-                          : "Run now"
-                        : "Run now";
-
-                      return (
-                        <TableRow key={row.id} className={cn(!row.enabled && "bg-secondary/20")}>
-                          <TableCell>
-                            {row.searchUrl ? (
-                              <a
-                                href={row.searchUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="font-medium text-primary hover:underline"
-                              >
-                                {row.label} <span aria-hidden="true">↗</span>
-                              </a>
-                            ) : (
-                              <span className="font-medium">{row.label}</span>
-                            )}
-                          </TableCell>
-                          <TableCell>{formatRelativeTimestamp(row.capturedAt)}</TableCell>
-                          <TableCell className="max-w-[260px]">
-                            <div className="inline-flex items-center gap-2">
-                              <div className="inline-flex items-center gap-2 rounded-full bg-secondary/60 px-2 py-1 text-xs font-semibold">
-                                <span
-                                  aria-hidden="true"
-                                  className={cn("h-2 w-2 rounded-full", toneClassName(statusPresentation.tone))}
-                                />
-                                <span>{statusPresentation.label}</span>
-                              </div>
-                              {hasStatusDetails ? (
-                                <button
-                                  type="button"
-                                  className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-full border border-border text-[11px] font-semibold text-muted-foreground"
-                                  aria-label="Show status details"
-                                  onClick={() => {
-                                    const details = [
-                                      statusPresentation.statusDetail,
-                                      statusPresentation.formatterDetail
-                                        ? `formatter: ${statusPresentation.formatterDetail}`
-                                        : "",
-                                    ]
-                                      .filter(Boolean)
-                                      .join(" ");
-                                    toast({
-                                      title: `${row.label}: status details`,
-                                      description: details,
-                                    });
-                                  }}
-                                >
-                                  i
-                                </button>
-                              ) : null}
-                            </div>
-                          </TableCell>
-                          <TableCell>{statusPresentation.foundLabel}</TableCell>
-                          <TableCell>{row.filteredCount}</TableCell>
-                          <TableCell>{row.dedupedCount}</TableCell>
-                          <TableCell>{row.importedCount}</TableCell>
-                          <TableCell>{row.avgScore === null ? "n/a" : row.avgScore}</TableCell>
-                          <TableCell className="w-[116px] py-2 pl-1 pr-1">
-                            <div className="flex items-center justify-start whitespace-nowrap">
-                              {!row.enabled ? (
-                                <Button
-                                  size="sm"
-                                  className="h-8 shrink-0 px-3"
-                                  data-onboarding-enable-source={row.id}
-                                  disabled={controlsDisabled}
-                                  onClick={() => {
-                                    void handleEnableSource(row.id, row.label);
-                                  }}
-                                >
-                                  Enable
-                                </Button>
-                              ) : (
-                                <Button
-                                  size="sm"
-                                  className="h-8 shrink-0 px-3"
-                                  variant="secondary"
-                                  disabled={runNowDisabled}
-                                  title={`Manual refreshes remaining today: ${row.manualRefreshRemaining}`}
-                                  onClick={() => {
-                                    void handleRunSourceNow(row.id);
-                                  }}
-                                >
-                                  {runNowLabel}
-                                </Button>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell className="w-[44px] py-2 pl-1 pr-2 text-right align-middle">
-                            {row.enabled ? (
-                              <details className="relative inline-block shrink-0">
-                                <summary
-                                  className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-border text-sm [&::-webkit-details-marker]:hidden"
-                                  aria-label="Source actions"
-                                  title="Source actions"
-                                >
-                                  ⋯
-                                </summary>
-                                <div className="absolute right-full top-1/2 z-20 mr-2 min-w-[128px] -translate-y-1/2 rounded-md border border-border bg-card p-1 shadow-panel">
-                                  {row.authRequired && row.readiness.tone === "warn" ? (
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      className="w-full justify-start"
-                                      data-onboarding-check-source={row.id}
-                                      disabled={controlsDisabled}
-                                      onClick={() => {
-                                        void handleCheckAccess(row.id, row.label);
-                                      }}
-                                    >
-                                      Check access
-                                    </Button>
-                                  ) : null}
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="w-full justify-start"
-                                    data-onboarding-disable-source={row.id}
-                                    disabled={controlsDisabled}
-                                    onClick={() => {
-                                      void handleDisableSource(row.id, row.label);
-                                    }}
-                                  >
-                                    Disable
-                                  </Button>
-                                </div>
-                              </details>
-                            ) : null}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-
-                    {filteredRows.length > 0 ? (
-                      <TableRow className="search-totals-row border-t-2 border-border bg-primary/10 font-semibold hover:bg-primary/10">
-                        <TableCell>{totals.stateLabel}</TableCell>
-                        <TableCell>—</TableCell>
-                        <TableCell>—</TableCell>
-                        <TableCell>{totals.foundLabel}</TableCell>
-                        <TableCell>{totals.filtered}</TableCell>
-                        <TableCell>{totals.deduped}</TableCell>
-                        <TableCell>{totals.imported}</TableCell>
-                        <TableCell>{totals.avgScore}</TableCell>
-                        <TableCell>—</TableCell>
-                        <TableCell />
-                      </TableRow>
-                    ) : null}
-                  </TableBody>
-                </Table>
-
-                {filteredRows.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No sources in this tab.</p>
-                ) : null}
-              </CardContent>
-            </Card>
-          </div>
-        </DialogContent>
-      </Dialog>
-
       {authFlowSource ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
           <div className="absolute inset-0 bg-black/45" />

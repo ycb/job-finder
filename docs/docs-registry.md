@@ -69,6 +69,7 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/backlog-specs/p1-operations-tooling-ownership-metering.md` | Contributors/operators | Internal-vs-external tooling ownership and metering specification | Operational tooling and telemetry model changes |
 | `docs/backlog-specs/p1-operations-value-metrics-caps-donations.md` | Contributors/operators | User-value metrics, usage caps, and donation reset verification specification | Monetization/usage-control model changes |
 | `docs/backlog-specs/p1-operations-local-storage-retention.md` | Contributors/operators | Local storage management and automatic deletion specification | Storage retention and cleanup workflow changes |
+| `docs/backlog-specs/p1-operations-canonical-machine-local-storage.md` | Contributors/operators | Canonical machine-local storage specification | Runtime state-root or migration strategy changes |
 | `docs/backlog-specs/p1-source-expansion-greenhouse.md` | Contributors | Greenhouse source expansion specification | Greenhouse roadmap changes |
 | `docs/backlog-specs/p1-ux-multi-search-tabs.md` | Contributors | Multi-search tabs UX specification | Multi-context search UX changes |
 | `docs/backlog-specs/p2-brand-styles.md` | Contributors | Brand style roadmap specification | Brand roadmap changes |
@@ -77,6 +78,7 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/backlog-specs/p2-source-quality-employment-type-cleanup.md` | Contributors | Employment-type cleanup and canonicalization specification | Employment-type model, normalization, or filter strategy changes |
 | `docs/backlog-specs/p2-source-quality-remoteok-validation.md` | Contributors | RemoteOK quality-validation specification | RemoteOK validation changes |
 | `docs/backlog-specs/p2-source-quality-wellfound-bootstrap.md` | Contributors | Wellfound bootstrap quality specification | Wellfound bootstrap changes |
+| `docs/backlog-specs/p2-ux-score-histogram-filter.md` | Contributors | Score histogram filter icebox specification | Jobs filter hierarchy or score-range filtering roadmap changes |
 | `docs/backlog-specs/p2-ux-remove-searches-page.md` | Contributors | UX page-removal specification | UX roadmap changes |
 | `docs/releases/RELEASE_NOTE_TEMPLATE.md` | Contributors | Standard release note structure | Release note format updates |
 | `docs/releases/2026-03-06-refresh-policy-and-state.md` | Users, contributors | Dated release note for refresh policy/state foundation | Superseded by follow-up release notes or corrections |

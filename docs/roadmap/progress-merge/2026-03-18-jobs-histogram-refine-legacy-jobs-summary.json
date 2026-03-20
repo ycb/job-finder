@@ -1,0 +1,52 @@
+{
+  "ok": true,
+  "mode": "legacy",
+  "baseUrl": "http://127.0.0.1:4517",
+  "pageTitle": "Job Finder Dashboard",
+  "seedSummary": {
+    "activeJobIds": [
+      "jobs-smoke-new-01",
+      "jobs-smoke-new-02",
+      "jobs-smoke-new-03",
+      "jobs-smoke-new-04",
+      "jobs-smoke-new-05",
+      "jobs-smoke-new-06",
+      "jobs-smoke-new-07",
+      "jobs-smoke-new-08",
+      "jobs-smoke-new-09",
+      "jobs-smoke-new-10",
+      "jobs-smoke-new-11",
+      "jobs-smoke-new-12"
+    ],
+    "appliedJobId": "jobs-smoke-applied",
+    "skippedJobId": "jobs-smoke-skipped",
+    "rejectedJobId": "jobs-smoke-rejected"
+  },
+  "initialCounts": {
+    "active": 12,
+    "applied": 1,
+    "skipped": 1,
+    "rejected": 1
+  },
+  "finalCounts": {
+    "active": 9,
+    "applied": 2,
+    "skipped": 2,
+    "rejected": 2
+  },
+  "checks": [
+    "jobs_tab_render",
+    "jobs_pagination",
+    "source_filter_change",
+    "sort_change",
+    "mark_viewed",
+    "mark_applied",
+    "view_change_applied",
+    "mark_skipped",
+    "mark_rejected",
+    "view_change_rejected"
+  ],
+  "screenshotPath": "/Users/admin/.codex/worktrees/51f6/job-finder/docs/roadmap/progress-merge/2026-03-18-jobs-histogram-refine-legacy-jobs.png",
+  "dashboardJsonPath": "/Users/admin/.codex/worktrees/51f6/job-finder/docs/roadmap/progress-merge/2026-03-18-jobs-histogram-refine-legacy-jobs-dashboard.json",
+  "logPath": "/Users/admin/.codex/worktrees/51f6/job-finder/docs/roadmap/progress-merge/2026-03-18-jobs-histogram-refine-legacy-jobs-smoke.log"
+}

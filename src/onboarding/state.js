@@ -9,6 +9,14 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function monthKey(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return new Date().toISOString().slice(0, 7);
+  }
+  return date.toISOString().slice(0, 7);
+}
+
 function resolveSettingsPath(settingsPath = DEFAULT_SETTINGS_PATH) {
   return path.resolve(String(settingsPath || DEFAULT_SETTINGS_PATH));
 }
@@ -87,7 +95,11 @@ function defaultSettings() {
       plan: "free",
       dailyViewLimit: 10,
       dailyViewCount: 0,
-      dailyViewDate: null
+      dailyViewDate: null,
+      monthlySearchLimit: 10,
+      monthlySearchCount: 0,
+      monthlySearchMonth: null,
+      jobsInDbLimit: 500
     }
   };
 }
@@ -194,7 +206,20 @@ function normalizeSettings(rawSettings) {
       dailyViewDate:
         monetizationInput.dailyViewDate && String(monetizationInput.dailyViewDate).trim()
           ? String(monetizationInput.dailyViewDate)
-          : null
+          : null,
+      monthlySearchLimit: Number.isFinite(Number(monetizationInput.monthlySearchLimit))
+        ? Math.max(0, Math.round(Number(monetizationInput.monthlySearchLimit)))
+        : defaults.monetization.monthlySearchLimit,
+      monthlySearchCount: Number.isFinite(Number(monetizationInput.monthlySearchCount))
+        ? Math.max(0, Math.round(Number(monetizationInput.monthlySearchCount)))
+        : defaults.monetization.monthlySearchCount,
+      monthlySearchMonth:
+        monetizationInput.monthlySearchMonth && String(monetizationInput.monthlySearchMonth).trim()
+          ? String(monetizationInput.monthlySearchMonth)
+          : null,
+      jobsInDbLimit: Number.isFinite(Number(monetizationInput.jobsInDbLimit))
+        ? Math.max(0, Math.round(Number(monetizationInput.jobsInDbLimit)))
+        : defaults.monetization.jobsInDbLimit
     }
   };
 }
@@ -333,6 +358,33 @@ export function markOnboardingCompleted(settingsPath) {
       completedAt: nowIso()
     }
   }), settingsPath);
+}
+
+export function incrementMonthlySearchUsage(
+  settingsPath = DEFAULT_SETTINGS_PATH,
+  at = new Date()
+) {
+  const currentMonth = monthKey(at);
+  return updateUserSettings((settings) => {
+    const monetization =
+      settings?.monetization && typeof settings.monetization === "object"
+        ? settings.monetization
+        : {};
+    const previousMonth = String(monetization.monthlySearchMonth || "").trim();
+    const nextCount =
+      previousMonth === currentMonth
+        ? Math.max(0, Math.round(Number(monetization.monthlySearchCount || 0))) + 1
+        : 1;
+
+    return {
+      ...settings,
+      monetization: {
+        ...settings.monetization,
+        monthlySearchMonth: currentMonth,
+        monthlySearchCount: nextCount
+      }
+    };
+  }, settingsPath);
 }
 
 export function updateInstallConsent(

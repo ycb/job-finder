@@ -827,7 +827,19 @@ async function runLegacyFlow(page, baseUrl, timeoutMs) {
 async function runReactFlow(page, baseUrl, timeoutMs) {
   const checks = [];
 
-  await ensureTabActive(page.getByRole("tab", { name: "Jobs" }), timeoutMs, "Jobs tab");
+  const jobsTab = page.getByRole("tab", { name: "Jobs" });
+  if ((await jobsTab.count()) > 0) {
+    await ensureTabActive(jobsTab, timeoutMs, "Jobs tab");
+  } else {
+    await waitForAnyLocator(
+      [
+        () => page.locator('[data-jobs-find="1"]'),
+        () => page.getByRole("button", { name: /Run search/i }),
+      ],
+      timeoutMs,
+      "Jobs workspace did not render"
+    );
+  }
   checks.push("jobs_tab_render");
 
   if (
@@ -840,11 +852,12 @@ async function runReactFlow(page, baseUrl, timeoutMs) {
 
   await waitForAnyLocator(
     [
-      () => page.getByRole("button", { name: /Find Jobs/i }),
-      () => page.getByText("Find Jobs", { exact: false })
+      () => page.locator('[data-jobs-find="1"]'),
+      () => page.getByRole("button", { name: /Run search/i }),
+      () => page.getByRole("button", { name: /Find Jobs/i })
     ],
     timeoutMs,
-    "Find Jobs control did not render"
+    "Primary jobs search control did not render"
   );
   checks.push("find_jobs_render");
 
@@ -859,6 +872,7 @@ async function runReactFlow(page, baseUrl, timeoutMs) {
   await initialJob.click();
   const openInitialJobButton = await waitForAnyLocator(
     [
+      () => page.getByRole("button", { name: /^View Job$/i }),
       () => page.getByRole("button", { name: /^Open Job$/i }),
       () => page.getByRole("button", { name: /^Open Search$/i }),
       () => page.getByRole("button", { name: /^Open/i })
@@ -894,6 +908,7 @@ async function runReactFlow(page, baseUrl, timeoutMs) {
   await rejectedJob.click();
   const openRejectedJobButton = await waitForAnyLocator(
     [
+      () => page.getByRole("button", { name: /^View Job$/i }),
       () => page.getByRole("button", { name: /^Open Job$/i }),
       () => page.getByRole("button", { name: /^Open Search$/i }),
       () => page.getByRole("button", { name: /^Open/i })

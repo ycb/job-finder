@@ -6,6 +6,7 @@ import path from "node:path";
 
 import {
   getEffectiveOnboardingChannel,
+  incrementMonthlySearchUsage,
   inferChannel,
   loadUserSettings,
   markFirstRunCompleted,
@@ -144,6 +145,28 @@ test("updateOnboardingSources records explicit empty selection", () => {
     const loaded = loadUserSettings(settingsPath).settings;
     assert.deepEqual(loaded.onboarding.selectedSourceIds, []);
     assert.equal(typeof loaded.onboarding.sourcesConfiguredAt, "string");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("incrementMonthlySearchUsage tracks count by month and resets on month rollover", () => {
+  const { tempDir, settingsPath } = createTempSettingsPath();
+  try {
+    loadUserSettings(settingsPath);
+
+    const first = incrementMonthlySearchUsage(settingsPath, "2026-03-18T12:00:00.000Z").settings;
+    assert.equal(first.monetization.monthlySearchCount, 1);
+    assert.equal(first.monetization.monthlySearchMonth, "2026-03");
+    assert.equal(first.monetization.monthlySearchLimit, 10);
+
+    const second = incrementMonthlySearchUsage(settingsPath, "2026-03-19T12:00:00.000Z").settings;
+    assert.equal(second.monetization.monthlySearchCount, 2);
+    assert.equal(second.monetization.monthlySearchMonth, "2026-03");
+
+    const rolled = incrementMonthlySearchUsage(settingsPath, "2026-04-01T08:00:00.000Z").settings;
+    assert.equal(rolled.monetization.monthlySearchCount, 1);
+    assert.equal(rolled.monetization.monthlySearchMonth, "2026-04");
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

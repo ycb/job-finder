@@ -46,3 +46,25 @@ test("getEntitlementState does not enforce limits when flag disabled", () => {
   assert.equal(state.limitEnabled, false);
   assert.equal(state.remaining, null);
 });
+
+test("getEntitlementState exposes monthly search and jobs stored limits for free plan", () => {
+  const state = getEntitlementState(
+    {
+      monetization: {
+        plan: "free",
+        monthlySearchLimit: 10,
+        monthlySearchCount: 4,
+        monthlySearchMonth: "2026-03",
+        jobsInDbLimit: 500,
+      },
+    },
+    {
+      JOB_FINDER_ENABLE_MONETIZATION_LIMITS: "1",
+    }
+  );
+
+  assert.equal(state.monthlySearchLimit, 10);
+  assert.equal(state.searchesUsedThisMonth, 4);
+  assert.equal(state.searchesRemainingThisMonth, 6);
+  assert.equal(state.jobsInDbLimit, 500);
+});

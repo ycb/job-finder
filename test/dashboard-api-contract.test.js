@@ -132,6 +132,27 @@ test(
       assertStringOrNull(payload.onboarding.sourcesConfiguredAt, "dashboard.onboarding.sourcesConfiguredAt");
 
       assertObject(payload.searchCriteria, "dashboard.searchCriteria");
+      assertObject(payload.monetization, "dashboard.monetization");
+      assertRequiredPath(
+        typeof payload.monetization.monthlySearchLimit === "number",
+        "dashboard.monetization.monthlySearchLimit",
+        "expected number"
+      );
+      assertRequiredPath(
+        typeof payload.monetization.searchesUsedThisMonth === "number",
+        "dashboard.monetization.searchesUsedThisMonth",
+        "expected number"
+      );
+      assertRequiredPath(
+        typeof payload.monetization.jobsInDbLimit === "number",
+        "dashboard.monetization.jobsInDbLimit",
+        "expected number"
+      );
+      assertRequiredPath(
+        typeof payload.monetization.jobsStored === "number",
+        "dashboard.monetization.jobsStored",
+        "expected number"
+      );
       assertRequiredPath(Array.isArray(payload.sources), "dashboard.sources", "expected array");
       assertRequiredPath(payload.sources.length > 0, "dashboard.sources", "expected at least one source row");
 

@@ -189,6 +189,10 @@ The current backlog has strong item-level specs, but we need explicit epic-level
   - WHY: We need visible user value and enforceable usage controls to support a donation-backed early monetization model.
   - IMPACT: Clear value communication, configurable free-tier enforcement, and validated donation unlock flow.
   - NOTE: Specific variable values and tier definitions are in `docs/monetization.md`. Implementation must wire to those values: `FREE_RUNS_PER_MONTH=10`, `FREE_JOBS_IN_DB=500`, `DONATION_MINIMUM_USD=5`, `DONATION_UNLOCK_PERIOD_DAYS=30`, `SUPPORTER_RUNS_PER_MONTH=40`, `SUBSCRIPTION_MONTHLY_USD=9`. All values must be runtime-configurable without code changes.
+- `P1` Move app state to a single persistent machine-local storage folder, independent of repo/worktree. [Detailed spec](./backlog-specs/p1-operations-canonical-machine-local-storage.md)
+  - STATUS: Planned
+  - WHY: Current repo-relative `data/` and `config/` paths split one user's history across branches/worktrees and make existing-user QA, continuity, and trust fragile.
+  - IMPACT: Stable user state across branches, simpler QA, safer upgrades, and fewer accidental "empty app" experiences.
 - `P1` Add owner-only alerting for non-actionable source drift (schema/parser/formatter), while keeping user status UI actionable-only. [Detailed spec](./backlog-specs/p1-operations-source-drift-owner-alerting.md)
   - STATUS: Planned
   - WHY: Users cannot remediate parser/schema drift and should not be asked to.
@@ -257,6 +261,10 @@ The current backlog has strong item-level specs, but we need explicit epic-level
   - STATUS: Icebox
   - WHY: One-search-at-a-time flow slows iterative exploration.
   - IMPACT: Higher search throughput and easier side-by-side refinement.
+- `P2` Revisit score-distribution histogram filtering after MVP. [Detailed spec](./backlog-specs/p2-ux-score-histogram-filter.md)
+  - STATUS: Icebox
+  - WHY: Score is already well served by `Best match` and sort order, while salary remains the unique high-value numeric filter for MVP.
+  - IMPACT: Keeps the Jobs UI focused now while preserving the validated histogram code path as a future enhancement if score-based slicing becomes a real user need.
 
 **Theme: Governance & Licensing**
 - `P1` Adopt licensing split: MIT for core framework + adapter interface, BSL for MCP server + permission layer. [Detailed spec](./backlog-specs/p1-governance-licensing-split.md)

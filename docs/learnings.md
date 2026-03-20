@@ -207,6 +207,20 @@ As of 2026-03-06.
 - Surface only actionable status issues to users (currently auth-required). Route formatter/schema drift diagnostics to internal alerts instead of user-facing row details.
 - For search composer UX, support two states explicitly: pre-search (expanded controls) and post-search (collapsed orientation bar + chips for advanced constraints). Keep `Run search` scoped to the full composer, not nested inside one sub-module.
 - In Jobs IA, preserve this ordering to match user mental model: view tabs -> widgets -> filters -> split pane results/detail.
+- When the user asks for a standard shadcn interaction pattern (for example accordion), use the standard primitive instead of inventing a bespoke collapse treatment. Custom expand/collapse buttons drift visually and create unnecessary hierarchy noise.
+- Do not duplicate search and filter semantics for the same attribute without a clear distinction. `Minimum salary` in the search composer and post-search salary narrowing serve different purposes; label and place them so the user can tell intent targeting from results filtering.
+- Do not call a control a histogram unless it visibly shows the distribution, exposes concrete numeric ranges, and gives the user a direct way to set the active range. A row of nearly-flat bars with only min/max labels is not a usable filter.
+- When using a shadcn pattern (for example accordion), match the standard affordance closely. Do not invent alternate trigger copy like `Expand`/`Collapse` or substitute non-standard chevrons when the user asked for the default interaction language.
+- Do not over-instrument a filter widget. If the user can already read the active range from the slider bounds and input fields, avoid adding redundant summary blocks that compete with the control itself.
+- Do not add redundant labels, helper chips, or nested headers that restate what the user can already see from the primary control. If a control already communicates the state, extra chrome is usually noise.
+- Keep dense control regions physically compact. If secondary filters expand, they must open in an anchored panel/popover rather than pushing the whole layout onto a new line. Tabs, filters, and active-filter chips belong in one tight rail.
+- Do not give low-frequency archive/history states the same visual weight as primary discovery states. Keep `All / New / Best match` as first-class tabs and move lower-traffic archive views into a secondary control.
+- In a shared control rail, all dropdown-capable controls must use the same chevron language and comparable sizing. A mismatched trigger shape or icon reads as an unrelated component and breaks hierarchy.
+- Do not confuse alternate datasets with filters. `Applied / Skipped / Rejected` are separate views over different queues, not refinements of the active queue, and should not be presented like a filter of `All`.
+- When a control rail is carrying both options and current state, split it into two lines: top line for selectable controls, second line for applied chips/clear-all. Do not let chips compete with navigation controls in the same row.
+- Do not duplicate the parent view in a secondary selector. If `All` already exists as the primary leftmost control, the secondary dataset selector must default to a neutral label instead of echoing `All`.
+- When a parent dataset has alternate selections (`All / Applied / Skipped / Rejected`), the leftmost control itself should be the dataset selector. Do not split the same concept across a primary button and a separate orphaned dropdown.
+- Storage-path confusion is not just a development problem. If app state is checkout-relative, end users installed from a repo clone will experience fragmented history across branches and copies of the project.
 
 ## Dispatch and QA Commit Discipline
 
@@ -218,6 +232,7 @@ As of 2026-03-06.
 
 - A dual-mode smoke harness must assert mode-specific render markers, not just command success + screenshots. Otherwise `react` mode can silently fall back to legacy and still pass.
 - Smoke tooling must use deterministic local dependencies (project-pinned `playwright`) instead of ambient `npx` package resolution.
+- When the React shell intentionally removes legacy scaffolding (for example top-level page tabs or old CTA copy), update the smoke harness in the same change. Harnesses should lock to current user affordances (`Run search`, direct Jobs workspace render), not historical labels (`Find Jobs`, `Jobs` tab).
 - For dashboard mode proof, persist explicit evidence in smoke logs (for example `ui_mode_check=pass` + root page title).
 - For manual QA on local runtime (`/Users/admin/job-finder`), always sync that repo to `origin/main` immediately before launch; pushing from a worktree does not update the separate local runtime checkout automatically.
 - Use a single QA launch command (`npm run review:main:follow`) as source of truth; avoid mixing `git checkout/pull/review` ad-hoc steps that can leave stale commit + live server combinations.
@@ -227,3 +242,18 @@ As of 2026-03-06.
 - QA startup friction should be one-time per machine, not per branch. Prefer an always-on local review agent that follows the current branch/upstream and serves a fixed URL for Cmd-R.
 - Harden npm build entrypoints against accidental positional args (for example copied checkmark glyphs). Vite treats stray tokens as project roots (`✅/index.html`) and hard-fails; wrapper scripts should ignore non-option args.
 - Keep exactly one human-facing QA command for iterative UI validation (`npm run review:qa`), and make it deterministic: stop stale processes, lock to `127.0.0.1:4311`, follow branch upstream, and run React build watch. Splitting responsibilities across multiple commands (`review`, `review:qa`, `review:react:watch`) caused repeated stale-UI confusion.
+- If the QA runner cannot actually bind the documented fixed port, it must fail loudly or print the real bound URL as the single source of truth. Advertising `4311` while launching on `4312` recreates stale-UI confusion and breaks Cmd-R assumptions.
+- Do not give stakeholder QA instructions against uncommitted local worktree changes. If the user is expected to QA, the work must first be committed and pushed to a named branch they can check out, or the user must be explicitly told QA is blocked until that happens.
+- Do not present `npm run dashboard:web:build` as a QA step. It is only a compile step. Stakeholder QA requires a running review server on the same committed branch being evaluated.
+- Before handing off QA, verify this exact chain is true:
+  1. the implementation commit exists,
+  2. the branch is pushed,
+  3. the user-facing QA command targets that branch,
+  4. the command starts a reachable review server,
+  5. the printed URL is the real URL to refresh.
+- If any one of those conditions is false, do not tell the user to QA yet.
+- A failed `git checkout`/`git switch` invalidates every QA instruction that follows. If checkout errors (for example stale `.git/HEAD.lock`), stop immediately and fix the repository state first; do not keep giving run/refresh guidance against an unknown commit.
+- Before telling a stakeholder to refresh, explicitly verify the target checkout is on the expected branch and commit. A mismatched commit is a process failure, not a user error.
+- Repeated QA-process churn is itself a product/process bug. Prefer one reliable path over “maybe this command” variants, and do not change the prescribed QA flow mid-iteration unless the previous flow has been explicitly retired and validated.
+- For stakeholder QA, `review:qa` must be local-first, not branch-following. The accepted contract is: one terminal command per worktree, then `Cmd-R` for changes in that same worktree. Auto-pulling upstream belongs in a separate script, not the QA script.
+- Current "local-first" storage is repo-relative, not user-local. Treat this as an architectural bug: persistent app state should live in one canonical machine-local folder, with explicit overrides for isolated QA, rather than being silently split across branches/worktrees.
