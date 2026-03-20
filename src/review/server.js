@@ -1251,22 +1251,40 @@ async function runAllCaptures() {
   return runAllCapturesWithOptions({});
 }
 
-async function runAllCapturesWithOptions(options = {}) {
-  const sources = loadSources().sources.filter((source) => source.enabled);
+export async function runAllCapturesWithOptions(options = {}, overrides = {}) {
+  const loadSourcesFn = overrides.loadSourcesFn || loadSources;
+  const isBrowserCaptureSourceFn = overrides.isBrowserCaptureSourceFn || isBrowserCaptureSource;
+  const sourceWithCadenceCacheTtlFn =
+    overrides.sourceWithCadenceCacheTtlFn || sourceWithCadenceCacheTtl;
+  const getSourceRefreshDecisionFn =
+    overrides.getSourceRefreshDecisionFn || getSourceRefreshDecision;
+  const ensureBridgeFn = overrides.ensureBridgeFn || ensureBridgeForSources;
+  const captureSourceFn = overrides.captureSourceFn || captureSourceViaBridge;
+  const recordRefreshEventFn = overrides.recordRefreshEventFn || recordRefreshEvent;
+  const classifyRefreshErrorOutcomeFn =
+    overrides.classifyRefreshErrorOutcomeFn || classifyRefreshErrorOutcome;
+  const buildSourceSnapshotPathFn =
+    overrides.buildSourceSnapshotPathFn || buildSourceSnapshotPath;
+  const runSyncAndScoreFn = overrides.runSyncAndScoreFn || runSyncAndScore;
+  const normalizeRefreshProfileFn =
+    overrides.normalizeRefreshProfileFn || normalizeRefreshProfile;
+
+  const sources = loadSourcesFn().sources.filter((source) => source.enabled);
   const captures = [];
+  const failures = [];
   let completedCount = 0;
-  const refreshProfile = normalizeRefreshProfile(
+  const refreshProfile = normalizeRefreshProfileFn(
     options.refreshProfile || process.env.JOB_FINDER_REFRESH_PROFILE || "safe"
   );
   const liveBrowserSources = [];
   const decisions = new Map();
 
   for (const source of sources) {
-    if (!isBrowserCaptureSource(source)) {
+    if (!isBrowserCaptureSourceFn(source)) {
       continue;
     }
 
-    const decision = getSourceRefreshDecision(sourceWithCadenceCacheTtl(source, options), {
+    const decision = getSourceRefreshDecisionFn(sourceWithCadenceCacheTtlFn(source, options), {
       profile: refreshProfile,
       forceRefresh: Boolean(options.forceRefresh),
       statePath: options.refreshStatePath
@@ -1278,16 +1296,16 @@ async function runAllCapturesWithOptions(options = {}) {
   }
 
   if (liveBrowserSources.length > 0) {
-    await ensureBridgeForSources(liveBrowserSources);
+    await ensureBridgeFn(liveBrowserSources);
   }
 
   for (const source of sources) {
     let capture;
 
-    if (isBrowserCaptureSource(source)) {
+    if (isBrowserCaptureSourceFn(source)) {
       const decision =
         decisions.get(source.id) ||
-        getSourceRefreshDecision(sourceWithCadenceCacheTtl(source, options), {
+        getSourceRefreshDecisionFn(sourceWithCadenceCacheTtlFn(source, options), {
           profile: refreshProfile,
           forceRefresh: Boolean(options.forceRefresh),
           statePath: options.refreshStatePath
@@ -1306,27 +1324,43 @@ async function runAllCapturesWithOptions(options = {}) {
         };
       } else {
         try {
-          capture = await captureSourceViaBridge(
+          capture = await captureSourceFn(
             source,
-            buildSourceSnapshotPath(source)
+            buildSourceSnapshotPathFn(source)
           );
         } catch (error) {
-          const outcome = classifyRefreshErrorOutcome(error);
+          const outcome = classifyRefreshErrorOutcomeFn(error);
           const decision = decisions.get(source.id);
-          recordRefreshEvent({
+          const errorMessage = String(error?.message || error || "capture_failed");
+          recordRefreshEventFn({
             statePath: options.refreshStatePath,
             sourceId: source.id,
             outcome,
             mode: options.runMode === "manual" ? "manual" : "scheduled",
             at: new Date().toISOString(),
             cooldownMinutes:
-              outcome === "challenge" ? Number(decision?.policy?.cooldownMinutes || 0) : 0
+              outcome === "challenge" ? Number(decision?.policy?.cooldownMinutes || 0) : 0,
+            error: errorMessage
           });
-          throw error;
+          capture = {
+            provider: "bridge",
+            status: "failed",
+            outcome,
+            error: errorMessage,
+            jobsImported: 0,
+            nextEligibleAt:
+              outcome === "challenge" ? decision?.nextEligibleAt || null : null
+          };
+          failures.push({
+            sourceId: source.id,
+            sourceName: source.name,
+            outcome,
+            error: errorMessage
+          });
         }
 
         if (capture.status === "completed") {
-          recordRefreshEvent({
+          recordRefreshEventFn({
             statePath: options.refreshStatePath,
             sourceId: source.id,
             outcome: "success",
@@ -1350,16 +1384,15 @@ async function runAllCapturesWithOptions(options = {}) {
       ...capture
     });
 
-    if (capture.status !== "completed") {
-      break;
+    if (capture.status === "completed") {
+      completedCount += 1;
     }
-
-    completedCount += 1;
   }
 
   return {
     captures,
-    sync: completedCount > 0 ? runSyncAndScore() : null
+    failures,
+    sync: completedCount > 0 ? runSyncAndScoreFn() : null
   };
 }
 
