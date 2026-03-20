@@ -19,10 +19,7 @@ export function writeIndeedCaptureFile(source, jobs, options = {}) {
     jobsImported: Array.isArray(jobs) ? jobs.length : 0,
     capturedAt: options.capturedAt || new Date().toISOString(),
     pageUrl: options.pageUrl || null,
-    expectedCount:
-      Number.isFinite(Number(options.expectedCount)) && Number(options.expectedCount) > 0
-        ? Math.round(Number(options.expectedCount))
-        : null
+    expectedCount: null
   };
 }
 

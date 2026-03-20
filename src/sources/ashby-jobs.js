@@ -131,6 +131,46 @@ function extractQueryTerms(queryText) {
   return { phrases, tokens };
 }
 
+function normalizeCriteriaText(value) {
+  return normalizeText(value).toLowerCase();
+}
+
+function normalizeCriteriaArray(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((term) => normalizeCriteriaText(term))
+    .filter(Boolean);
+}
+
+function isAiLikeTerm(term) {
+  return term === "ai" || term === "ml" || term === "llm" || term === "genai";
+}
+
+function termMatchesText(term, text) {
+  if (!term) {
+    return true;
+  }
+
+  if (!text) {
+    return false;
+  }
+
+  if (isAiLikeTerm(term)) {
+    return /\b(ai|a\.i\.|genai|gen ai|llm|ml|machine learning|artificial intelligence)\b/.test(
+      text
+    );
+  }
+
+  if (term === "product manager") {
+    return /\bproduct manager\b/.test(text) || /\bpm\b/.test(text);
+  }
+
+  return text.includes(term);
+}
+
 function jobMatchesQuery(job, queryText) {
   const { phrases, tokens } = extractQueryTerms(queryText);
   if (!phrases.length && !tokens.length) {
@@ -142,8 +182,6 @@ function jobMatchesQuery(job, queryText) {
       job.title,
       job.company,
       job.location,
-      job.description,
-      job.summary,
       job.employmentType,
       job.salaryText
     ]
@@ -170,6 +208,64 @@ function jobMatchesQuery(job, queryText) {
     tokens.length <= 2 ? tokens.length : Math.max(2, Math.ceil(tokens.length * 0.5));
 
   return matchedTokenCount >= minRequired;
+}
+
+export function filterAshbyJobsForSearch(source, jobs, queryText = "") {
+  const inputJobs = Array.isArray(jobs) ? jobs : [];
+  const criteria =
+    source?.searchCriteria && typeof source.searchCriteria === "object"
+      ? source.searchCriteria
+      : null;
+
+  const titleCriteria = normalizeCriteriaText(criteria?.title);
+  const locationCriteria = normalizeCriteriaText(criteria?.location);
+  const hardIncludeTerms = normalizeCriteriaArray(criteria?.hardIncludeTerms);
+  const hardIncludeMode =
+    String(criteria?.hardIncludeMode || "").trim().toLowerCase() === "or" ? "or" : "and";
+
+  return inputJobs.filter((job) => {
+    const titleText = normalizeCriteriaText(job?.title);
+    const metaText = normalizeCriteriaText(
+      [
+        job?.title,
+        job?.company,
+        job?.location,
+        job?.employmentType,
+        job?.salaryText
+      ]
+        .filter(Boolean)
+        .join(" ")
+    );
+
+    if (titleCriteria && !termMatchesText(titleCriteria, titleText)) {
+      return false;
+    }
+
+    if (locationCriteria && !termMatchesText(locationCriteria, metaText)) {
+      return false;
+    }
+
+    if (hardIncludeTerms.length > 0) {
+      const matchedRequiredCount = hardIncludeTerms.reduce(
+        (count, term) => (termMatchesText(term, metaText) ? count + 1 : count),
+        0
+      );
+      const hardIncludeSatisfied =
+        hardIncludeMode === "or"
+          ? matchedRequiredCount > 0
+          : matchedRequiredCount >= hardIncludeTerms.length;
+
+      if (!hardIncludeSatisfied) {
+        return false;
+      }
+    }
+
+    if (queryText && !jobMatchesQuery(job, queryText)) {
+      return false;
+    }
+
+    return true;
+  });
 }
 
 function chooseFirstNonEmpty(...values) {
@@ -573,9 +669,7 @@ export function collectAshbyJobsFromSearch(source) {
       }
     }
 
-    if (queryText) {
-      jobs = jobs.filter((job) => jobMatchesQuery(job, queryText));
-    }
+    jobs = filterAshbyJobsForSearch(source, jobs, queryText);
   } else {
     const html = fetchSearchHtml(source.searchUrl, timeoutMs);
     jobs = parseAshbySearchHtml(html, source.searchUrl);

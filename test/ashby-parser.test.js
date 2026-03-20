@@ -7,6 +7,7 @@ import path from "node:path";
 import {
   collectAshbyJobsFromSearch,
   extractAshbyBoardUrlsFromGoogleHtml,
+  filterAshbyJobsForSearch,
   parseAshbySearchHtml,
   parseGoogleSearchQuery
 } from "../src/sources/ashby-jobs.js";
@@ -102,4 +103,61 @@ test("collectAshbyJobsFromSearch returns empty when capturePath exists but has n
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
+});
+
+test("filterAshbyJobsForSearch drops shell-contaminated off-target roles and keeps matching product roles", () => {
+  const source = {
+    id: "ashby-pm-roles",
+    type: "ashby_search",
+    searchUrl:
+      "https://www.google.com/search?q=site%3Aashbyhq.com+Product+manager+%22San+Francisco%22&tbs=qdr%3Aw",
+    searchCriteria: {
+      title: "Product manager",
+      location: "San Francisco",
+      hardIncludeTerms: ["ai"],
+      hardIncludeMode: "and"
+    }
+  };
+
+  const jobs = [
+    {
+      title: "Forward Deployed Product Manager, AI Agent",
+      company: "Cresta Jobs",
+      location: "San Francisco",
+      description: "Build AI agents for enterprise workflows.",
+      summary: "AI product leadership",
+      employmentType: "Full time",
+      salaryText: "$250K",
+      url: "https://jobs.ashbyhq.com/cresta/abc123"
+    },
+    {
+      title: "Software Engineer, AI DevX",
+      company: "Ramp Jobs",
+      location: "San Francisco",
+      description:
+        "Applied AI Engineer Engineering • San Francisco • Full time • Hybrid Product Manager Platform Product • San Francisco • Full time",
+      summary:
+        "Applied AI Engineer Engineering • San Francisco • Full time • Hybrid Product Manager Platform Product • San Francisco • Full time",
+      employmentType: "Full time",
+      salaryText: "$300K",
+      url: "https://jobs.ashbyhq.com/ramp/def456"
+    },
+    {
+      title: "Growth Product Manager",
+      company: "Lindy Jobs",
+      location: "San Francisco",
+      description: "Own growth loops for a workflow product.",
+      summary: "Growth product",
+      employmentType: "Full time",
+      salaryText: "$210K",
+      url: "https://jobs.ashbyhq.com/lindy/ghi789"
+    }
+  ];
+
+  const filtered = filterAshbyJobsForSearch(source, jobs);
+
+  assert.deepEqual(
+    filtered.map((job) => job.title),
+    ["Forward Deployed Product Manager, AI Agent"]
+  );
 });
