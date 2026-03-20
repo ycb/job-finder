@@ -6,6 +6,7 @@ import { collectBuiltInJobsFromSearch } from "./builtin-jobs.js";
 import { collectGoogleJobsFromSearch } from "./google-jobs.js";
 import { applySourceHardFilters } from "./hard-filter.js";
 import { collectIndeedJobsFromSearch } from "./indeed-jobs.js";
+import { sanitizeLinkedInJob } from "./linkedin-cleanup.js";
 import { collectRemoteOkJobsFromSearch } from "./remoteok-jobs.js";
 import { collectWellfoundJobsFromSearch } from "./wellfound-jobs.js";
 import { collectZipRecruiterJobsFromSearch } from "./ziprecruiter-jobs.js";
@@ -160,7 +161,7 @@ function parseSnapshotJobBlock(lines, startIndex, buttonLine) {
     return null;
   }
 
-  return {
+  return sanitizeLinkedInJob({
     externalId: null,
     title,
     company,
@@ -174,7 +175,9 @@ function parseSnapshotJobBlock(lines, startIndex, buttonLine) {
     summary: buttonLine.label,
     description: buttonLine.label,
     url: buildLinkedInSearchUrl(title, company)
-  };
+  }, {
+    sourceType: "linkedin_capture_file"
+  });
 }
 
 export function parseLinkedInSnapshot(snapshotText) {
@@ -205,12 +208,21 @@ export function writeLinkedInCaptureFile(
     throw new Error("LinkedIn capture write requires a linkedin_capture_file source.");
   }
 
+  const sanitizedJobs = Array.isArray(jobs)
+    ? jobs.map((job) =>
+        sanitizeLinkedInJob(job, {
+          sourceType: source.type,
+          sourceId: source.id
+        })
+      )
+    : [];
+
   const payload = {
     sourceId: source.id,
     sourceName: source.name,
     searchUrl: source.searchUrl,
     capturedAt: options.capturedAt || new Date().toISOString(),
-    jobs: Array.isArray(jobs) ? jobs : []
+    jobs: sanitizedJobs
   };
 
   if (options.pageUrl) {
@@ -276,11 +288,19 @@ export function collectLinkedInCaptureFile(source) {
       ? payload.capturedAt
       : new Date().toISOString();
 
-  return payload.jobs.map((job) => ({
-    ...job,
-    retrievedAt: capturedAt,
-    pageUrl: typeof payload.pageUrl === "string" ? payload.pageUrl : null
-  }));
+  return payload.jobs.map((job) =>
+    sanitizeLinkedInJob(
+      {
+        ...job,
+        retrievedAt: capturedAt,
+        pageUrl: typeof payload.pageUrl === "string" ? payload.pageUrl : null
+      },
+      {
+        sourceType: source.type,
+        sourceId: source.id
+      }
+    )
+  );
 }
 
 export function collectJobsFromSource(source) {
