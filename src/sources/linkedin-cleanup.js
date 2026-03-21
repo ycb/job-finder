@@ -278,6 +278,45 @@ function sanitizeLinkedInDescription(value) {
   return deduped.join(" · ");
 }
 
+function looksLikeLinkedInMetadataSummary(value) {
+  const tokens = splitDescriptionTokens(value);
+  if (tokens.length < 3) {
+    return false;
+  }
+
+  return tokens.every((token) => {
+    if (!token || token.length > 80) {
+      return false;
+    }
+    return !/[.!?]/.test(token);
+  });
+}
+
+function sanitizeLinkedInDetailDescription(value) {
+  return normalizeText(value)
+    .replace(/\bsee more\b/gi, " ")
+    .replace(/\bshow more\b/gi, " ")
+    .replace(/\babout the job\b[:\s-]*/i, "About the job ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function chooseLinkedInDescription(
+  { description = "", summary = "", detailDescription = "", detail_description = "" } = {}
+) {
+  const detail = sanitizeLinkedInDetailDescription(detailDescription || detail_description);
+  const fallback = sanitizeLinkedInDescription(description || summary || "");
+
+  if (
+    detail &&
+    (!looksLikeLinkedInMetadataSummary(detail) || detail.length > fallback.length + 40)
+  ) {
+    return detail;
+  }
+
+  return fallback;
+}
+
 export function isLinkedInSourceType(sourceType) {
   const normalized = normalizeText(sourceType).toLowerCase();
   return normalized === "linkedin_capture_file" || normalized === "mock_linkedin_saved_search";
@@ -306,7 +345,7 @@ export function sanitizeLinkedInJob(job = {}, context = {}) {
   });
   const company = inferLinkedInCompany(job, title, location);
   title = sanitizeLinkedInTitle(title, { company, location });
-  const description = sanitizeLinkedInDescription(job.description || job.summary || "");
+  const description = chooseLinkedInDescription(job);
   const salaryText = chooseLinkedInSalaryText(
     job.salaryText || job.salary_text,
     ""

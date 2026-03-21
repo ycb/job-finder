@@ -6,6 +6,7 @@ import path from "node:path";
 
 import {
   chooseLinkedInSalaryText,
+  chooseLinkedInDescription,
   sanitizeLinkedInJob,
   sanitizeLinkedInTitle
 } from "../src/sources/linkedin-cleanup.js";
@@ -109,6 +110,38 @@ test("sanitizeLinkedInJob drops numeric benefits residue from polluted descripti
   assert.equal(
     sanitized.description,
     "Head of Artificial Intelligence · Confidential Company · United States (Remote)"
+  );
+});
+
+test("chooseLinkedInDescription prefers narrative detail text over metadata summaries", () => {
+  assert.equal(
+    chooseLinkedInDescription({
+      description:
+        "Principal Product Manager · Replicant · United States (Remote) · Posted on March 18, 2026, 8:24 AM · $130,602.50 - $219,500.00",
+      detailDescription:
+        "About the job Replicant is hiring a Principal Product Manager to lead conversational AI platform strategy. You will own roadmap prioritization, partner with engineering, and define product bets for enterprise customers."
+    }),
+    "About the job Replicant is hiring a Principal Product Manager to lead conversational AI platform strategy. You will own roadmap prioritization, partner with engineering, and define product bets for enterprise customers."
+  );
+});
+
+test("sanitizeLinkedInJob prefers detail-first descriptions when present", () => {
+  const sanitized = sanitizeLinkedInJob({
+    sourceId: "linkedin-live-capture",
+    source: "linkedin_capture_file",
+    title: "Principal Product Manager",
+    company: "Replicant",
+    location: "United States (Remote)",
+    description:
+      "Principal Product Manager · Replicant · United States (Remote) · Posted on March 18, 2026, 8:24 AM · $130,602.50 - $219,500.00",
+    detailDescription:
+      "About the job Replicant is hiring a Principal Product Manager to lead conversational AI platform strategy. You will own roadmap prioritization, partner with engineering, and define product bets for enterprise customers.",
+    url: "https://www.linkedin.com/jobs/view/4388130875/"
+  });
+
+  assert.equal(
+    sanitized.description,
+    "About the job Replicant is hiring a Principal Product Manager to lead conversational AI platform strategy. You will own roadmap prioritization, partner with engineering, and define product bets for enterprise customers."
   );
 });
 

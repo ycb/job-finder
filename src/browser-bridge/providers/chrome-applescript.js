@@ -505,8 +505,115 @@ function buildExtractionScript() {
     return filtered;
   };
 
-  const normalizeTitle = (value) =>
-    normalize(value).replace(/\\s*\\(Verified job\\)\\s*/gi, " ");
+  const collapseRepeatedPhrase = (value) => {
+    let current = normalize(value);
+    if (!current) {
+      return "";
+    }
+
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (let index = 1; index <= Math.floor(current.length / 2); index += 1) {
+        const left = current.slice(0, index).trim();
+        const right = current.slice(index).trim();
+        if (!left || !right) {
+          continue;
+        }
+        if (right === left) {
+          current = left;
+          changed = true;
+          break;
+        }
+      }
+    }
+
+    return current;
+  };
+
+  const sanitizeLinkedInTitle = (value, { company = "", location = "" } = {}) => {
+    let sanitized = normalize(value)
+      .replace(/\\s*\\(Verified job\\)\\s*/gi, " ")
+      .replace(/\\s+with verification\\b/gi, " ")
+      .replace(/\\b(?:easy apply|actively reviewing applicants|saved|viewed|applied)\\b/gi, " ")
+      .replace(/\\b\\d+\\s+(?:school alumni works? here|school alumni work here|connections? works? here)\\b/gi, " ")
+      .replace(/posted on .+$/i, " ")
+      .replace(/benefits?.*$/i, " ")
+      .replace(/medical,.*$/i, " ")
+      .replace(/vision,.*$/i, " ")
+      .replace(/dental,.*$/i, " ")
+      .replace(/401\\(k\\).*$/i, " ");
+
+    const companyText = normalize(company);
+    if (companyText) {
+      const companyIndex = sanitized.toLowerCase().indexOf(companyText.toLowerCase());
+      if (companyIndex > 0) {
+        sanitized = sanitized.slice(0, companyIndex);
+      }
+    }
+
+    const locationText = normalize(location);
+    if (locationText) {
+      const locationIndex = sanitized.toLowerCase().indexOf(locationText.toLowerCase());
+      if (locationIndex > 0) {
+        sanitized = sanitized.slice(0, locationIndex);
+      }
+    }
+
+    sanitized = collapseRepeatedPhrase(normalize(sanitized));
+    sanitized = collapseRepeatedPhrase(normalize(sanitized.replace(/ · /g, " ")));
+    return normalize(sanitized);
+  };
+
+  const normalizeTitle = (value, context = {}) => sanitizeLinkedInTitle(value, context);
+
+  const parseLinkedInSalaryFloor = (value) => {
+    const normalized = normalize(value);
+    if (!normalized) {
+      return null;
+    }
+
+    const match = normalized.match(/\\$\\s*([\\d,]+(?:\\.\\d+)?)([kKmM])?/);
+    if (!match) {
+      return null;
+    }
+
+    const amount = Number(String(match[1]).replace(/,/g, ""));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return null;
+    }
+
+    const suffix = String(match[2] || "").toLowerCase();
+    if (suffix === "m") {
+      return amount * 1_000_000;
+    }
+    if (suffix === "k") {
+      return amount * 1_000;
+    }
+
+    return amount;
+  };
+
+  const isPlausibleLinkedInSalaryText = (value) => {
+    const normalized = normalize(value);
+    if (!normalized) {
+      return false;
+    }
+    const salaryFloor = parseLinkedInSalaryFloor(normalized);
+    if (!Number.isFinite(salaryFloor)) {
+      return false;
+    }
+    return salaryFloor >= 20_000 && salaryFloor <= 1_500_000;
+  };
+
+  const chooseLinkedInSalaryText = (cardSalaryText, detailSalaryText) => {
+    const card = normalize(cardSalaryText);
+    if (card) {
+      return card;
+    }
+    const detail = normalize(detailSalaryText);
+    return isPlausibleLinkedInSalaryText(detail) ? detail : null;
+  };
 
   const buildSearchUrl = (title, company) => {
     const params = new URLSearchParams({
@@ -619,25 +726,35 @@ function buildExtractionScript() {
       clickTarget.click();
     }
 
-    const selectors = [
+    const metadataSelectors = [
       ".jobs-unified-top-card__primary-description-container",
       ".jobs-unified-top-card__job-insight-view-model-secondary",
-      ".jobs-box__html-content",
-      ".jobs-description-content__text",
       ".jobs-search__job-details--wrapper",
       ".jobs-search__job-details",
       ".scaffold-layout__detail"
     ];
+    const descriptionSelectors = [
+      ".jobs-box__html-content",
+      ".jobs-description-content__text"
+    ];
 
-    let bestText = "";
+    let bestMetadataText = "";
+    let bestDescriptionText = "";
     let resolvedExternalId = extractLinkedInExternalId(location.href);
     const startedAt = Date.now();
-    while (Date.now() - startedAt < 70) {
-      for (const selector of selectors) {
+    while (Date.now() - startedAt < 350) {
+      for (const selector of metadataSelectors) {
         const node = document.querySelector(selector);
         const text = normalize(node?.innerText || node?.textContent || "");
-        if (text.length > bestText.length) {
-          bestText = text;
+        if (text.length > bestMetadataText.length) {
+          bestMetadataText = text;
+        }
+      }
+      for (const selector of descriptionSelectors) {
+        const node = document.querySelector(selector);
+        const text = normalize(node?.innerText || node?.textContent || "");
+        if (text.length > bestDescriptionText.length) {
+          bestDescriptionText = text;
         }
       }
       const hrefNode = document.querySelector(
@@ -650,11 +767,21 @@ function buildExtractionScript() {
         resolvedExternalId = hintedExternalId;
       }
 
-      const hints = parseDetailHints(bestText);
-      if (hints.postedAt || hints.salaryText || hints.employmentType || hints.location) {
+      const combinedText = [bestMetadataText, bestDescriptionText]
+        .filter(Boolean)
+        .join(" ");
+      const hints = parseDetailHints(combinedText);
+      if (
+        bestDescriptionText.length >= 160 ||
+        hints.postedAt ||
+        hints.salaryText ||
+        hints.employmentType ||
+        hints.location
+      ) {
         return {
           ...hints,
-          externalId: resolvedExternalId
+          externalId: resolvedExternalId,
+          descriptionText: bestDescriptionText
         };
       }
 
@@ -662,8 +789,9 @@ function buildExtractionScript() {
     }
 
     return {
-      ...parseDetailHints(bestText),
-      externalId: resolvedExternalId
+      ...parseDetailHints([bestMetadataText, bestDescriptionText].filter(Boolean).join(" ")),
+      externalId: resolvedExternalId,
+      descriptionText: bestDescriptionText
     };
   };
 
@@ -698,7 +826,7 @@ function buildExtractionScript() {
       extractLinkedInExternalId(directUrl) ||
       (cardExternalId.match(/\\d{6,}/)?.[0] || "") ||
       null;
-    const domTitle = normalizeTitle(titleAnchor?.innerText || titleAnchor?.textContent || "");
+    const domTitle = normalize(titleAnchor?.innerText || titleAnchor?.textContent || "");
     const domCompany = normalize(companyNode?.innerText || companyNode?.textContent || "");
     const domLocation = normalize(locationNode?.innerText || locationNode?.textContent || "");
 
@@ -707,7 +835,10 @@ function buildExtractionScript() {
       continue;
     }
 
-    let title = domTitle || normalizeTitle(cardLines[0]);
+    let title = sanitizeLinkedInTitle(domTitle || cardLines[0], {
+      company: domCompany || cardLines[1] || "",
+      location: domLocation || cardLines[2] || ""
+    });
     let company = domCompany || normalize(cardLines[1]);
     let location = domLocation || normalize(cardLines[2] || "");
 
@@ -780,10 +911,22 @@ function buildExtractionScript() {
       detailReadBudget -= 1;
     }
     const resolvedExternalId = externalId || detailHints.externalId || null;
-    const salaryText = cardSalaryText || detailHints.salaryText || null;
+    const salaryText = chooseLinkedInSalaryText(cardSalaryText, detailHints.salaryText);
     const postedLine = cardPostedLine || detailHints.postedAt || null;
     const employmentType = cardEmploymentType || detailHints.employmentType || null;
     const resolvedLocation = location || detailHints.location || "";
+    const detailDescription = normalize(detailHints.descriptionText || "") || null;
+    const cleanedDescription = normalize(
+      [
+        company,
+        resolvedLocation,
+        postedLine,
+        employmentType,
+        salaryText
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    );
 
     const easyApply = /easy apply/i.test(card.innerText || "");
 
@@ -813,8 +956,9 @@ function buildExtractionScript() {
       employmentType,
       easyApply,
       salaryText,
-      summary: normalize((card.innerText || card.textContent || "")).slice(0, 500),
-      description: normalize(cardLines.join(" · ")),
+      summary: normalize([title, company, resolvedLocation].filter(Boolean).join(" · ")).slice(0, 500),
+      description: detailDescription || cleanedDescription,
+      detailDescription,
       extractorProvenance: {
         postedAt: cardPostedLine ? "card" : detailHints.postedAt ? "detail" : "fallback_unknown",
         salaryText: cardSalaryText ? "card" : detailHints.salaryText ? "detail" : "fallback_unknown",
@@ -824,7 +968,7 @@ function buildExtractionScript() {
             ? "detail"
             : "fallback_unknown",
         location: location ? "card" : detailHints.location ? "detail" : "fallback_unknown",
-        description: "card"
+        description: detailDescription ? "detail" : "card"
       },
       url: href
     });
