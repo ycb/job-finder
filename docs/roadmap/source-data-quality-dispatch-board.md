@@ -9,8 +9,8 @@ As of 2026-03-20.
 | `L1` | LinkedIn source-quality repair | soft | `codex/controller-source-data-quality` | `019d0a14-d26b-7240-b5ad-c4c12f751c64` | integrated | Query tightening and cleanup changes integrated; next step is live QA against the user's real auth/session state. |
 | `L2` | Indeed degraded-but-honest behavior | soft | `codex/controller-source-data-quality` | `019d0a14-dc38-76f1-a45c-bb3fb9c8dba3` | integrated | Verified current branch behavior is already correct for challenge classification, bogus-total suppression, and latest-attempt vs last-success reporting; remaining risk is live wording variance only. |
 | `L3` | ZipRecruiter job-specific deep-link fix | soft | `codex/controller-source-data-quality` | `019d0a27-f116-79b0-b5b5-7daf3449269f` | integrated | Posting-specific `lk=`/`uuid` deep links are preserved through normalization and review-target resolution; controller targeted verification passed (`25/25` including Zip and Built In guard coverage). |
-| `L4` | YC Jobs MVP source build | soft | `codex/controller-source-data-quality` | `019d0a27-f834-7962-8c0b-b6340f0aaf24` | in progress (`~20%`) | Primary worker owns the adapter/capture/import path. Controller is assigning support capacity for registration/schema/cache-policy so the lane stops stalling on broad surface area. |
-| `L5` | Levels.fyi MVP source build | soft | `codex/controller-source-data-quality` | `019d0d86-efcb-71f2-aa59-c07777aa6732` | in progress (re-scoped) | Primary worker owns the direct HTTP adapter and bounded detail enrichment. Controller is assigning support capacity for registration/tests so the lane has active follow-up instead of idle polling. |
+| `L4` | YC Jobs MVP source build | soft | `codex/controller-source-data-quality` | `019d0a27-f834-7962-8c0b-b6340f0aaf24` | integrated | Direct HTTP adapter, parser, capture helpers, registration, schema acceptance, cache policy, and dashboard/source-row contract all pass in controller verification. Reusable source note landed at `docs/roadmap/yc-jobs-http-direct-notes.md`. |
+| `L5` | Levels.fyi MVP source build | soft | `codex/controller-source-data-quality` | `019d0d86-efcb-71f2-aa59-c07777aa6732` | integrated | Direct HTTP adapter, bounded detail enrichment, registration, schema acceptance, cache policy, and dashboard/source-row contract all pass in controller verification. |
 | `L6` | Built In baseline guard + regression rubric | soft | `codex/controller-source-data-quality` | `019d0d86-fbbd-7270-a7b9-d32ac13700f2` | integrated | Built In baseline rubric is landed and passing in controller verification; use this source as the quality reference for direct non-auth MVP sources. |
 
 ## Completed Non-MVP Spikes
@@ -47,8 +47,10 @@ As of 2026-03-20.
   - `Levels.fyi` must be built
 - Returned lanes should be reviewed and either integrated or explicitly deferred immediately; controller should not leave completed lane output idle.
 - While build lanes remain open, controller must actively recycle freed worker capacity onto them with disjoint ownership and explicit follow-up checkpoints.
+- Shared registration/config support work does not count as a completed lane until controller verification proves the new source types survive `/api/dashboard` source-row contracts, not just registration tests.
 
 ## Current Risks
 
-- Current branch still contains uncommitted controller-side backlog/docs updates.
+- Current branch still contains uncommitted controller-side backlog/docs updates and integrated source-build files.
 - Existing-user QA remains constrained by checkout-local storage until canonical machine-local storage ships.
+- MVP source slate still needs live-user validation for LinkedIn import quality and Indeed degraded behavior even though controller-side targeted suites are green.

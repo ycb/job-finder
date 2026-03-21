@@ -12,6 +12,8 @@ const SUPPORTED_SOURCE_TYPES = new Set([
   "google_search",
   "indeed_search",
   "ziprecruiter_search",
+  "yc_jobs",
+  "levelsfyi_search",
   "remoteok_search"
 ]);
 

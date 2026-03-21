@@ -590,6 +590,8 @@ export function validateSources(raw) {
         "ashby_search",
         "indeed_search",
         "ziprecruiter_search",
+        "yc_jobs",
+        "levelsfyi_search",
         "remoteok_search"
       ]);
       if (!allowedTypes.has(type)) {
@@ -755,6 +757,8 @@ export function validateSources(raw) {
           type === "ashby_search" ||
           type === "indeed_search" ||
           type === "ziprecruiter_search" ||
+          type === "yc_jobs" ||
+          type === "levelsfyi_search" ||
           type === "remoteok_search") &&
         source.capturePath !== undefined
       ) {
@@ -771,6 +775,8 @@ export function validateSources(raw) {
         type === "ashby_search" ||
         type === "indeed_search" ||
         type === "ziprecruiter_search" ||
+        type === "yc_jobs" ||
+        type === "levelsfyi_search" ||
         type === "remoteok_search"
       ) {
         if (source.maxJobs !== undefined) {
@@ -806,6 +812,8 @@ export function validateSources(raw) {
         type === "ashby_search" ||
         type === "indeed_search" ||
         type === "ziprecruiter_search" ||
+        type === "yc_jobs" ||
+        type === "levelsfyi_search" ||
         type === "remoteok_search"
       ) {
         if (source.maxPages !== undefined) {

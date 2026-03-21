@@ -7,7 +7,12 @@ import {
   resolveSourceRefreshState
 } from "./refresh-state.js";
 
-const HTTP_SOURCE_TYPES = new Set(["builtin_search", "google_search"]);
+const HTTP_SOURCE_TYPES = new Set([
+  "builtin_search",
+  "google_search",
+  "yc_jobs",
+  "levelsfyi_search"
+]);
 const REFRESH_PROFILES = new Set(["safe", "probe", "mock"]);
 
 function normalizeExpectedCountValue(value) {

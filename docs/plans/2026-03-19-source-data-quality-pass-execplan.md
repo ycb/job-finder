@@ -44,6 +44,10 @@ The controller is responsible for collecting those artifacts as lane outputs are
 - [x] (2026-03-21 00:47Z) Controller updated the execution model so every MVP source lane must return reusable source-type artifacts (search-construction notes, extraction contract, degradation semantics, and verification pattern) alongside code.
 - [ ] (2026-03-20 19:05Z) Scoped lane `L5` as a direct HTTP source build for Levels.fyi. Approved assumption: if the search page is thin, the adapter may perform source-specific detail-page enrichment as long as the canonical Levels.fyi detail URL remains the review target and the scope stays MVP-tight.
 - [x] (2026-03-20 18:18Z) Controller completed the MVP-scope Indeed lane re-check. Current branch already satisfies the degraded-but-honest gate: challenge classification, bogus-total suppression, and latest-attempt reporting all verified in a fresh targeted suite (`30/30`). Remaining risk is live wording variance on new challenge pages.
+- [x] (2026-03-21 00:58Z) Controller confirmed `YC Jobs` adapter/parser/capture work is present in the branch and passes targeted adapter tests (`4/4`). Remaining YC work is limited to the shared registration/schema/cache-policy surface owned by the support lane.
+- [x] (2026-03-21 01:18Z) Controller integrated `YC Jobs` end-to-end for MVP scope. Registration, schema validation, cache policy, and dashboard source-row contract now pass alongside the adapter/parser/capture suite.
+- [x] (2026-03-21 01:18Z) Controller integrated `Levels.fyi` end-to-end for MVP scope. Direct HTTP adapter, bounded detail enrichment, registration, schema validation, cache policy, and dashboard source-row contract all pass in targeted verification.
+- [x] (2026-03-21 01:18Z) Controller resolved the final support-lane blocker by normalizing dashboard source rows so newly added HTTP-direct sources always surface either `formatterDiagnostics` or `criteriaAccountability` instead of violating the source-row API contract.
 
 ## Surprises & Discoveries
 
@@ -76,6 +80,9 @@ The controller is responsible for collecting those artifacts as lane outputs are
 
 - Observation: Built In is the cleanest direct non-auth reference source for this repo.
   Evidence: the current `builtin-sf-ai-pm` capture file contains 25 plausible PM jobs, `expectedCount: null`, and stable salary/location/title metadata without auth/browser challenge noise. That is the closest existing example of the source class Levels.fyi should satisfy.
+
+- Observation: new HTTP-direct source types can be fully registered and verified while still failing the UI contract if the dashboard row serializer does not guarantee one accountability object.
+  Evidence: `test/dashboard-api-contract.test.js` failed for `yc_jobs` / `levelsfyi_search` until `/src/review/server.js` seeded an empty `criteriaAccountability` object when both diagnostics surfaces were absent.
 
 ## Decision Log
 
@@ -157,6 +164,9 @@ Verification evidence:
   - `npm test` → `304` passing, `0` failed
 - React build:
   - `npm run dashboard:web:build` → passed
+- Source-build targeted suites:
+  - `node --test test/yc-jobs.test.js test/yc-capture.test.js test/levelsfyi-jobs.test.js` → `8` passing, `0` failed
+  - `node --test test/dashboard-api-contract.test.js test/yc-source-registration.test.js test/levelsfyi-source-registration.test.js test/cache-policy.test.js test/sources-schema.test.js test/source-contracts.test.js` → `27` passing, `0` failed
 - Direct module/data inspection:
   - capture summary inspection now reports `expectedCount: null` for BuiltIn, Ashby, Indeed, and Google instead of coercing unknowns to `0` or leaving Indeed at `200000`
   - reevaluation against current criteria shows that low averages are mostly caused by hard-filter zeroes rather than uniformly poor kept-job scores

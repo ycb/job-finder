@@ -15,6 +15,8 @@ import {
 
 test("getDefaultCacheTtlHours uses shorter default for HTTP sources", () => {
   assert.equal(getDefaultCacheTtlHours("builtin_search"), 12);
+  assert.equal(getDefaultCacheTtlHours("yc_jobs"), 12);
+  assert.equal(getDefaultCacheTtlHours("levelsfyi_search"), 12);
   assert.equal(getDefaultCacheTtlHours("linkedin_capture_file"), 24);
 });
 

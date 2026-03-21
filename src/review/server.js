@@ -1765,7 +1765,13 @@ function buildDashboardData(limit = 200) {
         id: source.id,
         name: source.name,
         searchUrl: source.searchUrl,
-        criteriaAccountability: source.criteriaAccountability || null,
+        criteriaAccountability:
+          source.criteriaAccountability || {
+            appliedInUrl: [],
+            appliedInUiBootstrap: [],
+            appliedPostCapture: [],
+            unsupported: []
+          },
         formatterDiagnostics: source.formatterDiagnostics || null,
         recencyWindow: source.recencyWindow || null,
         enabled: source.enabled,

@@ -71,6 +71,7 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/backlog-specs/p1-operations-value-metrics-caps-donations.md` | Contributors/operators | User-value metrics, usage caps, and donation reset verification specification | Monetization/usage-control model changes |
 | `docs/backlog-specs/p1-operations-local-storage-retention.md` | Contributors/operators | Local storage management and automatic deletion specification | Storage retention and cleanup workflow changes |
 | `docs/backlog-specs/p1-operations-canonical-machine-local-storage.md` | Contributors/operators | Canonical machine-local storage specification | Runtime state-root or migration strategy changes |
+| `docs/backlog-specs/p1-direct-http-source-registration-checklist.md` | Contributors | Direct HTTP source registration checklist | Reusable registration/config/reporting expectations for direct HTTP sources |
 | `docs/backlog-specs/p1-source-slate-mvp.md` | Stakeholders, contributors | Approved six-source MVP slate specification | MVP source-scope changes |
 | `docs/backlog-specs/p1-source-quality-ziprecruiter-direct-job-url.md` | Contributors | ZipRecruiter direct-job URL fix specification | ZipRecruiter launch-blocker changes |
 | `docs/backlog-specs/p1-source-expansion-yc-mvp.md` | Contributors | YC Jobs MVP source addition specification | YC Jobs launch-scope source changes |

@@ -1314,6 +1314,8 @@ function addLiveFetchSource(
     "ashby_search",
     "indeed_search",
     "ziprecruiter_search",
+    "yc_jobs",
+    "levelsfyi_search",
     "remoteok_search"
   ]);
   if (!allowedTypes.has(type)) {
@@ -1378,6 +1380,8 @@ function addLiveFetchSource(
     type === "ashby_search" ||
     type === "indeed_search" ||
     type === "ziprecruiter_search" ||
+    type === "yc_jobs" ||
+    type === "levelsfyi_search" ||
     type === "remoteok_search"
   ) {
     const capturesDir = path.resolve(path.dirname(resolvedPath), "..", "data", "captures");
@@ -1439,6 +1443,18 @@ export function addZipRecruiterSearchSource(
   sourcesPath = "config/sources.json"
 ) {
   return addLiveFetchSource(name, searchUrl, "ziprecruiter_search", sourcesPath);
+}
+
+export function addYcJobsSource(name, searchUrl, sourcesPath = "config/sources.json") {
+  return addLiveFetchSource(name, searchUrl, "yc_jobs", sourcesPath);
+}
+
+export function addLevelsfyiSearchSource(
+  name,
+  searchUrl,
+  sourcesPath = "config/sources.json"
+) {
+  return addLiveFetchSource(name, searchUrl, "levelsfyi_search", sourcesPath);
 }
 
 export function addRemoteOkSearchSource(

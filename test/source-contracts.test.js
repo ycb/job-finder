@@ -205,3 +205,48 @@ test("resolveSourceContract prefers sourceId-specific contract over type default
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test("loadSourceContracts accepts YC Jobs and Levels.fyi source types", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-finder-source-contracts-new-types-"));
+  const contractsPath = path.join(tempDir, "source-contracts.json");
+
+  try {
+    fs.writeFileSync(
+      contractsPath,
+      JSON.stringify(
+        {
+          version: "test",
+          contracts: [
+            {
+              sourceType: "yc_jobs",
+              contractVersion: "1.0.0",
+              lastVerified: "2026-03-07",
+              criteriaMapping: {},
+              extraction: { requiredFields: ["title"] },
+              expectedCountStrategy: "none",
+              paginationStrategy: "none"
+            },
+            {
+              sourceType: "levelsfyi_search",
+              contractVersion: "1.0.0",
+              lastVerified: "2026-03-07",
+              criteriaMapping: {},
+              extraction: { requiredFields: ["title"] },
+              expectedCountStrategy: "none",
+              paginationStrategy: "none"
+            }
+          ]
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    const loaded = loadSourceContracts(contractsPath);
+    assert.ok(loaded.byType.has("yc_jobs"));
+    assert.ok(loaded.byType.has("levelsfyi_search"));
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});

@@ -44,6 +44,24 @@ const SOURCE_LIBRARY = Object.freeze([
     cacheTtlHours: 24
   },
   {
+    id: "yc-product-jobs",
+    name: "YC Jobs",
+    type: "yc_jobs",
+    enabled: false,
+    searchUrl: "https://www.workatastartup.com/jobs",
+    maxJobs: 50,
+    cacheTtlHours: 12
+  },
+  {
+    id: "levelsfyi-ai-pm",
+    name: "Levels.fyi",
+    type: "levelsfyi_search",
+    enabled: false,
+    searchUrl: "https://www.levels.fyi/jobs/",
+    maxJobs: 50,
+    cacheTtlHours: 12
+  },
+  {
     id: "google-ai-pm",
     name: "Google",
     type: "google_search",

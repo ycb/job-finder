@@ -249,6 +249,40 @@ test("validateSources rejects invalid hardFilter values", () => {
   );
 });
 
+test("validateSources accepts YC Jobs and Levels.fyi direct HTTP sources", () => {
+  const parsed = validateSources({
+    sources: [
+      {
+        id: "yc-product-jobs",
+        name: "YC Jobs",
+        type: "yc_jobs",
+        enabled: true,
+        searchUrl: "https://www.workatastartup.com/jobs",
+        capturePath: "data/captures/yc-product-jobs.json",
+        maxJobs: 50,
+        cacheTtlHours: 12
+      },
+      {
+        id: "levelsfyi-ai-pm",
+        name: "Levels.fyi",
+        type: "levelsfyi_search",
+        enabled: true,
+        searchUrl: "https://www.levels.fyi/jobs/",
+        capturePath: "data/captures/levelsfyi-ai-pm.json",
+        maxJobs: 40,
+        cacheTtlHours: 12
+      }
+    ]
+  });
+
+  assert.equal(parsed.sources[0].type, "yc_jobs");
+  assert.equal(parsed.sources[0].capturePath, "data/captures/yc-product-jobs.json");
+  assert.equal(parsed.sources[0].maxJobs, 50);
+  assert.equal(parsed.sources[1].type, "levelsfyi_search");
+  assert.equal(parsed.sources[1].capturePath, "data/captures/levelsfyi-ai-pm.json");
+  assert.equal(parsed.sources[1].maxJobs, 40);
+});
+
 test("validateSources rejects invalid formatterDiagnostics values", () => {
   assert.throws(() =>
     validateSources({
