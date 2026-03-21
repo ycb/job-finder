@@ -45,6 +45,20 @@ test("buildSearchUrlForSourceType defaults LinkedIn base to classic search endpo
   assert.equal(parsed.searchParams.get("keywords"), "product manager ai");
 });
 
+test("buildSearchUrlForSourceType includes LinkedIn hard include terms in the query", () => {
+  const result = buildSearchUrlForSourceType("linkedin_capture_file", {
+    title: "product manager",
+    hardIncludeTerms: ["ai"],
+    scoreKeywords: ["growth", "cleantech"]
+  });
+
+  const parsed = new URL(result.url);
+  assert.equal(parsed.pathname, "/jobs/search/");
+  assert.equal(parsed.searchParams.get("keywords"), "product manager ai");
+  assert.equal(parsed.searchParams.get("keywords")?.includes("growth"), false);
+  assert.equal(parsed.searchParams.get("keywords")?.includes("cleantech"), false);
+});
+
 test("buildSearchUrlForSourceType formats ZipRecruiter criteria", () => {
   const result = buildSearchUrlForSourceType(
     "ziprecruiter_search",

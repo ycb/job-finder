@@ -88,6 +88,7 @@ const CRITERIA_FIELDS = [
   "title",
   "keywords",
   "keywordMode",
+  "hardIncludeTerms",
   "includeTerms",
   "excludeTerms",
   "location",
@@ -350,6 +351,11 @@ function normalizeSearchCriteria(rawCriteria) {
     normalized.includeTerms = includeTerms;
   }
 
+  const hardIncludeTerms = normalizeCriteriaTermList(rawCriteria.hardIncludeTerms);
+  if (hardIncludeTerms.length > 0) {
+    normalized.hardIncludeTerms = hardIncludeTerms;
+  }
+
   const excludeTerms = normalizeCriteriaTermList(rawCriteria.excludeTerms);
   if (excludeTerms.length > 0) {
     normalized.excludeTerms = excludeTerms;
@@ -389,8 +395,13 @@ function combineTitleAndKeywords(criteria) {
   const keywordTerms = Array.isArray(criteria?.keywordTerms)
     ? criteria.keywordTerms.map((term) => normalizeText(term).toLowerCase()).filter(Boolean)
     : normalizeCriteriaTermList(criteria?.keywords);
+  const hardIncludeTerms = normalizeCriteriaTermList(criteria?.hardIncludeTerms);
   const includeTerms = normalizeCriteriaTermList(criteria?.includeTerms);
-  const positiveTerms = dedupe([...keywordTerms, ...includeTerms]).filter(Boolean);
+  const positiveTerms = dedupe([
+    ...keywordTerms,
+    ...hardIncludeTerms,
+    ...includeTerms
+  ]).filter(Boolean);
 
   let positiveQuery = "";
   if (positiveTerms.length > 0) {
@@ -488,6 +499,7 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
       nextParams.set("keywords", titleKeywords);
       if (criteria.title) criteriaAccountability.markAppliedInUrl("title");
       if (criteria.keywords) criteriaAccountability.markAppliedInUrl("keywords");
+      if (criteria.hardIncludeTerms) criteriaAccountability.markAppliedInUrl("hardIncludeTerms");
       if (criteria.includeTerms) criteriaAccountability.markAppliedInUrl("includeTerms");
       if (criteria.keywordMode) criteriaAccountability.markAppliedInUrl("keywordMode");
     }

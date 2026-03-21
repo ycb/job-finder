@@ -79,6 +79,39 @@ test("sanitizeLinkedInJob canonicalizes LinkedIn direct urls and external ids", 
   assert.equal(sanitized.url, "https://www.linkedin.com/jobs/view/4388130875/");
 });
 
+test("sanitizeLinkedInJob strips location suffixes from polluted LinkedIn company text", () => {
+  const sanitized = sanitizeLinkedInJob({
+    sourceId: "linkedin-live-capture",
+    source: "linkedin_capture_file",
+    title: "Vice President of AI and Analytics",
+    company: "Enzo Tech Group · United States (Remote)",
+    location: "United States",
+    description: "Vice President of AI and Analytics · Enzo Tech Group · United States (Remote)",
+    url: "https://www.linkedin.com/jobs/view/4388511040/"
+  });
+
+  assert.equal(sanitized.company, "Enzo Tech Group");
+  assert.equal(sanitized.summary, "Vice President of AI and Analytics · Enzo Tech Group · United States");
+});
+
+test("sanitizeLinkedInJob drops numeric benefits residue from polluted descriptions", () => {
+  const sanitized = sanitizeLinkedInJob({
+    sourceId: "linkedin-live-capture",
+    source: "linkedin_capture_file",
+    title: "Head of Artificial Intelligence",
+    company: "Confidential Company",
+    location: "United States (Remote)",
+    description:
+      "Head of Artificial Intelligence · Confidential Company · United States (Remote) · 8 benefits · Posted on March 20, 2026, 5:27 AM · 9 hours ago",
+    url: "https://www.linkedin.com/jobs/view/4388359455/"
+  });
+
+  assert.equal(
+    sanitized.description,
+    "Head of Artificial Intelligence · Confidential Company · United States (Remote)"
+  );
+});
+
 test("writeLinkedInCaptureFile sanitizes polluted LinkedIn jobs before persisting", () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-finder-linkedin-write-"));
   const source = {

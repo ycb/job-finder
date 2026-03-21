@@ -107,6 +107,7 @@ function isNoiseToken(value) {
   }
 
   return (
+    /^\d{1,2}$/.test(token) ||
     /\b(?:easy apply|actively reviewing applicants|saved|viewed|applied)\b/i.test(token) ||
     /\b\d+\s+(?:school alumni works? here|school alumni work here|connections? works? here)\b/i.test(
       token
@@ -213,8 +214,9 @@ export function chooseLinkedInSalaryText(cardSalaryText, detailSalaryText) {
 
 function inferLinkedInCompany(job, title, location) {
   const currentCompany = normalizeText(job?.company);
-  if (currentCompany && currentCompany !== title) {
-    return currentCompany;
+  const cleanedCurrentCompany = sanitizeLinkedInCompany(currentCompany, { title, location });
+  if (cleanedCurrentCompany && cleanedCurrentCompany !== title) {
+    return cleanedCurrentCompany;
   }
 
   for (const token of splitDescriptionTokens(job?.description || job?.summary || "")) {
@@ -229,10 +231,37 @@ function inferLinkedInCompany(job, title, location) {
       continue;
     }
 
-    return token;
+    return sanitizeLinkedInCompany(token, { title, location });
   }
 
-  return currentCompany;
+  return cleanedCurrentCompany;
+}
+
+function sanitizeLinkedInCompany(value, { title = "", location = "" } = {}) {
+  const normalized = normalizeText(value);
+  if (!normalized) {
+    return "";
+  }
+
+  const tokens = splitDescriptionTokens(normalized)
+    .map((token) => normalizeText(token))
+    .filter(Boolean);
+
+  const locationText = normalizeText(location);
+  const filtered = tokens.filter((token) => {
+    if (!token || token === title) {
+      return false;
+    }
+    if (locationText && (token === locationText || token.includes(locationText))) {
+      return false;
+    }
+    if (isNoiseToken(token) || looksLikeEmploymentType(token) || looksLikeSalary(token)) {
+      return false;
+    }
+    return true;
+  });
+
+  return normalizeText(filtered[0] || normalized);
 }
 
 function sanitizeLinkedInDescription(value) {
