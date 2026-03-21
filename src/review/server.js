@@ -61,6 +61,7 @@ import {
   normalizeRefreshProfile,
   readSourceCaptureSummary
 } from "../sources/cache-policy.js";
+import { sanitizeLinkedInJob } from "../sources/linkedin-cleanup.js";
 import {
   evaluateCaptureRun,
   shouldIngestCaptureEvaluation,
@@ -305,7 +306,7 @@ function summarizeBuckets(evaluations) {
 }
 
 function buildSourceImportVerification(expectedCount, importedCount) {
-  const expected = Number.isFinite(Number(expectedCount)) ? Math.round(Number(expectedCount)) : null;
+  const expected = normalizeExpectedCount(expectedCount);
   const imported = Number.isFinite(Number(importedCount)) ? Math.max(0, Math.round(Number(importedCount))) : 0;
 
   if (!expected || expected <= 0) {
@@ -337,12 +338,39 @@ function buildSourceImportVerification(expectedCount, importedCount) {
 function isCaptureFunnelReadSafeSource(source) {
   return (
     source?.type === "linkedin_capture_file" ||
+    source?.type === "builtin_search" ||
     source?.type === "wellfound_search" ||
     source?.type === "ashby_search" ||
+    source?.type === "google_search" ||
     source?.type === "indeed_search" ||
     source?.type === "ziprecruiter_search" ||
     source?.type === "remoteok_search"
   );
+}
+
+export function computeImportedAverageScore(
+  sourceId,
+  importedNormalizedHashes,
+  scoresBySourceIdAndHash
+) {
+  const normalizedHashes = Array.isArray(importedNormalizedHashes)
+    ? importedNormalizedHashes
+    : [];
+  const scores = scoresBySourceIdAndHash instanceof Map ? scoresBySourceIdAndHash : new Map();
+  let importedScoreTotal = 0;
+  let importedScoredCount = 0;
+
+  for (const importedHash of normalizedHashes) {
+    const scoreValue = Number(scores.get(`${sourceId}::${importedHash}`));
+    if (Number.isFinite(scoreValue)) {
+      importedScoreTotal += scoreValue;
+      importedScoredCount += 1;
+    }
+  }
+
+  return importedScoredCount > 0
+    ? Math.round(importedScoreTotal / importedScoredCount)
+    : null;
 }
 
 function buildSourceCaptureFunnel(source, captureSummary) {
@@ -458,7 +486,26 @@ function updateStatus(jobKey, status, reason = "") {
   );
 }
 
-function buildLinkedInSearchUrl(job) {
+function normalizeExpectedCount(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === "string" && value.trim().length === 0) {
+    return null;
+  }
+
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? Math.round(numeric) : null;
+}
+
+function isLinkedInSourceType(sourceType) {
+  return (
+    sourceType === "linkedin_capture_file" || sourceType === "mock_linkedin_saved_search"
+  );
+}
+
+export function buildLinkedInSearchUrl(job) {
   const query = [job.title, job.company].filter(Boolean).join(" ");
   const params = new URLSearchParams({
     keywords: query
@@ -466,9 +513,18 @@ function buildLinkedInSearchUrl(job) {
   return `https://www.linkedin.com/jobs/search-results/?${params.toString()}`;
 }
 
-function resolveReviewTarget(job) {
+export function resolveReviewTarget(job, options = {}) {
   const sourceUrl = typeof job.sourceUrl === "string" ? job.sourceUrl : "";
   const externalId = typeof job.externalId === "string" ? job.externalId : "";
+  const sourceType =
+    typeof options.sourceType === "string" && options.sourceType.trim().length > 0
+      ? options.sourceType
+      : options.sourceById instanceof Map && job?.sourceId
+        ? options.sourceById.get(job.sourceId)?.type || ""
+        : typeof job?.source === "string"
+          ? job.source
+          : "";
+  const isLinkedInSource = isLinkedInSourceType(sourceType);
 
   if (sourceUrl.startsWith("https://www.linkedin.com/jobs/search-results/")) {
     return {
@@ -477,24 +533,42 @@ function resolveReviewTarget(job) {
     };
   }
 
-  if (/^https:\/\/www\.linkedin\.com\/jobs\/view\/\d+\/?$/i.test(sourceUrl)) {
-    return {
-      url: sourceUrl,
-      mode: "direct"
-    };
+  if (sourceUrl.startsWith("https://www.linkedin.com/jobs/view/")) {
+    try {
+      const parsed = new URL(sourceUrl);
+      if (/^\/jobs\/view\/\d+\/?$/i.test(parsed.pathname)) {
+        return {
+          url: sourceUrl,
+          mode: "direct"
+        };
+      }
+    } catch {
+      // fall through to the source-specific fallback checks below
+    }
   }
 
-  if (/^\d+$/.test(externalId)) {
+  if (isLinkedInSource && /^\d+$/.test(externalId)) {
     return {
       url: `https://www.linkedin.com/jobs/view/${externalId}/`,
       mode: "direct"
     };
   }
 
-  if (
-    sourceUrl.startsWith("https://www.linkedin.com/jobs/view/") &&
-    !/^https:\/\/www\.linkedin\.com\/jobs\/view\/\d+\/?$/i.test(sourceUrl)
-  ) {
+  if (sourceUrl.startsWith("https://www.linkedin.com/jobs/view/")) {
+    return {
+      url: buildLinkedInSearchUrl(job),
+      mode: "search"
+    };
+  }
+
+  if (sourceUrl) {
+    return {
+      url: sourceUrl,
+      mode: "direct"
+    };
+  }
+
+  if (isLinkedInSource) {
     return {
       url: buildLinkedInSearchUrl(job),
       mode: "search"
@@ -502,8 +576,8 @@ function resolveReviewTarget(job) {
   }
 
   return {
-    url: sourceUrl || buildLinkedInSearchUrl(job),
-    mode: sourceUrl ? "direct" : "search"
+    url: null,
+    mode: "unavailable"
   };
 }
 
@@ -696,32 +770,34 @@ function pickStatus(statuses) {
 
 function hydrateQueue(queue, options = {}) {
   const includeRejected = options.includeRejected === true;
+  const sourceById = options.sourceById instanceof Map ? options.sourceById : null;
   const groups = new Map();
 
   for (const rawJob of queue) {
+    const sanitizedJob = sanitizeLinkedInJob(rawJob);
     const groupKey =
-      typeof rawJob.normalizedHash === "string" && rawJob.normalizedHash.trim()
-        ? rawJob.normalizedHash
-        : rawJob.id;
+      typeof sanitizedJob.normalizedHash === "string" && sanitizedJob.normalizedHash.trim()
+        ? sanitizedJob.normalizedHash
+        : sanitizedJob.id;
 
     const existing = groups.get(groupKey);
-    const status = normalizeStatus(rawJob.status);
-    const reasons = parseReasons(rawJob.reasons);
+    const status = normalizeStatus(sanitizedJob.status);
+    const reasons = parseReasons(sanitizedJob.reasons);
     const note =
-      typeof rawJob.notes === "string" && rawJob.notes.trim().length > 0
-        ? rawJob.notes.trim()
+      typeof sanitizedJob.notes === "string" && sanitizedJob.notes.trim().length > 0
+        ? sanitizedJob.notes.trim()
         : "";
 
     if (!existing) {
       groups.set(groupKey, {
-        ...rawJob,
+        ...sanitizedJob,
         id: groupKey,
         groupKey,
-        primaryJobId: rawJob.id,
+        primaryJobId: sanitizedJob.id,
         status,
         reasons: [...reasons],
-        reviewTarget: resolveReviewTarget(rawJob),
-        sourceIds: rawJob.sourceId ? [rawJob.sourceId] : [],
+        reviewTarget: resolveReviewTarget(sanitizedJob, { sourceById }),
+        sourceIds: sanitizedJob.sourceId ? [sanitizedJob.sourceId] : [],
         duplicateCount: 1,
         notes: note,
         _statuses: [status]
@@ -731,8 +807,8 @@ function hydrateQueue(queue, options = {}) {
 
     existing.duplicateCount += 1;
 
-    if (rawJob.sourceId && !existing.sourceIds.includes(rawJob.sourceId)) {
-      existing.sourceIds.push(rawJob.sourceId);
+    if (sanitizedJob.sourceId && !existing.sourceIds.includes(sanitizedJob.sourceId)) {
+      existing.sourceIds.push(sanitizedJob.sourceId);
     }
 
     for (const reasonItem of reasons) {
@@ -745,8 +821,13 @@ function hydrateQueue(queue, options = {}) {
       existing.notes = note;
     }
 
-    const reviewTarget = resolveReviewTarget(rawJob);
-    if (existing.reviewTarget.mode !== "direct" && reviewTarget.mode === "direct") {
+    const reviewTarget = resolveReviewTarget(sanitizedJob, { sourceById });
+    if (!existing.reviewTarget?.url && reviewTarget?.url) {
+      existing.reviewTarget = reviewTarget;
+    } else if (
+      existing.reviewTarget?.mode !== "direct" &&
+      reviewTarget?.mode === "direct"
+    ) {
       existing.reviewTarget = reviewTarget;
     }
 
@@ -792,6 +873,9 @@ export function buildSourceRefreshMeta(source, options = {}) {
       refreshMode: refreshProfile,
       servedFrom: "live",
       lastLiveAt: null,
+      lastAttemptedAt: null,
+      lastAttemptOutcome: null,
+      lastAttemptError: null,
       nextEligibleAt: null,
       cooldownUntil: null,
       statusLabel: "direct_fetch",
@@ -805,7 +889,18 @@ export function buildSourceRefreshMeta(source, options = {}) {
     statePath: options.refreshStatePath,
     nowMs: options.nowMs
   });
-  const statusReason = decision.reason || "eligible";
+  const sourceState = decision.sourceState || {};
+  const lastAttemptedAt = sourceState.lastAttemptedAt || null;
+  const lastAttemptOutcome = sourceState.lastAttemptOutcome || null;
+  const lastAttemptError = sourceState.lastError || null;
+  const lastAttemptMs = Date.parse(String(lastAttemptedAt || ""));
+  const lastLiveMs = Date.parse(String(sourceState.lastLiveAt || ""));
+  const latestAttemptFailed =
+    lastAttemptOutcome &&
+    lastAttemptOutcome !== "success" &&
+    Number.isFinite(lastAttemptMs) &&
+    (!Number.isFinite(lastLiveMs) || lastAttemptMs >= lastLiveMs);
+  let statusReason = decision.reason || "eligible";
   const statusLabelMap = {
     eligible: "ready_live",
     force_refresh: "ready_live",
@@ -815,14 +910,24 @@ export function buildSourceRefreshMeta(source, options = {}) {
     daily_cap: "daily_cap",
     mock_profile: "cache_only"
   };
+  if (latestAttemptFailed) {
+    statusReason = lastAttemptOutcome === "challenge" ? "challenge" : "attempt_failed";
+  }
+  const statusLabelOverrideMap = {
+    challenge: "challenge",
+    attempt_failed: "attempt_failed"
+  };
 
   return {
     refreshMode: refreshProfile,
     servedFrom: decision.servedFrom,
-    lastLiveAt: decision.sourceState?.lastLiveAt || null,
+    lastLiveAt: sourceState.lastLiveAt || null,
+    lastAttemptedAt,
+    lastAttemptOutcome,
+    lastAttemptError,
     nextEligibleAt: decision.nextEligibleAt || null,
-    cooldownUntil: decision.sourceState?.cooldownUntil || null,
-    statusLabel: statusLabelMap[statusReason] || "cache_only",
+    cooldownUntil: sourceState.cooldownUntil || null,
+    statusLabel: statusLabelOverrideMap[statusReason] || statusLabelMap[statusReason] || "cache_only",
     statusReason
   };
 }
@@ -1436,7 +1541,11 @@ function buildDashboardData(limit = 200) {
   const refreshState = readRefreshState();
   const nowMs = Date.now();
   const nowIso = new Date(nowMs).toISOString();
-  const statsQueue = hydrateQueue(getAllJobsWithStatus(5_000), { includeRejected: true });
+  const sourceById = new Map(sources.map((source) => [source.id, source]));
+  const statsQueue = hydrateQueue(getAllJobsWithStatus(5_000), {
+    includeRejected: true,
+    sourceById
+  });
   const jobsStoredCount = statsQueue.length;
   const scoresBySourceIdAndHash = new Map();
   for (const job of statsQueue) {
@@ -1603,8 +1712,8 @@ function buildDashboardData(limit = 200) {
         ? captureFunnel.captureJobCount
         : null;
       const captureExpectedCount =
-        isFileBackedCapture && Number.isFinite(Number(capture.expectedCount))
-          ? Math.round(Number(capture.expectedCount))
+        isFileBackedCapture
+          ? normalizeExpectedCount(capture.expectedCount)
           : null;
       const jobCount = counts.totalCount;
       const importedCount = Number(
@@ -1621,23 +1730,11 @@ function buildDashboardData(limit = 200) {
       )
         ? captureFunnel.importedNormalizedHashes
         : [];
-      let importedScoreTotal = 0;
-      let importedScoredCount = 0;
-      for (const importedHash of importedNormalizedHashes) {
-        const scoreValue = Number(
-          scoresBySourceIdAndHash.get(`${source.id}::${importedHash}`)
-        );
-        if (Number.isFinite(scoreValue)) {
-          importedScoreTotal += scoreValue;
-          importedScoredCount += 1;
-        }
-      }
-      const avgScore =
-        importedScoredCount > 0
-          ? Math.round(importedScoreTotal / importedScoredCount)
-          : counts.scoredCount > 0
-            ? Math.round(counts.scoreTotal / counts.scoredCount)
-            : null;
+      const avgScore = computeImportedAverageScore(
+        source.id,
+        importedNormalizedHashes,
+        scoresBySourceIdAndHash
+      );
       const importVerification = buildSourceImportVerification(
         captureExpectedCount,
         importedCount
@@ -3922,7 +4019,9 @@ export function renderDashboardPage(dashboard, options = {}) {
       function reviewLinkLabel(job) {
         return job.reviewTarget && job.reviewTarget.mode === "search"
           ? "Open Search"
-          : "Open Job";
+          : job.reviewTarget?.url
+            ? "Open Job"
+            : "Link unavailable";
       }
 
       function formatTime(value) {
@@ -4952,7 +5051,7 @@ export function renderDashboardPage(dashboard, options = {}) {
 
       async function openCurrent() {
         const job = currentJob();
-        if (!job) {
+        if (!job?.reviewTarget?.url) {
           return;
         }
 
@@ -5271,10 +5370,8 @@ export function renderDashboardPage(dashboard, options = {}) {
               filteredCount: Number(source.droppedByHardFilterCount || 0),
               dedupedCount: Number(source.droppedByDedupeCount || 0),
               importedCount: Number(source.importedCount || 0),
-              hasUnknownExpectedCount: !Number.isFinite(Number(source.captureExpectedCount)),
-              expectedFoundCount: Number.isFinite(Number(source.captureExpectedCount))
-                ? Math.max(0, Math.round(Number(source.captureExpectedCount)))
-                : null,
+              hasUnknownExpectedCount: normalizeExpectedCount(source.captureExpectedCount) === null,
+              expectedFoundCount: normalizeExpectedCount(source.captureExpectedCount),
               formatterUnsupported: Array.isArray(source.formatterDiagnostics?.unsupported)
                 ? source.formatterDiagnostics.unsupported
                 : Array.isArray(source.criteriaAccountability?.unsupported)
@@ -5307,6 +5404,18 @@ export function renderDashboardPage(dashboard, options = {}) {
               adapterHealthUpdatedAt:
                 typeof source.adapterHealthUpdatedAt === "string" && source.adapterHealthUpdatedAt.trim()
                   ? source.adapterHealthUpdatedAt
+                  : null,
+              lastAttemptedAt:
+                typeof source.lastAttemptedAt === "string" && source.lastAttemptedAt.trim()
+                  ? source.lastAttemptedAt
+                  : null,
+              lastAttemptOutcome:
+                typeof source.lastAttemptOutcome === "string" && source.lastAttemptOutcome.trim()
+                  ? source.lastAttemptOutcome
+                  : null,
+              lastAttemptError:
+                typeof source.lastAttemptError === "string" && source.lastAttemptError.trim()
+                  ? source.lastAttemptError
                   : null,
               refreshStatusReason:
                 typeof source.statusReason === "string" && source.statusReason.trim()
@@ -5823,7 +5932,11 @@ export function renderDashboardPage(dashboard, options = {}) {
                   '    <div class="meta-item"><dt>Salary</dt><dd>' + escapeHtml(formatValue(job.salaryText, "Unknown")) + "</dd></div>",
                   '    <div class="meta-item"><dt>Employment</dt><dd>' + escapeHtml(formatValue(job.employmentType, "Unknown")) + "</dd></div>",
                   '    <div class="meta-item"><dt>Freshness</dt><dd>' + escapeHtml(freshness) + "</dd></div>",
-                  '    <div class="meta-item"><dt>Link</dt><dd><a href="' + encodeURI(job.reviewTarget.url) + '" target="job-review-target" rel="noreferrer">' + escapeHtml(reviewLinkLabel(job)) + "</a></dd></div>",
+                  '    <div class="meta-item"><dt>Link</dt><dd>' +
+                    (job.reviewTarget?.url
+                      ? '<a href="' + encodeURI(job.reviewTarget.url) + '" target="job-review-target" rel="noreferrer">' + escapeHtml(reviewLinkLabel(job)) + "</a>"
+                      : '<span class="muted">Unavailable</span>') +
+                    "</dd></div>",
                   "  </dl>",
                   "</div>",
                   "</div>",
@@ -6602,7 +6715,9 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
       }
 
       if (request.method === "GET" && url.pathname === "/api/queue") {
-        const groupedQueue = hydrateQueue(getReviewQueue(limit));
+        const groupedQueue = hydrateQueue(getReviewQueue(limit), {
+          sourceById: new Map(loadSources().sources.map((source) => [source.id, source]))
+        });
         const queue = groupedQueue.filter(
           (job) => job.status === "new" || job.status === "viewed"
         );

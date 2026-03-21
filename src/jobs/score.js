@@ -1,3 +1,5 @@
+import { sanitizeLinkedInJob } from "../sources/linkedin-cleanup.js";
+
 const KNOWN_SENIORITY_LEVELS = [
   "intern",
   "associate",
@@ -30,7 +32,7 @@ function normalizeText(value) {
 }
 
 function containsTerm(haystack, term) {
-  return haystack.includes(term);
+  return termMatchesSearchText(term, haystack);
 }
 
 function findMatchingTerms(haystack, terms) {
@@ -638,6 +640,7 @@ export function buildScoringProfileFromSearchCriteria(rawCriteria = {}) {
 }
 
 function evaluateJobFromSearchCriteria(criteria, job) {
+  const normalizedJob = sanitizeLinkedInJob(job);
   const titleCriteria = normalizeSearchCriteriaText(criteria?.title).toLowerCase();
   const keywordCriteria = resolveScoringKeywordTerms(criteria);
   const hardIncludeTerms = resolveHardIncludeTerms(criteria);
@@ -653,15 +656,19 @@ function evaluateJobFromSearchCriteria(criteria, job) {
       : 0;
   const freshnessDaysTarget = resolveCriteriaFreshnessDays(criteria?.datePosted);
 
-  const title = normalizeText(job.title);
-  const location = normalizeText(job.location);
-  const contentPath = resolveEvaluationContentPath(job);
+  const title = normalizeText(normalizedJob.title);
+  const location = normalizeText(normalizedJob.location);
+  const contentPath = resolveEvaluationContentPath(normalizedJob);
   const description = contentPath.description;
-  const employment = normalizeText(job.employment_type || job.employmentType);
+  const employment = normalizeText(
+    normalizedJob.employment_type || normalizedJob.employmentType
+  );
   const searchableText = [title, location, employment, description].join(" ");
   const parsedWorkTypes = inferWorkType(searchableText);
-  const salaryFloor = parseCompensationFloor(job.salary_text || job.salaryText);
-  const freshnessDays = calcFreshnessDays(job);
+  const salaryFloor = parseCompensationFloor(
+    normalizedJob.salary_text || normalizedJob.salaryText
+  );
+  const freshnessDays = calcFreshnessDays(normalizedJob);
   const hardIncludeMatches = findMatchingTerms(searchableText, hardIncludeTerms);
   const excludedMatches = findMatchingTerms(searchableText, excludeTerms);
   const strongestExcludedTerm = pickStrongestMatch(excludedMatches);
@@ -678,12 +685,12 @@ function evaluateJobFromSearchCriteria(criteria, job) {
           ? `hard filter hit: none of required terms matched (${hardIncludeTerms.join(", ")})`
           : `hard filter hit: missing required terms (${hardIncludeTerms.filter((term) => !hardIncludeMatches.includes(term)).join(", ")})`;
       return {
-        jobId: job.id,
+        jobId: normalizedJob.id,
         score: 0,
         bucket: "reject",
         summary: `Score 0: ${reason}`,
         reasons: [reason],
-        confidence: calcDataConfidence(job, parsedWorkTypes),
+        confidence: calcDataConfidence(normalizedJob, parsedWorkTypes),
         freshnessDays,
         hardFiltered: true,
         evaluatedAt: new Date().toISOString()
@@ -694,12 +701,12 @@ function evaluateJobFromSearchCriteria(criteria, job) {
   if (strongestExcludedTerm) {
     const reason = `hard filter hit: exclude term "${strongestExcludedTerm}"`;
     return {
-      jobId: job.id,
+      jobId: normalizedJob.id,
       score: 0,
       bucket: "reject",
       summary: `Score 0: ${reason}`,
       reasons: [reason],
-      confidence: calcDataConfidence(job, parsedWorkTypes),
+      confidence: calcDataConfidence(normalizedJob, parsedWorkTypes),
       freshnessDays,
       hardFiltered: true,
       evaluatedAt: new Date().toISOString()
@@ -791,13 +798,13 @@ function evaluateJobFromSearchCriteria(criteria, job) {
       : `Score ${finalScore}: no criteria provided`;
 
   return {
-    jobId: job.id,
+    jobId: normalizedJob.id,
     score: finalScore,
     bucket,
     summary,
     reasons,
     evaluationMeta: contentPath.evaluationMeta,
-    confidence: calcDataConfidence(job, parsedWorkTypes),
+    confidence: calcDataConfidence(normalizedJob, parsedWorkTypes),
     freshnessDays,
     hardFiltered: false,
     evaluatedAt: new Date().toISOString()
@@ -805,14 +812,19 @@ function evaluateJobFromSearchCriteria(criteria, job) {
 }
 
 export function evaluateJob(profile, job) {
-  const title = normalizeText(job.title);
-  const company = normalizeText(job.company);
-  const location = normalizeText(job.location);
-  const description = normalizeText(job.description);
-  const employment = normalizeText(job.employment_type || job.employmentType);
+  const normalizedJob = sanitizeLinkedInJob(job);
+  const title = normalizeText(normalizedJob.title);
+  const company = normalizeText(normalizedJob.company);
+  const location = normalizeText(normalizedJob.location);
+  const description = normalizeText(normalizedJob.description);
+  const employment = normalizeText(
+    normalizedJob.employment_type || normalizedJob.employmentType
+  );
   const searchableText = [title, location, employment, description].join(" ");
   const parsedWorkTypes = inferWorkType(searchableText);
-  const salaryFloor = parseCompensationFloor(job.salary_text || job.salaryText);
+  const salaryFloor = parseCompensationFloor(
+    normalizedJob.salary_text || normalizedJob.salaryText
+  );
 
   let score = 0;
   const reasons = [];
@@ -926,18 +938,18 @@ export function evaluateJob(profile, job) {
     }
   }
 
-  const sourceDelta = sourceQualityDelta(job);
+  const sourceDelta = sourceQualityDelta(normalizedJob);
   if (sourceDelta !== 0) {
     score += sourceDelta;
     reasons.push(`source quality bonus +${sourceDelta}`);
   }
 
-  const freshnessDays = calcFreshnessDays(job);
+  const freshnessDays = calcFreshnessDays(normalizedJob);
   const freshness = calcFreshnessScore(freshnessDays);
   score += freshness.delta;
   reasons.push(freshness.reason);
 
-  const confidence = calcDataConfidence(job, parsedWorkTypes);
+  const confidence = calcDataConfidence(normalizedJob, parsedWorkTypes);
   if (confidence < 45) {
     score -= 8;
     reasons.push(`low data confidence (${confidence})`);
@@ -955,7 +967,7 @@ export function evaluateJob(profile, job) {
   });
   if (hardFilter.blocked) {
     return {
-      jobId: job.id,
+      jobId: normalizedJob.id,
       score: 0,
       bucket: "reject",
       summary: `Score 0: ${hardFilter.blockedReasons[0]}`,
@@ -976,7 +988,7 @@ export function evaluateJob(profile, job) {
       : `Score ${finalScore}: no strong matching signals found`;
 
   return {
-    jobId: job.id,
+    jobId: normalizedJob.id,
     score: finalScore,
     bucket,
     summary,

@@ -168,6 +168,13 @@ As of 2026-03-06.
 - Render `Connect your sources` as its own top-level section on the Searches tab (below page tabs), not nested inside `My Job Searches`.
 - Treat explicit source configuration as its own persisted state (`sourcesConfiguredAt`), separate from selected-count. Without this, first-run defaults can overwrite intentional disables (especially when the user disables all sources).
 
+## Direct Source Filter Mapping
+
+- Do not assume a source lacks a URL strategy just because its `initialFilters` or SSR payload looks thin.
+- Before concluding a source is "direct fetch only", inspect the live search URL shape and map the full supported filter/metadata surface explicitly.
+- For new source adapters, build out the complete filter/metadata map first so adapter tests can prove which fields are applied in URL, which are preserved for review/import, and which remain unsupported.
+- When a source exposes a canonical detail URL distinct from the search page, keep the canonical detail URL as the review target and treat search URLs as query builders only.
+
 ## QA Fresh-State
 
 - Do not claim "new-user onboarding QA" from an existing dev worktree without a full state reset.
@@ -218,9 +225,46 @@ As of 2026-03-06.
 - In a shared control rail, all dropdown-capable controls must use the same chevron language and comparable sizing. A mismatched trigger shape or icon reads as an unrelated component and breaks hierarchy.
 - Do not confuse alternate datasets with filters. `Applied / Skipped / Rejected` are separate views over different queues, not refinements of the active queue, and should not be presented like a filter of `All`.
 - When a control rail is carrying both options and current state, split it into two lines: top line for selectable controls, second line for applied chips/clear-all. Do not let chips compete with navigation controls in the same row.
+
+## Branch Sequencing And Baseline Integrity
+
+- Do not start a follow-on branch from `main` unless the last approved work is actually committed and present on `main`. "Approved in chat" is not a valid baseline; only committed code counts.
+- Before beginning a new branch, prove the baseline with `git log` and `git diff main..<previous-branch>` so missing approved changes are detected before new work starts.
+- If later approved refinements were left uncommitted in a feature branch, stop. Re-land that baseline first. Do not pile backend/data-quality work on top of an older UI baseline and hope to reconcile it later.
+- Do not mix current-run funnel metrics with lifetime database aggregates in the same dashboard row. `Found`, `Filtered`, `Imported`, and `Avg Score` must all describe the same run context or the UI will show impossible combinations such as `0/0` with a non-null average score.
+- Treat source-specific cleanup as shared domain logic, not UI glue. If malformed capture rows can affect capture, scoring, and review rendering, the cleanup belongs in a reusable source module applied at capture-time and read-time.
+- Before changing score weights, prove whether low scores are a weighting problem or a data/accounting artifact. Hard-filter zeroes and malformed source text can make average scores look broken even when the kept-job ranking is reasonable.
 - Do not duplicate the parent view in a secondary selector. If `All` already exists as the primary leftmost control, the secondary dataset selector must default to a neutral label instead of echoing `All`.
 - When a parent dataset has alternate selections (`All / Applied / Skipped / Rejected`), the leftmost control itself should be the dataset selector. Do not split the same concept across a primary button and a separate orphaned dropdown.
 - Storage-path confusion is not just a development problem. If app state is checkout-relative, end users installed from a repo clone will experience fragmented history across branches and copies of the project.
+- Pagination is a first-class navigation control. Do not rely on post-render reconciliation effects to keep page and selection in sync; change both explicitly in the click handler and cover the visible page transition in React smoke tests.
+- When starting a new implementation branch after a merged feature pass, preserve the approved UI baseline. Data-quality or backend branches must not accumulate unrelated UI churn; reset UI-facing files to `main` immediately if local experimentation leaks across scopes.
+
+## Source-Type Framing
+
+- Do not plan source-quality work as if all sources share one failure mode. Split sources by type first:
+  - direct non-auth sources,
+  - auth browser sources,
+  - search-on-search sources,
+  - outlier company-board sources.
+- Do not spend P0 effort on outlier architecture unless it materially improves MVP reliability. For sources like Ashby, the controller should explicitly decide "narrow now" versus "defer" instead of letting the outlier muddy the baseline.
+- For outlier source types like Ashby, measure novelty versus redundancy explicitly. The right question is not only "can we scrape it?" but "does it surface jobs we would not otherwise get, at a sustainable engineering cost?"
+- Do not conflate Google Jobs with generic SERP scraping when the product is intentionally targeting the Google Jobs surface with applied filters. In that mode, Google should be treated as a first-class source adapter and judged on URL/state construction and extraction quality, not dismissed as low-value search noise.
+- In controller-branch parallel execution, returned lane output must be reviewed and either integrated or explicitly deferred as each agent completes. Do not let completed lane work sit idle while the controller keeps planning in the abstract.
+- When a stakeholder points to an external product brief or source-scope table as the MVP slate, treat that artifact as authoritative immediately. Sync backlog, roadmap, registry, and active ExecPlans in the same cycle; do not leave older source assumptions active in controller docs.
+- In controller-driven MVP delivery, open agents are inventory, not decoration. Close completed lanes immediately, mark partial lanes truthfully (`re-tasked`, `in progress`, `% complete`), and reassign freed capacity to blocked build work instead of leaving workers idle.
+- In controller-driven MVP delivery, worker oversight is continuous work, not a status poll. As each lane returns, the controller must do one of four things in the same cycle: integrate, explicitly defer, re-scope with new instructions, or reassign freed capacity to another open lane. Do not leave returned work unreviewed while remaining lanes drift.
+- In source MVP delivery, treat every source lane as pattern-building work, not a one-off adapter. Require each lane to leave behind reusable artifacts: source type, search-construction rules, extraction contract, degradation semantics, and verification pattern. Otherwise the future `add a source` feature will start from scratch.
+
+## Title Bucketing Dependency
+
+- Do not present raw job-title text as if it were a normalized title-family breakdown. If the product promise is canonical title families, bucketing must happen on normalized title families and level heuristics after source cleanup, not on polluted raw titles.
+- When data-quality work is active, treat title-family bucketing as downstream of source cleanup and canonicalization. Otherwise the widget becomes a diagnostic for dirty source data rather than a trustworthy segmentation tool.
+
+## Roadmap Rituals
+
+- Do not let backlog grooming and local ExecPlans replace the roadmap directory rituals. When the work changes roadmap scope, launch readiness, sequencing, or MVP source decisions, update the roadmap artifacts too: at minimum `docs/roadmap/decision-log.md` and the current `docs/roadmap/progress-daily/<date>.md`.
+- If a stakeholder asks about execution process, dispatch, or roadmap visibility, treat missing roadmap updates as a process bug and correct them immediately.
 
 ## Dispatch and QA Commit Discipline
 

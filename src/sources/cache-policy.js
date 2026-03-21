@@ -10,6 +10,42 @@ import {
 const HTTP_SOURCE_TYPES = new Set(["builtin_search", "google_search"]);
 const REFRESH_PROFILES = new Set(["safe", "probe", "mock"]);
 
+function normalizeExpectedCountValue(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? Math.round(numeric) : null;
+}
+
+function shouldIgnoreExpectedCount(source, expectedCount, jobCount = null) {
+  if (!Number.isFinite(expectedCount) || expectedCount <= 0) {
+    return true;
+  }
+
+  if (Number.isFinite(jobCount) && jobCount > 0) {
+    if (expectedCount < jobCount) {
+      return true;
+    }
+
+    if (expectedCount > jobCount * 250 && expectedCount > 10000) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function sanitizeExpectedCount(source, value, jobCount = null) {
+  const normalized = normalizeExpectedCountValue(value);
+  if (normalized === null) {
+    return null;
+  }
+
+  return shouldIgnoreExpectedCount(source, normalized, jobCount) ? null : normalized;
+}
+
 export function getDefaultCacheTtlHours(sourceType) {
   if (HTTP_SOURCE_TYPES.has(String(sourceType || "").trim())) {
     return 12;
@@ -73,14 +109,13 @@ export function readSourceCaptureSummary(source) {
       return Number.isFinite(numeric) && numeric >= 0 ? Math.round(numeric) : null;
     };
 
+    const expectedCount = sanitizeExpectedCount(source, payload?.expectedCount, jobs.length);
+
     return {
       capturePath,
       capturedAt,
       jobCount: jobs.length,
-      expectedCount:
-        Number.isFinite(Number(payload?.expectedCount)) && Number(payload.expectedCount) > 0
-          ? Math.round(Number(payload.expectedCount))
-          : null,
+      expectedCount,
       pageUrl: typeof payload?.pageUrl === "string" ? payload.pageUrl : null,
       status: "ready",
       payload: {
@@ -89,13 +124,14 @@ export function readSourceCaptureSummary(source) {
         searchUrl: payload?.searchUrl,
         capturedAt,
         jobs,
-        expectedCount:
-          Number.isFinite(Number(payload?.expectedCount)) && Number(payload.expectedCount) > 0
-            ? Math.round(Number(payload.expectedCount))
-            : null,
+        expectedCount,
         captureFunnel: rawCaptureFunnel
           ? {
-              availableCount: normalizeCount(rawCaptureFunnel.availableCount),
+              availableCount: sanitizeExpectedCount(
+                source,
+                rawCaptureFunnel.availableCount,
+                jobs.length
+              ),
               capturedRawCount: normalizeCount(rawCaptureFunnel.capturedRawCount),
               postHardFilterCount: normalizeCount(rawCaptureFunnel.postHardFilterCount),
               postDedupeCount: normalizeCount(rawCaptureFunnel.postDedupeCount),
@@ -192,11 +228,11 @@ export function writeSourceCapturePayload(source, jobs, options = {}) {
     capturedAt: options.capturedAt || new Date().toISOString(),
     jobs: Array.isArray(jobs) ? jobs : []
   };
-  const expectedCountValue = Number(options.expectedCount);
-  const expectedCount =
-    Number.isFinite(expectedCountValue) && expectedCountValue > 0
-      ? Math.round(expectedCountValue)
-      : null;
+  const expectedCount = sanitizeExpectedCount(
+    source,
+    options.expectedCount,
+    Array.isArray(jobs) ? jobs.length : null
+  );
 
   if (typeof options.pageUrl === "string" && options.pageUrl.trim()) {
     payload.pageUrl = options.pageUrl.trim();
@@ -217,7 +253,11 @@ export function writeSourceCapturePayload(source, jobs, options = {}) {
     };
 
     payload.captureFunnel = {
-      availableCount: normalizeCount(rawFunnel.availableCount ?? expectedCount),
+      availableCount: sanitizeExpectedCount(
+        source,
+        rawFunnel.availableCount ?? expectedCount,
+        payload.jobs.length
+      ),
       capturedRawCount: normalizeCount(
         rawFunnel.capturedRawCount ?? payload.jobs.length
       ),

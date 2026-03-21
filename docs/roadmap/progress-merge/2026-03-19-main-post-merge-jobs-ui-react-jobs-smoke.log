@@ -1,0 +1,10 @@
+mode=react
+baseUrl=http://127.0.0.1:4518
+jobs_flow_check=pass
+checks=jobs_tab_render,find_jobs_render,mark_viewed,mark_applied,mark_rejected
+title=Job Finder Dashboard UI
+workspace=/var/folders/v4/wdj_cj_j67g67jwwhyv4hz8r0000gn/T/job-finder-jobs-smoke-bcFXxA
+screenshot=/Users/admin/.codex/worktrees/51f6/job-finder/docs/roadmap/progress-merge/2026-03-19-main-post-merge-jobs-ui-react-jobs.png
+dashboard_json=/Users/admin/.codex/worktrees/51f6/job-finder/docs/roadmap/progress-merge/2026-03-19-main-post-merge-jobs-ui-react-jobs-dashboard.json
+summary_json=/Users/admin/.codex/worktrees/51f6/job-finder/docs/roadmap/progress-merge/2026-03-19-main-post-merge-jobs-ui-react-jobs-summary.json
+server_boot=direct startReviewServer()

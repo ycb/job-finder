@@ -54,6 +54,7 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/backlog-specs/p1-core-multi-keyword-comma.md` | Contributors | Multi-keyword parsing specification | Keyword parsing changes |
 | `docs/backlog-specs/p1-core-multi-search-ranking-blend.md` | Contributors | Multi-search ranking blend specification | Cross-search scoring/ranking changes |
 | `docs/backlog-specs/p1-core-net-new-refresh.md` | Contributors | Net-new + refresh incremental run behavior specification | Refresh UX/data lifecycle changes |
+| `docs/backlog-specs/p1-core-scoring-model-mvp-analysis.md` | Contributors, stakeholders | MVP scoring-model analysis specification | Scoring-model launch-readiness changes |
 | `docs/backlog-specs/p1-core-search-hardfilter-keywords-include-exclude-cache.md` | Contributors | Search controls and hard-filter enhancement specification | Search UX/filter model changes |
 | `docs/backlog-specs/p1-core-worktype-field.md` | Contributors | Work type field specification | Work type model changes |
 | `docs/backlog-specs/p1-distribution-homebrew.md` | Contributors | Homebrew distribution specification | Packaging/distribution changes |
@@ -70,9 +71,14 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/backlog-specs/p1-operations-value-metrics-caps-donations.md` | Contributors/operators | User-value metrics, usage caps, and donation reset verification specification | Monetization/usage-control model changes |
 | `docs/backlog-specs/p1-operations-local-storage-retention.md` | Contributors/operators | Local storage management and automatic deletion specification | Storage retention and cleanup workflow changes |
 | `docs/backlog-specs/p1-operations-canonical-machine-local-storage.md` | Contributors/operators | Canonical machine-local storage specification | Runtime state-root or migration strategy changes |
+| `docs/backlog-specs/p1-source-slate-mvp.md` | Stakeholders, contributors | Approved six-source MVP slate specification | MVP source-scope changes |
+| `docs/backlog-specs/p1-source-quality-ziprecruiter-direct-job-url.md` | Contributors | ZipRecruiter direct-job URL fix specification | ZipRecruiter launch-blocker changes |
+| `docs/backlog-specs/p1-source-expansion-yc-mvp.md` | Contributors | YC Jobs MVP source addition specification | YC Jobs launch-scope source changes |
+| `docs/backlog-specs/p1-source-expansion-levelsfyi-mvp.md` | Contributors | Levels.fyi MVP source addition specification | Levels.fyi launch-scope source changes |
 | `docs/backlog-specs/p1-source-expansion-greenhouse.md` | Contributors | Greenhouse source expansion specification | Greenhouse roadmap changes |
 | `docs/backlog-specs/p1-ux-multi-search-tabs.md` | Contributors | Multi-search tabs UX specification | Multi-context search UX changes |
 | `docs/backlog-specs/p2-brand-styles.md` | Contributors | Brand style roadmap specification | Brand roadmap changes |
+| `docs/backlog-specs/p2-source-expansion-company-portals-post-mvp.md` | Contributors | Post-MVP company-portal source strategy specification | Ashby/Greenhouse post-MVP source strategy changes |
 | `docs/backlog-specs/p2-source-expansion-levelsfyi.md` | Contributors | Levels.fyi source expansion specification | Levels.fyi roadmap changes |
 | `docs/backlog-specs/p2-source-expansion-yc.md` | Contributors | YC source expansion specification | YC roadmap changes |
 | `docs/backlog-specs/p2-source-quality-employment-type-cleanup.md` | Contributors | Employment-type cleanup and canonicalization specification | Employment-type model, normalization, or filter strategy changes |

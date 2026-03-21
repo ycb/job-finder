@@ -176,6 +176,57 @@ test("evaluateJobsFromSearchCriteria applies exclude terms as hard filters", () 
   assert.match(evaluations[0].summary, /hard filter hit/i);
 });
 
+test("evaluateJobsFromSearchCriteria applies semantic hard include matching for ai family terms", () => {
+  const evaluations = evaluateJobsFromSearchCriteria(
+    {
+      title: "product manager",
+      hardIncludeTerms: ["ai"]
+    },
+    [
+      {
+        id: "job-semantic-ai",
+        title: "Senior Product Manager",
+        company: "Acme",
+        location: "San Francisco, CA",
+        description: "Own the machine learning platform roadmap.",
+        salaryText: "$220,000 - $260,000",
+        source: "indeed_search",
+        postedAt: new Date().toISOString()
+      }
+    ]
+  );
+
+  assert.equal(evaluations.length, 1);
+  assert.equal(evaluations[0].hardFiltered, false);
+  assert.ok(evaluations[0].score > 0);
+});
+
+test("evaluateJobsFromSearchCriteria applies semantic hard exclude matching for ai family terms", () => {
+  const evaluations = evaluateJobsFromSearchCriteria(
+    {
+      title: "product manager",
+      hardExcludeTerms: ["ai"]
+    },
+    [
+      {
+        id: "job-semantic-ai-excluded",
+        title: "Senior Product Manager",
+        company: "Acme",
+        location: "San Francisco, CA",
+        description: "Own the machine learning platform roadmap.",
+        salaryText: "$220,000 - $260,000",
+        source: "indeed_search",
+        postedAt: new Date().toISOString()
+      }
+    ]
+  );
+
+  assert.equal(evaluations.length, 1);
+  assert.equal(evaluations[0].hardFiltered, true);
+  assert.equal(evaluations[0].score, 0);
+  assert.match(evaluations[0].summary, /hard filter hit/i);
+});
+
 test("evaluateJobsFromSearchCriteria keeps baseline scoring for exclude-only criteria", () => {
   const evaluations = evaluateJobsFromSearchCriteria(
     {

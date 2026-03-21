@@ -47,9 +47,13 @@ test("recordRefreshEvent stores source events and updates lastLiveAt", () => {
 
     const sourceState = resolveSourceRefreshState(readRefreshState(statePath), "google-ai");
     assert.equal(sourceState.lastLiveAt, "2026-03-06T10:00:00.000Z");
+    assert.equal(sourceState.lastAttemptedAt, "2026-03-06T10:00:00.000Z");
+    assert.equal(sourceState.lastAttemptOutcome, "success");
+    assert.equal(sourceState.lastError, null);
     assert.equal(sourceState.events.length, 1);
     assert.equal(sourceState.events[0].outcome, "success");
     assert.equal(sourceState.events[0].mode, "scheduled");
+    assert.equal(sourceState.events[0].error, null);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
@@ -145,7 +149,30 @@ test("recordRefreshEvent enforces cooldown when challenge outcome is recorded", 
     assert.equal(sourceState.events.length, 1);
     assert.equal(sourceState.events[0].outcome, "challenge");
     assert.equal(sourceState.events[0].mode, "scheduled");
+    assert.equal(sourceState.lastAttemptOutcome, "challenge");
     assert.equal(sourceState.cooldownUntil, "2026-03-06T12:00:00.000Z");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("recordRefreshEvent preserves latest failed attempt metadata", () => {
+  const { tempDir, statePath } = createTempStatePath();
+
+  try {
+    recordRefreshEvent({
+      statePath,
+      sourceId: "indeed-ai",
+      outcome: "transient_error",
+      at: "2026-03-06T10:00:00.000Z",
+      error: "Cloudflare: additional verification needed"
+    });
+
+    const sourceState = resolveSourceRefreshState(readRefreshState(statePath), "indeed-ai");
+    assert.equal(sourceState.lastAttemptedAt, "2026-03-06T10:00:00.000Z");
+    assert.equal(sourceState.lastAttemptOutcome, "transient_error");
+    assert.equal(sourceState.lastError, "Cloudflare: additional verification needed");
+    assert.equal(sourceState.events[0].error, "Cloudflare: additional verification needed");
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

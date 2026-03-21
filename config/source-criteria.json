@@ -1,0 +1,35 @@
+{
+  "title": "Product manager",
+  "keywordMode": "or",
+  "hardIncludeMode": "and",
+  "scoreKeywordMode": "or",
+  "hardIncludeTerms": [
+    "ai"
+  ],
+  "hardExcludeTerms": [
+    "defense",
+    "gaming",
+    "fintech",
+    "retail",
+    "payment",
+    "search",
+    "tax"
+  ],
+  "scoreKeywords": [
+    "growth",
+    "energy",
+    "cleantech"
+  ],
+  "excludeTerms": [
+    "defense",
+    "gaming",
+    "fintech",
+    "retail",
+    "payment",
+    "search",
+    "tax"
+  ],
+  "location": "San Francisco",
+  "minSalary": 200000,
+  "datePosted": "3d"
+}

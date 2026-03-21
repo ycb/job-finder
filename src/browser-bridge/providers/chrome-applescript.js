@@ -3,7 +3,10 @@ import fs from "node:fs";
 
 import { writeAshbyCaptureFile } from "../../sources/ashby-jobs.js";
 import { writeGoogleCaptureFile } from "../../sources/google-jobs.js";
-import { writeIndeedCaptureFile } from "../../sources/indeed-jobs.js";
+import {
+  INDEED_EXPECTED_COUNT_SELECTORS,
+  writeIndeedCaptureFile
+} from "../../sources/indeed-jobs.js";
 import { writeLinkedInCaptureFile } from "../../sources/linkedin-saved-search.js";
 import { writeRemoteOkCaptureFile } from "../../sources/remoteok-jobs.js";
 import { writeWellfoundCaptureFile } from "../../sources/wellfound-jobs.js";
@@ -1408,7 +1411,10 @@ function buildGenericBoardExtractionScript({
   siteKey,
   hostIncludes = [],
   urlIncludes = [],
-  blockedIncludes = []
+  blockedIncludes = [],
+  expectedCountSelectors = null,
+  expectedCountPatternSources = null,
+  allowExpectedCountBodyFallback = true
 }) {
   return `
 (() => {
@@ -1442,34 +1448,51 @@ function buildGenericBoardExtractionScript({
       String(value || "").toLowerCase()
     )
   )};
+  const expectedCountSelectors = ${JSON.stringify(
+    Array.isArray(expectedCountSelectors) ? expectedCountSelectors : []
+  )};
+  const expectedCountPatternSources = ${JSON.stringify(
+    Array.isArray(expectedCountPatternSources) ? expectedCountPatternSources : []
+  )};
+  const allowExpectedCountBodyFallback = ${allowExpectedCountBodyFallback ? "true" : "false"};
   const titleNoise = /^(apply|save|share|learn more|continue|see more|show more|company|location)$/i;
+  const expectedCountPatterns = (expectedCountPatternSources.length
+    ? expectedCountPatternSources
+    : [
+        "showing\\\\s+\\\\d+\\\\s*[-–]\\\\s*\\\\d+\\\\s+of\\\\s+([\\\\d,]+)\\\\s+(?:jobs?|results?)",
+        "([\\\\d,]+)\\\\s+(?:jobs?|results?)\\\\b",
+        "of\\\\s+([\\\\d,]+)\\\\s+(?:jobs?|results?)\\\\b"
+      ]).map((source) => new RegExp(source, "i"));
   const parseExpectedCountFromText = (text) => {
     const normalized = normalize(text).toLowerCase();
     if (!normalized) {
       return null;
     }
 
-    const match =
-      normalized.match(/showing\\s+\\d+\\s*[-–]\\s*\\d+\\s+of\\s+([\\d,]+)\\s+(?:jobs?|results?)/i) ||
-      normalized.match(/([\\d,]+)\\s+(?:jobs?|results?)\\b/i) ||
-      normalized.match(/of\\s+([\\d,]+)\\s+(?:jobs?|results?)\\b/i);
+    for (const pattern of expectedCountPatterns) {
+      const match = normalized.match(pattern);
+      if (!match || !match[1]) {
+        continue;
+      }
 
-    if (!match || !match[1]) {
-      return null;
+      const parsed = Number(String(match[1]).replace(/,/g, ""));
+      if (Number.isFinite(parsed) && parsed > 0) {
+        return Math.round(parsed);
+      }
     }
-
-    const parsed = Number(String(match[1]).replace(/,/g, ""));
-    return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : null;
+    return null;
   };
 
   const extractExpectedCount = () => {
-    const selectors = [
-      "h1",
-      '[data-testid*="count"]',
-      '[class*="count"]',
-      '[class*="results"]',
-      '[class*="jobCount"]'
-    ];
+    const selectors = expectedCountSelectors.length
+      ? expectedCountSelectors
+      : [
+          "h1",
+          '[data-testid*="count"]',
+          '[class*="count"]',
+          '[class*="results"]',
+          '[class*="jobCount"]'
+        ];
 
     let best = null;
     for (const selector of selectors) {
@@ -1485,6 +1508,10 @@ function buildGenericBoardExtractionScript({
 
     if (best !== null) {
       return best;
+    }
+
+    if (!allowExpectedCountBodyFallback) {
+      return null;
     }
 
     const pageText = normalize(document.body?.innerText || "").slice(0, 8000);
@@ -1928,7 +1955,13 @@ function readIndeedJobsFromChrome(searchUrl, options = {}) {
     siteKey: "indeed",
     hostIncludes: ["indeed.com"],
     urlIncludes: ["/viewjob", "/rc/clk", "jk="],
-    blockedIncludes: ["/cmp/", "/companies/", "/career-advice/"]
+    blockedIncludes: ["/cmp/", "/companies/", "/career-advice/"],
+    expectedCountSelectors: INDEED_EXPECTED_COUNT_SELECTORS,
+    expectedCountPatternSources: [
+      "page\\\\s+\\\\d+\\\\s+of\\\\s+([\\\\d,]+)\\\\s+jobs?\\\\b",
+      "showing\\\\s+\\\\d+\\\\s*[-–]\\\\s*\\\\d+\\\\s+of\\\\s+([\\\\d,]+)\\\\s+jobs?\\\\b"
+    ],
+    allowExpectedCountBodyFallback: false
   });
   const maxPages = Number(options.maxPages) > 0 ? Number(options.maxPages) : 8;
   return capturePaginatedGenericBoardJobs({
@@ -2336,13 +2369,12 @@ function buildGoogleBrowserExtractionScript() {
     const card = anchor.closest("div, li, article");
     const text = normalize(card?.innerText || card?.textContent || "");
     const locationMatch = text.match(
-      /\\b(san francisco|new york|remote|seattle|austin|los angeles|california)\\b/i
+      /\b(san francisco|new york|remote|seattle|austin|los angeles|california)\b/i
     );
     const postedAtMatch = text.match(
       /(\\d+\\s+(?:hour|day|week|month|year)s?\\s+ago|today|yesterday)/i
     );
     const salaryText = findSalaryText(text);
-
     jobs.push({
       externalId: null,
       title,

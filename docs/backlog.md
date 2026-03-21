@@ -97,13 +97,20 @@ The current backlog has strong item-level specs, but we need explicit epic-level
 
 **Goal**: Increase high-signal role coverage without sacrificing quality.
 
-- Includes: Levels.fyi, Greenhouse and YC expansion, plus re-enable and quality paths for gated sources.
-- Success signals: broader coverage with acceptable capture-to-import and quality ratios.
+- Includes: the approved 6-source MVP slate:
+  - `LinkedIn`
+  - `Built In SF`
+  - `Indeed`
+  - `ZipRecruiter`
+  - `YC Jobs`
+  - `Levels.fyi`
+  plus scoped quality gates and launch blockers for each source.
+- Success signals: broader coverage with acceptable capture-to-import and quality ratios, while explicitly keeping low-trust outliers out of the launch surface.
 - Primary linked items:
-  - Add Greenhouse source (`P1`, planned).
-  - Add Y Combinator source (`P2`, planned).
-  - Add Levels.fyi source (`P2`, planned).
-  - Wellfound bootstrap + RemoteOK validation (`P2`, planned).
+  - Fix ZipRecruiter job-specific URL resolution (`P1`, planned).
+  - Add Y Combinator Jobs source (`P1`, planned).
+  - Add Levels.fyi source (`P1`, planned).
+  - Keep Wellfound, Greenhouse, Ashby, and RemoteOK out of MVP until their source-specific quality issues are resolved (`P2`, icebox).
 
 ### Epic G — Governance, Operations, and Internal Tools (New)
 
@@ -156,6 +163,10 @@ The current backlog has strong item-level specs, but we need explicit epic-level
   - STATUS: Planned
   - WHY: Users need one consistent work-mode preference across all sources.
   - IMPACT: Better match quality and less per-source setup overhead.
+- `P1` Analyze and validate the MVP scoring model before launch. [Detailed spec](./backlog-specs/p1-core-scoring-model-mvp-analysis.md)
+  - STATUS: Planned
+  - WHY: The deterministic scoring model may already be good enough for MVP, but title-family matching, bucket thresholds, and missing quality signals are still unproven and likely user-facing friction points.
+  - IMPACT: Higher trust in ranking quality at launch, with a clear call on what stays for MVP versus what is deferred.
 - `P1` Improve search controls: clear hard filter, AND/OR keywords, include/exclude terms, and cache status visualization. [Detailed spec](./backlog-specs/p1-core-search-hardfilter-keywords-include-exclude-cache.md)
   - STATUS: In progress (hard filter + cache visibility are partially shipped; full AND/OR + include/exclude controls pending)
   - WHY: Search/filter behavior is currently hard to tune and explain quickly.
@@ -218,6 +229,23 @@ The current backlog has strong item-level specs, but we need explicit epic-level
   - IMPACT: Reduces legal exposure at launch. Required before npm publish or public HN post.
   - SCOPE: External legal review only. No implementation work. Flag any required changes back to backlog as follow-on items.
 
+**Theme: Source Coverage Expansion**
+- `P1` Fix ZipRecruiter job-specific URL resolution in the adapter. [Detailed spec](./backlog-specs/p1-source-quality-ziprecruiter-direct-job-url.md)
+  - STATUS: Planned
+  - WHY: Current `View Job` behavior can land on the company-wide ZipRecruiter jobs portal instead of the selected posting, which breaks the core apply flow.
+  - IMPACT: Source becomes shippable for MVP and preserves user trust that "View Job" opens the exact job they selected.
+  - MVP SOURCE STATUS: Browser source, ship after `1` scoped fix.
+- `P1` Add Y Combinator Jobs source to the MVP slate. [Detailed spec](./backlog-specs/p1-source-expansion-yc-mvp.md)
+  - STATUS: Planned
+  - WHY: YC Jobs is a high-signal startup source for the target SF AI PM market and fits the direct HTTP source pattern.
+  - IMPACT: More differentiated startup coverage at relatively low implementation cost.
+  - MVP SOURCE STATUS: HTTP-direct source, `Build`.
+- `P1` Add Levels.fyi source to the MVP slate. [Detailed spec](./backlog-specs/p1-source-expansion-levelsfyi-mvp.md)
+  - STATUS: Planned
+  - WHY: Levels.fyi adds compensation-transparent tech roles and strengthens the salary-signal story at launch.
+  - IMPACT: Better coverage plus meaningful salary differentiation in the launch source slate.
+  - MVP SOURCE STATUS: HTTP-direct source, `Build`.
+
 ## Icebox (Out of MVP Scope For Now)
 
 ### P1
@@ -251,10 +279,10 @@ The current backlog has strong item-level specs, but we need explicit epic-level
   - IMPACT: Predictable cross-search ranking quality and better control for power users.
 
 **Theme: Source Expansion**
-- `P1` Add Greenhouse source using shared portal abstraction. [Detailed spec](./backlog-specs/p1-source-expansion-greenhouse.md)
+- `P2` Revisit company-portal source expansion (Ashby / Greenhouse) after MVP. [Detailed spec](./backlog-specs/p2-source-expansion-company-portals-post-mvp.md)
   - STATUS: Icebox
-  - WHY: Greenhouse is a major missing source family.
-  - IMPACT: Broader and higher-quality role coverage.
+  - WHY: Company-portal sources are strategically interesting, but they are structurally different and currently too costly/noisy for the 6-source MVP slate.
+  - IMPACT: Preserves a clear post-launch expansion path without increasing MVP reliability risk.
 
 **Theme: UX & Workflow**
 - `P1` Add multi-search support with `+` tab creation for parallel search contexts. [Detailed spec](./backlog-specs/p1-ux-multi-search-tabs.md)
@@ -290,20 +318,24 @@ The current backlog has strong item-level specs, but we need explicit epic-level
 **Theme: Source Quality**
 - `P2` Bootstrap Wellfound criteria via UI capture (feature-flagged). [Detailed spec](./backlog-specs/p2-source-quality-wellfound-bootstrap.md)
   - STATUS: Icebox
-  - WHY: Wellfound URL criteria support is still stubbed.
-  - IMPACT: Better relevance when Wellfound is enabled.
+  - WHY: Wellfound URL criteria support is still stubbed and does not meet MVP reliability expectations.
+  - IMPACT: Keeps the launch source slate focused on sources with stronger current signal.
+- `P2` Keep Ashby out of MVP unless a novelty spike proves unique value and a maintainable strategy. [Detailed spec](./backlog-specs/p2-source-expansion-company-portals-post-mvp.md)
+  - STATUS: Icebox
+  - WHY: Current Ashby capture-to-import drop remains too high and the brute-force company-portal approach is still under evaluation.
+  - IMPACT: Prevents a structurally noisy outlier source from degrading launch reliability.
 - `P2` Validate and re-enable RemoteOK criteria flow (feature-flagged). [Detailed spec](./backlog-specs/p2-source-quality-remoteok-validation.md)
   - STATUS: Icebox
-  - WHY: RemoteOK is now gated behind a flag until criteria + capture quality are verified.
-  - IMPACT: Prevents noisy results while keeping a clear path to re-enable.
+  - WHY: RemoteOK is now gated behind a flag, is not well aligned with the geo focus, and does not justify MVP complexity.
+  - IMPACT: Prevents noisy results while keeping a clear path to re-enable later.
 - `P2` Clean up employment-type data model and normalization before re-introducing employment-type filtering in UI. [Detailed spec](./backlog-specs/p2-source-quality-employment-type-cleanup.md)
   - STATUS: Icebox
   - WHY: Current `employmentType` data is semantically mixed across sources (`contract type` vs `work model` vs `seniority`) and causes misleading filters.
   - IMPACT: Reliable metadata and a trustworthy employment-type filter path post-MVP.
 - `P2` Optimize Ashby discovery yield (high capture-to-import drop).
   - STATUS: Icebox
-  - WHY: Ashby discovery mode captures broad board inventories before hard-filtering.
-  - IMPACT: Lower scrape noise/cost and cleaner funnel ratios.
+  - WHY: Ashby is an outlier company-portal source whose current brute-force discovery path produces poor yield; it should only return after a novelty-vs-redundancy spike proves the value.
+  - IMPACT: Avoids carrying a structurally noisy source in MVP while preserving the option to rework it later.
 
 **Theme: Integrations**
 - `P2` Connect Narrata with stable file/Supabase sync flows. [Detailed spec](./backlog-specs/p1-integrations-narrata.md)
@@ -312,14 +344,12 @@ The current backlog has strong item-level specs, but we need explicit epic-level
   - IMPACT: More reliable profile-driven scoring with clearer recovery paths.
 
 **Theme: Source Expansion**
-- `P2` Add Y Combinator jobs source. [Detailed spec](./backlog-specs/p2-source-expansion-yc.md)
+- `P2` Keep additional long-tail source expansion out of MVP unless it clears a strong novelty bar.
   - STATUS: Icebox
-  - WHY: YC startup roles are not yet captured.
-  - IMPACT: Additional startup opportunity coverage.
-- `P2` Add Levels.fyi as a new source. [Detailed spec](./backlog-specs/p2-source-expansion-levelsfyi.md)
-  - STATUS: Icebox
-  - WHY: Levels.fyi can add compensation-transparent roles not captured in current sources.
-  - IMPACT: Better source coverage and stronger salary-signal inputs.
+  - WHY: The MVP slate deliberately stops at six curated sources. After launch, expansion should favor either proven high-novelty sources or the later community adapter model rather than first-party maintenance by default.
+  - IMPACT: Protects MVP quality and keeps source-count growth disciplined.
+  - WHY: The MVP slate deliberately stops at six curated sources and shifts further source growth to either post-launch first-party work or the later community adapter model.
+  - IMPACT: Keeps MVP focused while preserving room to expand again once the adapter pattern is proven.
 
 **Theme: UX Simplification**
 - `P2` Remove `Searches` page after auto-construct flow is stable. [Detailed spec](./backlog-specs/p2-ux-remove-searches-page.md)

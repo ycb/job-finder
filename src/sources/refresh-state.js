@@ -7,6 +7,8 @@ const SUPPORTED_OUTCOMES = new Set(["success", "transient_error", "challenge"]);
 const SUPPORTED_MODES = new Set(["scheduled", "manual"]);
 const CHALLENGE_PATTERNS = [
   /\bcaptcha\b/i,
+  /\bcloudflare\b/i,
+  /\badditional verification needed\b/i,
   /\bverify (?:you(?:'|’)re|you are) human\b/i,
   /\bare you human\b/i,
   /\bunusual traffic\b/i,
@@ -90,16 +92,38 @@ function normalizeSourceState(rawSourceState) {
         .map((event) => ({
           at: new Date(parseTimestamp(event.at)).toISOString(),
           outcome: String(event.outcome).trim().toLowerCase(),
-          mode: normalizeMode(event.mode)
+          mode: normalizeMode(event.mode),
+          error:
+            typeof event.error === "string" && event.error.trim()
+              ? event.error.trim()
+              : null
         }))
     : [];
 
   const lastLiveAtMs = parseTimestamp(sourceState.lastLiveAt);
   const cooldownUntilMs = parseTimestamp(sourceState.cooldownUntil);
+  const explicitLastAttemptAtMs = parseTimestamp(sourceState.lastAttemptedAt);
+  const latestEvent = events.length > 0 ? events[events.length - 1] : null;
+  const derivedLastAttemptAt =
+    explicitLastAttemptAtMs !== null
+      ? new Date(explicitLastAttemptAtMs).toISOString()
+      : latestEvent?.at || null;
+  const derivedLastAttemptOutcome =
+    typeof sourceState.lastAttemptOutcome === "string" &&
+    SUPPORTED_OUTCOMES.has(String(sourceState.lastAttemptOutcome).trim().toLowerCase())
+      ? String(sourceState.lastAttemptOutcome).trim().toLowerCase()
+      : latestEvent?.outcome || null;
+  const derivedLastError =
+    typeof sourceState.lastError === "string" && sourceState.lastError.trim()
+      ? sourceState.lastError.trim()
+      : latestEvent?.error || null;
 
   return {
     lastLiveAt: lastLiveAtMs !== null ? new Date(lastLiveAtMs).toISOString() : null,
     cooldownUntil: cooldownUntilMs !== null ? new Date(cooldownUntilMs).toISOString() : null,
+    lastAttemptedAt: derivedLastAttemptAt,
+    lastAttemptOutcome: derivedLastAttemptOutcome,
+    lastError: derivedLastError,
     events: events.slice(-MAX_EVENT_HISTORY)
   };
 }
@@ -208,7 +232,8 @@ export function recordRefreshEvent({
   outcome,
   at,
   mode = "scheduled",
-  cooldownMinutes = 0
+  cooldownMinutes = 0,
+  error = null
 }) {
   const normalizedSourceId = String(sourceId || "").trim();
   if (!normalizedSourceId) {
@@ -219,14 +244,20 @@ export function recordRefreshEvent({
   const normalizedMode = normalizeMode(mode);
   const eventMs = parseTimestamp(at) ?? Date.now();
   const eventAt = new Date(eventMs).toISOString();
+  const normalizedError =
+    typeof error === "string" && error.trim() ? error.trim() : null;
 
   const state = readRefreshState(statePath);
   const sourceState = resolveSourceRefreshState(state, normalizedSourceId);
   const nextSourceState = {
     ...sourceState,
-    events: [...sourceState.events, { at: eventAt, outcome: normalizedOutcome, mode: normalizedMode }].slice(
-      -MAX_EVENT_HISTORY
-    )
+    lastAttemptedAt: eventAt,
+    lastAttemptOutcome: normalizedOutcome,
+    lastError: normalizedOutcome === "success" ? null : normalizedError,
+    events: [
+      ...sourceState.events,
+      { at: eventAt, outcome: normalizedOutcome, mode: normalizedMode, error: normalizedError }
+    ].slice(-MAX_EVENT_HISTORY)
   };
 
   if (normalizedOutcome === "success") {

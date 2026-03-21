@@ -17,6 +17,10 @@ test("classifyRefreshErrorOutcome detects challenge/captcha style failures", () 
     "challenge"
   );
   assert.equal(
+    classifyRefreshErrorOutcome(new Error("Cloudflare: additional verification needed before continuing.")),
+    "challenge"
+  );
+  assert.equal(
     classifyRefreshErrorOutcome("Request blocked by bot protection / captcha required"),
     "challenge"
   );

@@ -168,6 +168,9 @@ test(
 
         assertString(source.captureStatus, `${sourcePath}.captureStatus`);
         assertStringOrNull(source.capturedAt, `${sourcePath}.capturedAt`);
+        assertStringOrNull(source.lastAttemptedAt, `${sourcePath}.lastAttemptedAt`);
+        assertStringOrNull(source.lastAttemptOutcome, `${sourcePath}.lastAttemptOutcome`);
+        assertStringOrNull(source.lastAttemptError, `${sourcePath}.lastAttemptError`);
         assertNumberOrNull(source.captureJobCount, `${sourcePath}.captureJobCount`);
         assertNumberOrNull(source.droppedByHardFilterCount, `${sourcePath}.droppedByHardFilterCount`);
         assertNumberOrNull(source.droppedByDedupeCount, `${sourcePath}.droppedByDedupeCount`);

@@ -5,7 +5,10 @@ import os from "node:os";
 import path from "node:path";
 
 import { readSourceCaptureSummary, writeSourceCapturePayload } from "../src/sources/cache-policy.js";
-import { writeIndeedCaptureFile } from "../src/sources/indeed-jobs.js";
+import {
+  parseIndeedExpectedCountText,
+  writeIndeedCaptureFile
+} from "../src/sources/indeed-jobs.js";
 import { writeZipRecruiterCaptureFile } from "../src/sources/ziprecruiter-jobs.js";
 
 function createTempCapturePath(prefix) {
@@ -16,7 +19,20 @@ function createTempCapturePath(prefix) {
   };
 }
 
-test("writeIndeedCaptureFile suppresses unreliable expectedCount in capture payload", () => {
+test("parseIndeedExpectedCountText parses narrow page-count headers", () => {
+  assert.equal(parseIndeedExpectedCountText("Page 1 of 41 jobs"), 41);
+  assert.equal(parseIndeedExpectedCountText("Showing 1-10 of 412 jobs"), 412);
+});
+
+test("parseIndeedExpectedCountText rejects broad marketing copy and salary noise", () => {
+  assert.equal(parseIndeedExpectedCountText("Search 200,000 jobs available"), null);
+  assert.equal(
+    parseIndeedExpectedCountText("$200,000 a year Senior Product Manager jobs"),
+    null
+  );
+});
+
+test("writeIndeedCaptureFile preserves plausible expectedCount in capture payload", () => {
   const { tempDir, capturePath } = createTempCapturePath("job-finder-indeed-expected-");
   const source = {
     id: "indeed-ai",
@@ -34,10 +50,10 @@ test("writeIndeedCaptureFile suppresses unreliable expectedCount in capture payl
 
     const summary = readSourceCaptureSummary(source);
     assert.equal(summary.status, "ready");
-    assert.equal(summary.expectedCount, null);
-    assert.equal(writeResult.expectedCount, null);
-    assert.equal(summary.payload?.expectedCount, null);
-    assert.equal(summary.payload?.captureFunnel?.availableCount, null);
+    assert.equal(summary.expectedCount, 412);
+    assert.equal(writeResult.expectedCount, 412);
+    assert.equal(summary.payload?.expectedCount, 412);
+    assert.equal(summary.payload?.captureFunnel?.availableCount, 412);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

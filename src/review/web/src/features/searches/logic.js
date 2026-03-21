@@ -6,6 +6,15 @@ const SEARCH_RUN_CADENCE_VALUES = new Set(["12h", "daily", "weekly", "cached"]);
 
 const SOURCE_KIND_ORDER = ["li", "bi", "ah", "id", "zr", "gg", "wf", "ro", "unknown"];
 
+function normalizeExpectedFoundCount(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? Math.max(0, Math.round(numeric)) : null;
+}
+
 export function normalizeSearchState(value) {
   const normalized = String(value || "").trim().toLowerCase();
   return SEARCH_STATE_VALUES.has(normalized) ? normalized : "enabled";
@@ -120,15 +129,16 @@ export function buildSearchRows(sources = [], checksBySourceId = {}) {
         enabled: source.enabled === true,
         authRequired: source.authRequired === true,
         readiness,
-        capturedAt: source.capturedAt || null,
+        capturedAt:
+          typeof source.lastAttemptedAt === "string" && source.lastAttemptedAt.trim()
+            ? source.lastAttemptedAt
+            : source.capturedAt || null,
         capturedCount: Number(source.captureJobCount || 0),
         filteredCount: Number(source.droppedByHardFilterCount || 0),
         dedupedCount: Number(source.droppedByDedupeCount || 0),
         importedCount: Number(source.importedCount || 0),
-        hasUnknownExpectedCount: !Number.isFinite(Number(source.captureExpectedCount)),
-        expectedFoundCount: Number.isFinite(Number(source.captureExpectedCount))
-          ? Math.max(0, Math.round(Number(source.captureExpectedCount)))
-          : null,
+        hasUnknownExpectedCount: normalizeExpectedFoundCount(source.captureExpectedCount) === null,
+        expectedFoundCount: normalizeExpectedFoundCount(source.captureExpectedCount),
         formatterUnsupported: Array.isArray(source?.formatterDiagnostics?.unsupported)
           ? source.formatterDiagnostics.unsupported
           : Array.isArray(source?.criteriaAccountability?.unsupported)
@@ -159,6 +169,22 @@ export function buildSearchRows(sources = [], checksBySourceId = {}) {
         adapterHealthUpdatedAt:
           typeof source.adapterHealthUpdatedAt === "string" && source.adapterHealthUpdatedAt.trim()
             ? source.adapterHealthUpdatedAt
+            : null,
+        lastAttemptedAt:
+          typeof source.lastAttemptedAt === "string" && source.lastAttemptedAt.trim()
+            ? source.lastAttemptedAt
+            : null,
+        lastAttemptOutcome:
+          typeof source.lastAttemptOutcome === "string" && source.lastAttemptOutcome.trim()
+            ? source.lastAttemptOutcome
+            : null,
+        lastAttemptError:
+          typeof source.lastAttemptError === "string" && source.lastAttemptError.trim()
+            ? source.lastAttemptError
+            : null,
+        lastSuccessfulAt:
+          typeof source.capturedAt === "string" && source.capturedAt.trim()
+            ? source.capturedAt
             : null,
         refreshStatusReason:
           typeof source.statusReason === "string" && source.statusReason.trim()
@@ -267,15 +293,31 @@ export function presentSearchStatus(row) {
     row?.enabled === true &&
     row?.authRequired === true &&
     row?.readiness?.key === "not_authorized";
+  const latestAttemptAt = row?.lastAttemptedAt || row?.capturedAt || null;
+  const latestSuccessfulAt = row?.lastSuccessfulAt || null;
+  const latestAttemptOutcome =
+    typeof row?.lastAttemptOutcome === "string" && row.lastAttemptOutcome.trim()
+      ? row.lastAttemptOutcome.trim().toLowerCase()
+      : "";
+  const latestAttemptMs = Date.parse(String(latestAttemptAt || ""));
+  const latestSuccessfulMs = Date.parse(String(latestSuccessfulAt || ""));
+  const latestAttemptFailed =
+    latestAttemptOutcome &&
+    latestAttemptOutcome !== "success" &&
+    Number.isFinite(latestAttemptMs) &&
+    (!Number.isFinite(latestSuccessfulMs) || latestAttemptMs >= latestSuccessfulMs);
 
   const tone = isDisabled
     ? "muted"
     : authActionRequired
       ? "warn"
-      :
-      (row?.captureStatus === "capture_error"
-        ? "error"
-        : "ok");
+      : latestAttemptFailed
+        ? latestAttemptOutcome === "challenge"
+          ? "warn"
+          : "error"
+        : row?.captureStatus === "capture_error"
+          ? "error"
+          : "ok";
 
   const statusLabelRaw =
     row?.captureStatus === "ready"
@@ -290,13 +332,27 @@ export function presentSearchStatus(row) {
     ? "disabled"
     : authActionRequired
       ? "not authorized"
-      : tone === "error"
+      : latestAttemptFailed
+        ? latestAttemptOutcome === "challenge"
+          ? "challenge"
+          : "attempt failed"
+        : tone === "error"
           ? "error"
           : statusLabelRaw;
 
   const statusDetail = authActionRequired
     ? "Sign in to this source, then run Check access from More."
-    : null;
+    : latestAttemptFailed
+      ? [
+          latestAttemptOutcome === "challenge"
+            ? "Additional verification needed"
+            : "Last attempt failed",
+          row?.lastAttemptError ? String(row.lastAttemptError) : null,
+          Number.isFinite(latestAttemptMs) ? formatRelativeTimestamp(latestAttemptAt) : null,
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      : null;
 
   return {
     tone,
