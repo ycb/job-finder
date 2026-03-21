@@ -1721,7 +1721,7 @@ function buildDashboardData(limit = 200) {
           ? captureFunnel.keptAfterDedupeCount
           : jobCount
       );
-      const captureStatus = isFileBackedCapture ? capture.status : "live_source";
+      const captureStatus = isFileBackedCapture ? capture.status : "ready";
       const capturedAt = isFileBackedCapture
         ? capture.capturedAt
         : sourceLastSeenAt.get(source.id) || null;
@@ -5493,7 +5493,7 @@ export function renderDashboardPage(dashboard, options = {}) {
                 : source.captureStatus === "capture_error"
                   ? "capture error"
                   : source.captureStatus === "live_source"
-                    ? "live source"
+                    ? "ready"
                   : "never run";
             const healthStatus =
               typeof source.adapterHealthStatus === "string"

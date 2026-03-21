@@ -48,6 +48,7 @@ The controller is responsible for collecting those artifacts as lane outputs are
 - [x] (2026-03-21 01:18Z) Controller integrated `YC Jobs` end-to-end for MVP scope. Registration, schema validation, cache policy, and dashboard source-row contract now pass alongside the adapter/parser/capture suite.
 - [x] (2026-03-21 01:18Z) Controller integrated `Levels.fyi` end-to-end for MVP scope. Direct HTTP adapter, bounded detail enrichment, registration, schema validation, cache policy, and dashboard source-row contract all pass in targeted verification.
 - [x] (2026-03-21 01:18Z) Controller resolved the final support-lane blocker by normalizing dashboard source rows so newly added HTTP-direct sources always surface either `formatterDiagnostics` or `criteriaAccountability` instead of violating the source-row API contract.
+- [x] (2026-03-21 18:55Z) Controller corrected two post-integration source regressions discovered in live QA: `YC Jobs` now routes through the existing auth-required enable/check modal, and newly added HTTP-direct sources reuse the existing public status vocabulary instead of exposing a bespoke `live source` label.
 
 ## Surprises & Discoveries
 

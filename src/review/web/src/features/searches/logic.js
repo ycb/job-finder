@@ -325,8 +325,8 @@ export function presentSearchStatus(row) {
       : row?.captureStatus === "capture_error"
         ? "capture error"
         : row?.captureStatus === "live_source"
-          ? "live source"
-          : "never run";
+          ? "ready"
+        : "never run";
 
   const label = isDisabled
     ? "disabled"

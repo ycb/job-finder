@@ -172,6 +172,17 @@ test("presentSearchStatus does not expose cache as a user-facing status label", 
   assert.equal(cachedReadyStatus.tone, "ok");
 });
 
+test("presentSearchStatus folds legacy live_source rows into ready", () => {
+  const legacyLiveSourceStatus = presentSearchStatus({
+    enabled: true,
+    captureStatus: "live_source",
+    authRequired: false,
+  });
+
+  assert.equal(legacyLiveSourceStatus.label, "ready");
+  assert.equal(legacyLiveSourceStatus.tone, "ok");
+});
+
 test("presentSearchStatus only exposes actionable auth-required details", () => {
   const authRequiredStatus = presentSearchStatus({
     enabled: true,

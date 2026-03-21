@@ -41,6 +41,8 @@ test("checkEnvironmentReadiness reports baseline checks", () => {
 test("isSourceAuthRequired keeps Ashby in no-auth group", () => {
   assert.equal(isSourceAuthRequired("ashby_search"), false);
   assert.equal(isSourceAuthRequired("linkedin_capture_file"), true);
+  assert.equal(isSourceAuthRequired("yc_jobs"), true);
+  assert.equal(isSourceAuthRequired("levelsfyi_search"), false);
 });
 
 test("checkSourceAccess returns pass when capture file has jobs", () => {

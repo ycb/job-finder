@@ -12,6 +12,7 @@ function normalizeStatus(status) {
 export function isSourceAuthRequired(sourceType) {
   return (
     sourceType === "linkedin_capture_file" ||
+    sourceType === "yc_jobs" ||
     sourceType === "wellfound_search" ||
     sourceType === "indeed_search" ||
     sourceType === "ziprecruiter_search" ||

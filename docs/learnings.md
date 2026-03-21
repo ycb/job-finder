@@ -258,8 +258,11 @@ As of 2026-03-06.
 - In source MVP delivery, treat every source lane as pattern-building work, not a one-off adapter. Require each lane to leave behind reusable artifacts: source type, search-construction rules, extraction contract, degradation semantics, and verification pattern. Otherwise the future `add a source` feature will start from scratch.
 - When a source lane is narrowed to adapter-only work, still leave behind one lightweight source note that captures source type, unsupported criteria, canonical review-target rule, minimum extraction contract, and the exact tests that prove the adapter. Reusable artifacts are still required even if registration/config wiring belongs to another lane.
 - When a controller spins up a registration lane for a new direct HTTP source, leave behind a reusable checklist that covers source-library entry, schema acceptance, cache TTL, and reporting expectations. Future source builds should start from that checklist instead of rediscovering the same registration contract.
+- When adding a new source type, wire it through the existing shared auth-gating and readiness/status pipelines in the same change. Do not infer “no auth” from a new type by omission, and do not introduce a new public status label like `live source` when existing vocabulary (`ready`, `not authorized`, `challenge`, `disabled`, `never run`) already covers the state.
 - A controller branch is not ready for stakeholder QA until it is pushed and has an upstream. Local integration commits are not enough. The controller workflow must treat `push -> QA instructions -> roadmap/reporting update` as one gated cycle.
 - If a branch contains MVP-scope fixes that affect what the user should see, push that branch before claiming readiness. A local-only controller branch creates false QA failures because the user cannot validate the actual integrated state.
+- Before diagnosing a controller-branch UI regression, prove what checkout is actually serving the QA port. On macOS, inspect the live review-server PID and its cwd (`lsof -a -p <pid> -d cwd -Fn`) before blaming committed code.
+- If a stakeholder reports that a controller/data-quality branch regressed the UI, diff only the UI-facing files against `main` first. If `App.jsx`, Jobs features, and UI components are unchanged, the bug is in runtime/checkout QA setup, not committed UI code.
 
 ## Title Bucketing Dependency
 
@@ -306,3 +309,14 @@ As of 2026-03-06.
 - Repeated QA-process churn is itself a product/process bug. Prefer one reliable path over “maybe this command” variants, and do not change the prescribed QA flow mid-iteration unless the previous flow has been explicitly retired and validated.
 - For stakeholder QA, `review:qa` must be local-first, not branch-following. The accepted contract is: one terminal command per worktree, then `Cmd-R` for changes in that same worktree. Auto-pulling upstream belongs in a separate script, not the QA script.
 - Current "local-first" storage is repo-relative, not user-local. Treat this as an architectural bug: persistent app state should live in one canonical machine-local folder, with explicit overrides for isolated QA, rather than being silently split across branches/worktrees.
+
+## QA Process Contract
+
+- Stakeholder QA must use exactly one checkout: `/Users/admin/job-finder`.
+- Worker worktrees are implementation-only. The user should never need to QA them directly.
+- The controller branch is integration-only. Stakeholder-visible QA should happen via a dedicated `qa/current` branch that mirrors the latest controller-approved state.
+- `npm run review:qa` must be the single QA entrypoint. It should serve only `/Users/admin/job-finder`, fixed at `http://127.0.0.1:4311`, and either auto-follow `origin/qa/current` successfully or fail loudly.
+- Every QA page should expose a visible build stamp: branch, short SHA, and serving checkout path. If the stamp is wrong, the QA session is invalid.
+- The controller is responsible for pushing reviewed integration to `origin/qa/current` before asking for QA. Never ask for stakeholder QA against a controller/worktree branch directly.
+- Main remains post-QA only. Flow is: workers -> controller -> `qa/current` -> stakeholder QA -> main.
+- If `/Users/admin/job-finder` has local dirt, the QA updater must stop and report that explicitly instead of serving stale code silently.
