@@ -2,11 +2,9 @@
   "sources": {
     "linkedin-live-capture": false,
     "builtin-sf-ai-pm": true,
-    "ashby-pm-roles": true,
     "indeed-ai-pm": false,
     "zip-ai-pm": false,
-    "google-ai-pm": true,
-    "wellfound-ai-pm": false,
-    "remoteok-ai-pm": false
+    "yc-product-jobs": false,
+    "levelsfyi-ai-pm": false
   }
 }

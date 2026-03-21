@@ -47,7 +47,7 @@ function createTempSourcesMapConfig() {
     sources: {
       "linkedin-live-capture": true,
       "indeed-ai-pm": true,
-      "google-ai-pm": false
+      "levelsfyi-ai-pm": false
     }
   };
 
@@ -93,7 +93,7 @@ test("setEnabledSources persists selected source ids in map mode", () => {
   const { tempDir, sourcesPath } = createTempSourcesMapConfig();
   try {
     const result = setEnabledSources(
-      ["linkedin-live-capture", "google-ai-pm"],
+      ["linkedin-live-capture", "levelsfyi-ai-pm"],
       sourcesPath
     );
     assert.equal(typeof result.path, "string");
@@ -101,7 +101,7 @@ test("setEnabledSources persists selected source ids in map mode", () => {
     const persisted = JSON.parse(fs.readFileSync(sourcesPath, "utf8"));
     assert.equal(persisted.sources["linkedin-live-capture"], true);
     assert.equal(persisted.sources["indeed-ai-pm"], false);
-    assert.equal(persisted.sources["google-ai-pm"], true);
+    assert.equal(persisted.sources["levelsfyi-ai-pm"], true);
 
     const loaded = loadSourcesWithPath(sourcesPath).sources;
     assert.equal(
@@ -109,7 +109,7 @@ test("setEnabledSources persists selected source ids in map mode", () => {
       true
     );
     assert.equal(
-      loaded.find((source) => source.id === "google-ai-pm")?.enabled,
+      loaded.find((source) => source.id === "levelsfyi-ai-pm")?.enabled,
       true
     );
     assert.equal(

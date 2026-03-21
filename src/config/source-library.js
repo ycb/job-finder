@@ -18,16 +18,6 @@ const SOURCE_LIBRARY = Object.freeze([
     cacheTtlHours: 12
   },
   {
-    id: "ashby-pm-roles",
-    name: "Ashby",
-    type: "ashby_search",
-    enabled: true,
-    searchUrl: "https://jobs.ashbyhq.com/",
-    maxJobs: 50,
-    recencyWindow: "1w",
-    cacheTtlHours: 24
-  },
-  {
     id: "indeed-ai-pm",
     name: "Indeed",
     type: "indeed_search",
@@ -60,32 +50,6 @@ const SOURCE_LIBRARY = Object.freeze([
     searchUrl: "https://www.levels.fyi/jobs/",
     maxJobs: 50,
     cacheTtlHours: 12
-  },
-  {
-    id: "google-ai-pm",
-    name: "Google",
-    type: "google_search",
-    enabled: true,
-    searchUrl: "https://www.google.com/search",
-    recencyWindow: "1w",
-    cacheTtlHours: 12
-  },
-  {
-    id: "wellfound-ai-pm",
-    name: "Wellfound",
-    type: "wellfound_search",
-    enabled: false,
-    searchUrl: "https://wellfound.com/jobs",
-    maxJobs: 50,
-    cacheTtlHours: 24
-  },
-  {
-    id: "remoteok-ai-pm",
-    name: "RemoteOK",
-    type: "remoteok_search",
-    enabled: false,
-    searchUrl: "https://remoteok.com/remote-product-manager-jobs",
-    cacheTtlHours: 24
   }
 ]);
 

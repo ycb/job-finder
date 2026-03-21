@@ -258,6 +258,8 @@ As of 2026-03-06.
 - In source MVP delivery, treat every source lane as pattern-building work, not a one-off adapter. Require each lane to leave behind reusable artifacts: source type, search-construction rules, extraction contract, degradation semantics, and verification pattern. Otherwise the future `add a source` feature will start from scratch.
 - When a source lane is narrowed to adapter-only work, still leave behind one lightweight source note that captures source type, unsupported criteria, canonical review-target rule, minimum extraction contract, and the exact tests that prove the adapter. Reusable artifacts are still required even if registration/config wiring belongs to another lane.
 - When a controller spins up a registration lane for a new direct HTTP source, leave behind a reusable checklist that covers source-library entry, schema acceptance, cache TTL, and reporting expectations. Future source builds should start from that checklist instead of rediscovering the same registration contract.
+- A controller branch is not ready for stakeholder QA until it is pushed and has an upstream. Local integration commits are not enough. The controller workflow must treat `push -> QA instructions -> roadmap/reporting update` as one gated cycle.
+- If a branch contains MVP-scope fixes that affect what the user should see, push that branch before claiming readiness. A local-only controller branch creates false QA failures because the user cannot validate the actual integrated state.
 
 ## Title Bucketing Dependency
 
