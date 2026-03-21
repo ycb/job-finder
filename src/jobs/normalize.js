@@ -1,4 +1,8 @@
 import crypto from "node:crypto";
+import {
+  canonicalizeZipRecruiterSourceUrl,
+  extractZipRecruiterDeepLinkId
+} from "../sources/ziprecruiter-jobs.js";
 
 function normalizeText(value, fallback = "") {
   if (typeof value !== "string") {
@@ -33,6 +37,11 @@ function hostLooksLikeIndeed(hostname) {
 function hostLooksLikeGoogle(hostname) {
   const host = String(hostname || "").toLowerCase();
   return host === "google.com" || host.endsWith(".google.com");
+}
+
+function hostLooksLikeZipRecruiter(hostname) {
+  const host = String(hostname || "").toLowerCase();
+  return host === "ziprecruiter.com" || host.endsWith(".ziprecruiter.com");
 }
 
 function extractLinkedInJobIdFromUrl(rawUrl) {
@@ -137,6 +146,10 @@ function canonicalizeSourceUrl(rawUrl) {
     }
   }
 
+  if (hostLooksLikeZipRecruiter(parsed.hostname)) {
+    return canonicalizeZipRecruiterSourceUrl(parsed.toString());
+  }
+
   parsed.hash = "";
   parsed.search = "";
   return parsed.toString();
@@ -180,6 +193,10 @@ function inferExternalId(externalId, sourceUrl, sourceType) {
 
   if (sourceType === "google_search") {
     return extractGoogleJobsDocIdFromUrl(sourceUrl) || null;
+  }
+
+  if (sourceType === "ziprecruiter_search") {
+    return extractZipRecruiterDeepLinkId(sourceUrl) || null;
   }
 
   return null;
