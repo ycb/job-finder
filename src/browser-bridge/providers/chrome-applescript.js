@@ -224,6 +224,7 @@ function readAutomationTabInfo() {
 
 const AUTH_REQUIRED_SOURCE_TYPES = new Set([
   "linkedin_capture_file",
+  "yc_jobs",
   "wellfound_search",
   "indeed_search",
   "ziprecruiter_search",
@@ -247,7 +248,7 @@ function buildAuthProbeScript() {
 `;
 }
 
-function authProbeLooksUnauthorized(sourceType, probe) {
+export function authProbeLooksUnauthorized(sourceType, probe) {
   const href = String(probe?.href || "").toLowerCase();
   const title = String(probe?.title || "").toLowerCase();
   const text = String(probe?.textSnippet || "").toLowerCase();
@@ -259,6 +260,8 @@ function authProbeLooksUnauthorized(sourceType, probe) {
   let hostPattern = /(linkedin|indeed|ziprecruiter|wellfound|remoteok)\./;
   if (source === "linkedin_capture_file") {
     hostPattern = /linkedin\./;
+  } else if (source === "yc_jobs") {
+    hostPattern = /workatastartup\./;
   } else if (source === "indeed_search") {
     hostPattern = /indeed\./;
   } else if (source === "ziprecruiter_search") {
@@ -271,8 +274,8 @@ function authProbeLooksUnauthorized(sourceType, probe) {
 
   const hasLoginPath =
     hostPattern.test(host) &&
-    /(login|signin|sign-in|authwall|checkpoint|session)/.test(pathname);
-  const hasLoginInHref = /(login|signin|sign-in|authwall|checkpoint|session)/.test(href);
+    /(login|signin|sign-in|authwall|checkpoint|session|sign_in)/.test(pathname);
+  const hasLoginInHref = /(login|signin|sign-in|authwall|checkpoint|session|sign_in)/.test(href);
   const likelyLoginTitle = /(sign in|log in|login)/.test(title);
   const likelyLoginText = /(sign in|log in|login|continue with)/.test(text);
 
