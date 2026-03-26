@@ -22,6 +22,8 @@ The approved MVP source slate is intentionally limited to six curated sources. T
 | YC Jobs | HTTP-direct | Build | High-signal SF AI startup market source at relatively low build cost. |
 | Levels.fyi | HTTP-direct | Build | Salary-first differentiation and meaningful tech-job coverage at relatively low build cost. |
 
+Implementation note: `YC Jobs` remains an HTTP-direct adapter, but MVP product integration treats it as auth-required so it reuses the existing source-auth modal and readiness workflow. `Levels.fyi` remains a standard no-auth HTTP-direct source.
+
 ## Out of MVP
 
 - Wellfound

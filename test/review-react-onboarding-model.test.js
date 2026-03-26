@@ -76,6 +76,27 @@ test("groupOnboardingSources returns Enabled / Authentication Required / Not Ena
   );
 });
 
+test("groupOnboardingSources routes YC Jobs through auth-required and Levels.fyi through enabled", () => {
+  const checksBySourceId = {
+    yc: { status: "warn" }
+  };
+  const sources = [
+    { id: "yc", enabled: true, authRequired: true },
+    { id: "levels", enabled: true, authRequired: false }
+  ];
+
+  const grouped = groupOnboardingSources(sources, checksBySourceId);
+
+  assert.deepEqual(
+    grouped.enabled.map((source) => source.id),
+    ["levels"]
+  );
+  assert.deepEqual(
+    grouped.authRequired.map((source) => source.id),
+    ["yc"]
+  );
+});
+
 test("getCheckButtonLabel prefers checking state then re-check when a prior check failed", () => {
   assert.equal(getCheckButtonLabel({ isBusy: true, hasPriorFailedCheck: false }), "Checking...");
   assert.equal(getCheckButtonLabel({ isBusy: false, hasPriorFailedCheck: true }), "Re-check");

@@ -5,7 +5,7 @@
 
 ## Context
 
-YC Jobs is being promoted into MVP because it offers high-signal startup roles in the target SF AI market, fits the direct non-auth source pattern, and should be relatively low-cost to build compared with auth browser sources or company-portal discovery.
+YC Jobs is being promoted into MVP because it offers high-signal startup roles in the target SF AI market and should be relatively low-cost to build compared with auth browser sources or company-portal discovery. The adapter path is still direct HTTP, but MVP product integration treats YC Jobs as auth-required so it reuses the existing source-auth workflow instead of inventing a new enablement model.
 
 ## Why It Matters
 
@@ -16,6 +16,7 @@ The approved MVP source slate is intentionally six curated sources. YC Jobs stre
 - Add a dedicated YC Jobs source adapter.
 - Support source configuration, capture, normalization, scoring, dedupe, and review.
 - Start with direct HTTP parsing against the stable YC Jobs role surfaces.
+- Reuse the existing auth-required enable/check modal flow (`Open source` -> sign in -> `I'm logged in`) for product integration.
 - Support the MVP criteria set that meaningfully maps to YC Jobs without pretending unsupported filters work.
 - Add parser and integration tests.
 
@@ -29,11 +30,13 @@ The approved MVP source slate is intentionally six curated sources. YC Jobs stre
 - Users can run YC Jobs end-to-end through ingest -> score -> shortlist -> review.
 - Parsed jobs include normalized title, company, location, URL, and enough description/metadata to score credibly.
 - Unsupported filters are explicitly omitted or marked unsupported rather than silently ignored.
+- YC Jobs behaves like an existing auth-required source in onboarding, readiness grouping, and public status vocabulary.
 - Tests cover parser stability and source integration.
 
 ## Dependencies
 
 - Existing source schema/config support for HTTP-direct sources
+- Existing auth-required onboarding flow and readiness/status surfaces
 - Search-construction fidelity work for shared criteria mapping
 
 ## Definition of Done

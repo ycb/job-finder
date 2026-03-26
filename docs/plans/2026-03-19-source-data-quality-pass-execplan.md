@@ -49,6 +49,8 @@ The controller is responsible for collecting those artifacts as lane outputs are
 - [x] (2026-03-21 01:18Z) Controller integrated `Levels.fyi` end-to-end for MVP scope. Direct HTTP adapter, bounded detail enrichment, registration, schema validation, cache policy, and dashboard source-row contract all pass in targeted verification.
 - [x] (2026-03-21 01:18Z) Controller resolved the final support-lane blocker by normalizing dashboard source rows so newly added HTTP-direct sources always surface either `formatterDiagnostics` or `criteriaAccountability` instead of violating the source-row API contract.
 - [x] (2026-03-21 18:55Z) Controller corrected two post-integration source regressions discovered in live QA: `YC Jobs` now routes through the existing auth-required enable/check modal, and newly added HTTP-direct sources reuse the existing public status vocabulary instead of exposing a bespoke `live source` label.
+- [x] (2026-03-26 17:04Z) Product-integration parity pass completed for `YC Jobs` and `Levels.fyi`: both sources now register as first-class source kinds in searches/status logic, and the controller added internal-only novelty accounting against the default `LinkedIn + Indeed` baseline.
+- [x] (2026-03-26 17:04Z) Reusable source-type artifacts were updated for the two new MVP sources so future source additions inherit product-integration rules, canonical review-target constraints, and verification patterns instead of rediscovering them.
 
 ## Surprises & Discoveries
 
@@ -146,6 +148,10 @@ The controller is responsible for collecting those artifacts as lane outputs are
 - Decision: Allow Levels.fyi to use direct detail-page enrichment when the search page is too thin to carry salary-rich metadata.
   Rationale: The user explicitly approved a bounded direct-enrichment path as long as the canonical Levels.fyi detail URL remains the review target. This keeps the adapter useful without turning it into a broad crawler or an auth-browser source.
   Date/Author: 2026-03-20 / Codex
+
+- Decision: Treat `YC Jobs` as auth-required at the product-integration layer and `Levels.fyi` as no-auth, while keeping source novelty internal-only with a default `LinkedIn + Indeed` baseline.
+  Rationale: The user approved this source-type split explicitly. Product parity requires reuse of the existing auth modal/status vocabulary, and novelty is more useful as an internal acceptance metric than as user-facing UI complexity.
+  Date/Author: 2026-03-26 / Codex
 
 ## Outcomes & Retrospective
 

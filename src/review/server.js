@@ -54,6 +54,7 @@ import {
   upsertEvaluations,
   upsertJobs
 } from "../jobs/repository.js";
+import { computeSourceNoveltyBySourceId } from "../jobs/source-novelty.js";
 import { classifyRunDeltas } from "../jobs/run-deltas.js";
 import { evaluateJobsFromSearchCriteria } from "../jobs/score.js";
 import {
@@ -1566,6 +1567,10 @@ function buildDashboardData(limit = 200) {
     }
   }
   const sourceLastSeenAt = getSourceLastSeenAtMap();
+  const sourceNoveltyBySourceId = computeSourceNoveltyBySourceId({
+    sources,
+    importedJobs: statsQueue
+  });
   const sourceHealthRows = computeAllSourceHealthStatuses({ window: 3 });
   const sourceHealthBySourceId = new Map(
     sourceHealthRows.map((row) => [row.sourceId, row])
@@ -1760,6 +1765,7 @@ function buildDashboardData(limit = 200) {
             ? String(refreshMeta.statusReason || "min_interval")
             : null;
       const manualAllowed = source.enabled === true && !manualNextEligibleAt;
+      const noveltyDiagnostics = sourceNoveltyBySourceId[source.id] || null;
 
       return {
         id: source.id,
@@ -1798,6 +1804,7 @@ function buildDashboardData(limit = 200) {
         rejectedCount: counts.rejectedCount,
         highSignalCount: counts.highSignalCount,
         avgScore,
+        noveltyDiagnostics,
         adapterHealthStatus: health?.status || "unknown",
         adapterHealthScore:
           Number.isFinite(Number(health?.score)) ? Number(health.score) : null,
@@ -3864,6 +3871,14 @@ export function renderDashboardPage(dashboard, options = {}) {
           return "zr";
         }
 
+        if (value === "levelsfyi_search") {
+          return "lf";
+        }
+
+        if (value === "yc_jobs") {
+          return "yc";
+        }
+
         if (value === "remoteok_search") {
           return "ro";
         }
@@ -3898,6 +3913,14 @@ export function renderDashboardPage(dashboard, options = {}) {
 
         if (kind === "zr") {
           return "ZipRecruiter";
+        }
+
+        if (kind === "lf") {
+          return "Levels.fyi";
+        }
+
+        if (kind === "yc") {
+          return "YC Jobs";
         }
 
         if (kind === "ro") {
@@ -5313,7 +5336,7 @@ export function renderDashboardPage(dashboard, options = {}) {
             current.count += 1;
           }
         }
-        const sourceFilterOrder = ["li", "bi", "ah", "id", "zr", "gg", "wf", "ro", "unknown"];
+        const sourceFilterOrder = ["li", "bi", "id", "zr", "lf", "yc", "ah", "gg", "wf", "ro", "unknown"];
         const sourceFilters = [...sourceFilterTotals.values()].sort((left, right) => {
           const leftIndex = sourceFilterOrder.indexOf(left.kind);
           const rightIndex = sourceFilterOrder.indexOf(right.kind);

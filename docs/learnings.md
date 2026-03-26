@@ -263,6 +263,7 @@ As of 2026-03-06.
 - If a branch contains MVP-scope fixes that affect what the user should see, push that branch before claiming readiness. A local-only controller branch creates false QA failures because the user cannot validate the actual integrated state.
 - Before diagnosing a controller-branch UI regression, prove what checkout is actually serving the QA port. On macOS, inspect the live review-server PID and its cwd (`lsof -a -p <pid> -d cwd -Fn`) before blaming committed code.
 - If a stakeholder reports that a controller/data-quality branch regressed the UI, diff only the UI-facing files against `main` first. If `App.jsx`, Jobs features, and UI components are unchanged, the bug is in runtime/checkout QA setup, not committed UI code.
+- A controller fix is not real until two things are true: it is pushed to `origin`, and `qa/current` is updated to point at that pushed controller state. If `4311` is still serving `/Users/admin/job-finder` on an old `qa/current` commit, stakeholder QA will regress to stale UI again no matter what changed in the controller worktree.
 
 ## Title Bucketing Dependency
 
@@ -320,3 +321,10 @@ As of 2026-03-06.
 - The controller is responsible for pushing reviewed integration to `origin/qa/current` before asking for QA. Never ask for stakeholder QA against a controller/worktree branch directly.
 - Main remains post-QA only. Flow is: workers -> controller -> `qa/current` -> stakeholder QA -> main.
 - If `/Users/admin/job-finder` has local dirt, the QA updater must stop and report that explicitly instead of serving stale code silently.
+
+## QA Readiness Gates
+
+- A live QA environment is not the same thing as a feature being ready for stakeholder QA. Do not declare QA readiness if known MVP-source integration gaps still exist.
+- New sources are not QA-ready until they fully reuse existing product contracts: source-type semantics, enablement/auth flows, status vocabulary, and existing reporting surfaces.
+- When adding a new source type, update all source-kind registries in the same change. If React search rows and legacy/server source maps are not both updated, the source will leak as `unknown` even when the adapter works.
+- Novelty tracking for new sources should be internal by default and anchored to an explicit baseline. For MVP source evaluation, default to `LinkedIn + Indeed` unless the stakeholder changes the baseline deliberately.

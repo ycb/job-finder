@@ -4,7 +4,7 @@ export const SEARCH_RUN_CADENCE_KEY = "jobFinder.searchRunCadence";
 const SEARCH_STATE_VALUES = new Set(["enabled", "disabled"]);
 const SEARCH_RUN_CADENCE_VALUES = new Set(["12h", "daily", "weekly", "cached"]);
 
-const SOURCE_KIND_ORDER = ["li", "bi", "ah", "id", "zr", "gg", "wf", "ro", "unknown"];
+const SOURCE_KIND_ORDER = ["li", "bi", "id", "zr", "lf", "yc", "ah", "gg", "wf", "ro", "unknown"];
 
 function normalizeExpectedFoundCount(value) {
   if (value === null || value === undefined || value === "") {
@@ -47,6 +47,12 @@ export function sourceKindFromType(type) {
   if (type === "ziprecruiter_search") {
     return "zr";
   }
+  if (type === "levelsfyi_search") {
+    return "lf";
+  }
+  if (type === "yc_jobs") {
+    return "yc";
+  }
   if (type === "remoteok_search") {
     return "ro";
   }
@@ -74,6 +80,12 @@ export function sourceKindLabel(kind) {
   }
   if (kind === "zr") {
     return "ZipRecruiter";
+  }
+  if (kind === "lf") {
+    return "Levels.fyi";
+  }
+  if (kind === "yc") {
+    return "YC Jobs";
   }
   if (kind === "ro") {
     return "RemoteOK";

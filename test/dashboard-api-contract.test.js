@@ -211,6 +211,62 @@ test(
           sourcePath,
           "expected formatterDiagnostics or criteriaAccountability object"
         );
+
+        if (source.noveltyDiagnostics !== null && source.noveltyDiagnostics !== undefined) {
+          assertObject(source.noveltyDiagnostics, `${sourcePath}.noveltyDiagnostics`);
+          assertRequiredPath(
+            Array.isArray(source.noveltyDiagnostics.baselineSourceIds),
+            `${sourcePath}.noveltyDiagnostics.baselineSourceIds`,
+            "expected array"
+          );
+          assertNumberOrNull(
+            source.noveltyDiagnostics.rawFound,
+            `${sourcePath}.noveltyDiagnostics.rawFound`
+          );
+          assertNumberOrNull(
+            source.noveltyDiagnostics.importedAfterFilters,
+            `${sourcePath}.noveltyDiagnostics.importedAfterFilters`
+          );
+          assertNumberOrNull(
+            source.noveltyDiagnostics.dedupedOut,
+            `${sourcePath}.noveltyDiagnostics.dedupedOut`
+          );
+          assertNumberOrNull(
+            source.noveltyDiagnostics.uniqueImportedVsBaseline,
+            `${sourcePath}.noveltyDiagnostics.uniqueImportedVsBaseline`
+          );
+          assertNumberOrNull(
+            source.noveltyDiagnostics.noveltyRate,
+            `${sourcePath}.noveltyDiagnostics.noveltyRate`
+          );
+          assertObject(
+            source.noveltyDiagnostics.overlap,
+            `${sourcePath}.noveltyDiagnostics.overlap`
+          );
+          for (const key of ["linkedin", "indeed"]) {
+            assertObject(
+              source.noveltyDiagnostics.overlap[key],
+              `${sourcePath}.noveltyDiagnostics.overlap.${key}`
+            );
+            assertRequiredPath(
+              Array.isArray(source.noveltyDiagnostics.overlap[key].sourceIds),
+              `${sourcePath}.noveltyDiagnostics.overlap.${key}.sourceIds`,
+              "expected array"
+            );
+            assertNumberOrNull(
+              source.noveltyDiagnostics.overlap[key].duplicateCount,
+              `${sourcePath}.noveltyDiagnostics.overlap.${key}.duplicateCount`
+            );
+            assertNumberOrNull(
+              source.noveltyDiagnostics.overlap[key].duplicateRate,
+              `${sourcePath}.noveltyDiagnostics.overlap.${key}.duplicateRate`
+            );
+          }
+          assertStringOrNull(
+            source.noveltyDiagnostics.sourceType,
+            `${sourcePath}.noveltyDiagnostics.sourceType`
+          );
+        }
       }
     } finally {
       process.chdir(previousCwd);

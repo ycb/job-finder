@@ -17,6 +17,8 @@ import {
   presentSearchStatus,
   readSearchRunCadence,
   resolveSearchesWelcomeToastScope,
+  sourceKindFromType,
+  sourceKindLabel,
   shouldShowSearchesWelcomeToast,
   splitSearchRows,
 } from "../src/review/web/src/features/searches/logic.js";
@@ -107,6 +109,61 @@ test("buildSearchRows sorts by source kind and splitSearchRows counts enabled/di
   const { enabledRows, disabledRows } = splitSearchRows(rows);
   assert.equal(enabledRows.length, 2);
   assert.equal(disabledRows.length, 1);
+});
+
+test("YC Jobs and Levels.fyi are recognized as first-class source kinds", () => {
+  assert.equal(sourceKindFromType("levelsfyi_search"), "lf");
+  assert.equal(sourceKindFromType("yc_jobs"), "yc");
+  assert.equal(sourceKindLabel("lf"), "Levels.fyi");
+  assert.equal(sourceKindLabel("yc"), "YC Jobs");
+
+  const rows = buildSearchRows(
+    [
+      {
+        id: "levels",
+        name: "",
+        type: "levelsfyi_search",
+        searchUrl: "https://levels.example",
+        enabled: true,
+        authRequired: false,
+      },
+      {
+        id: "yc",
+        name: "",
+        type: "yc_jobs",
+        searchUrl: "https://yc.example",
+        enabled: true,
+        authRequired: true,
+      },
+      {
+        id: "builtin",
+        name: "",
+        type: "builtin_search",
+        searchUrl: "https://builtin.example",
+        enabled: true,
+        authRequired: false,
+      },
+    ],
+    {
+      yc: { status: "warn" },
+    },
+  );
+
+  assert.deepEqual(
+    rows.map((row) => row.id),
+    ["builtin", "levels", "yc"],
+  );
+
+  const levelsRow = rows.find((row) => row.id === "levels");
+  const ycRow = rows.find((row) => row.id === "yc");
+
+  assert.equal(levelsRow?.kind, "lf");
+  assert.equal(levelsRow?.label, "Levels.fyi");
+  assert.equal(levelsRow?.readiness.key, "ready");
+
+  assert.equal(ycRow?.kind, "yc");
+  assert.equal(ycRow?.label, "YC Jobs");
+  assert.equal(ycRow?.readiness.key, "not_authorized");
 });
 
 test("computeSearchTotals rolls up counts and weighted avg score", () => {
