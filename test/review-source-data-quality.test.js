@@ -1,11 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import {
   buildLinkedInSearchUrl,
   computeImportedAverageScore,
   resolveReviewTarget
 } from "../src/review/server.js";
+import { loadSources } from "../src/config/load-config.js";
 import { getSourceAggregationIds, listSourceLibraryDefinitions } from "../src/config/source-library.js";
 import { buildSearchRows, presentSearchStatus } from "../src/review/web/src/features/searches/logic.js";
 
@@ -213,5 +217,40 @@ test("source library preserves legacy aggregation ids for MVP source continuity"
     "zip-ai-pm",
     "ziprecruiter-main",
     "ziprecruiter-ai-pm-sf",
+  ]);
+});
+
+test("loadSources preserves legacy aggregation ids for library-map MVP sources", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-finder-sources-"));
+  const sourcesPath = path.join(tempDir, "sources.json");
+  fs.writeFileSync(
+    sourcesPath,
+    JSON.stringify({
+      sources: {
+        "linkedin-live-capture": true,
+        "builtin-sf-ai-pm": true,
+        "indeed-ai-pm": true,
+        "zip-ai-pm": true,
+        "yc-product-jobs": true,
+        "levelsfyi-ai-pm": true
+      }
+    }),
+    "utf8"
+  );
+
+  const { sources } = loadSources(sourcesPath);
+  const byId = new Map(sources.map((source) => [source.id, source]));
+
+  assert.deepEqual(getSourceAggregationIds(byId.get("linkedin-live-capture")), [
+    "linkedin-live-capture",
+    "linkedin-main",
+    "growth-pm",
+    "founding-pm",
+    "ai-pm",
+    "pm-remote-linkedin",
+  ]);
+  assert.deepEqual(getSourceAggregationIds(byId.get("builtin-sf-ai-pm")), [
+    "builtin-sf-ai-pm",
+    "builtin-main",
   ]);
 });

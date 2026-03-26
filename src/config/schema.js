@@ -611,6 +611,13 @@ export function validateSources(raw) {
         )
       };
 
+      if (source.legacySourceIds !== undefined) {
+        normalizedSource.legacySourceIds = normalizeStringArrayPreserveCase(
+          source.legacySourceIds,
+          `Sources.sources[${index}].legacySourceIds`
+        );
+      }
+
       if (source.searchCriteria !== undefined) {
         normalizedSource.searchCriteria = validateSearchCriteria(
           source.searchCriteria,
