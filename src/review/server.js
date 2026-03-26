@@ -11,6 +11,7 @@ import {
   probeSourceAccessViaBridge,
   resolveBrowserBridgeBaseUrl
 } from "../browser-bridge/client.js";
+import { getSourceAggregationIds } from "../config/source-library.js";
 import { startBrowserBridgeServer } from "../browser-bridge/server.js";
 import {
   addAshbySearchSource,
@@ -334,6 +335,92 @@ function buildSourceImportVerification(expectedCount, importedCount) {
     ratio: roundedRatio,
     status
   };
+}
+
+function normalizeCount(value, fallback = 0) {
+  return Number.isFinite(Number(value))
+    ? Math.max(0, Math.round(Number(value)))
+    : fallback;
+}
+
+function pickLatestTimestamp(...values) {
+  let winner = null;
+  let winnerMs = Number.NEGATIVE_INFINITY;
+  for (const rawValue of values) {
+    if (typeof rawValue !== "string" || !rawValue.trim()) {
+      continue;
+    }
+    const parsed = Date.parse(rawValue);
+    if (!Number.isFinite(parsed)) {
+      continue;
+    }
+    if (parsed > winnerMs) {
+      winner = rawValue;
+      winnerMs = parsed;
+    }
+  }
+  return winner;
+}
+
+function aggregateSourceCounts(source, countsBySourceId) {
+  const ids = getSourceAggregationIds(source);
+  const aggregate = {
+    totalCount: 0,
+    activeCount: 0,
+    appliedCount: 0,
+    skippedCount: 0,
+    rejectedCount: 0,
+    highSignalCount: 0,
+    scoredCount: 0,
+    scoreTotal: 0
+  };
+
+  for (const sourceId of ids) {
+    const counts = countsBySourceId.get(sourceId);
+    if (!counts) {
+      continue;
+    }
+    aggregate.totalCount += normalizeCount(counts.totalCount);
+    aggregate.activeCount += normalizeCount(counts.activeCount);
+    aggregate.appliedCount += normalizeCount(counts.appliedCount);
+    aggregate.skippedCount += normalizeCount(counts.skippedCount);
+    aggregate.rejectedCount += normalizeCount(counts.rejectedCount);
+    aggregate.highSignalCount += normalizeCount(counts.highSignalCount);
+    aggregate.scoredCount += normalizeCount(counts.scoredCount);
+    aggregate.scoreTotal += Number.isFinite(Number(counts.scoreTotal))
+      ? Number(counts.scoreTotal)
+      : 0;
+  }
+
+  return aggregate;
+}
+
+function pickLatestSourceRunDelta(source, latestSourceRunDeltaBySourceId) {
+  let winner = null;
+  let winnerAt = Number.NEGATIVE_INFINITY;
+  for (const sourceId of getSourceAggregationIds(source)) {
+    const candidate = latestSourceRunDeltaBySourceId.get(sourceId);
+    if (!candidate) {
+      continue;
+    }
+    const candidateAt = Date.parse(
+      String(candidate.recordedAt || candidate.capturedAt || "")
+    );
+    if (!Number.isFinite(candidateAt)) {
+      continue;
+    }
+    if (candidateAt > winnerAt) {
+      winner = candidate;
+      winnerAt = candidateAt;
+    }
+  }
+  return winner;
+}
+
+function getLatestSourceLastSeenAt(source, sourceLastSeenAt) {
+  return pickLatestTimestamp(
+    ...getSourceAggregationIds(source).map((sourceId) => sourceLastSeenAt.get(sourceId) || null)
+  );
 }
 
 function isCaptureFunnelReadSafeSource(source) {
@@ -1702,16 +1789,11 @@ function buildDashboardData(limit = 200) {
       const captureFunnel = buildSourceCaptureFunnel(source, capture);
       const refreshMeta = buildSourceRefreshMeta(source);
       const health = sourceHealthBySourceId.get(source.id) || null;
-      const latestRunDelta = latestSourceRunDeltaBySourceId.get(source.id) || null;
-      const counts = countsBySourceId.get(source.id) || {
-        totalCount: 0,
-        activeCount: 0,
-        appliedCount: 0,
-        skippedCount: 0,
-        highSignalCount: 0,
-        scoredCount: 0,
-        scoreTotal: 0
-      };
+      const latestRunDelta = pickLatestSourceRunDelta(
+        source,
+        latestSourceRunDeltaBySourceId
+      );
+      const counts = aggregateSourceCounts(source, countsBySourceId);
       const isFileBackedCapture = Boolean(source.capturePath);
       const captureJobCount = isFileBackedCapture
         ? captureFunnel.captureJobCount
@@ -1721,27 +1803,42 @@ function buildDashboardData(limit = 200) {
           ? normalizeExpectedCount(capture.expectedCount)
           : null;
       const jobCount = counts.totalCount;
-      const importedCount = Number(
-        Number.isFinite(Number(captureFunnel.keptAfterDedupeCount))
-          ? captureFunnel.keptAfterDedupeCount
-          : jobCount
-      );
+      const importedCount =
+        counts.totalCount > 0
+          ? counts.totalCount
+          : normalizeCount(captureFunnel.keptAfterDedupeCount, 0);
+      const canUseCaptureFunnelTotals =
+        counts.totalCount <= 0 ||
+        counts.totalCount === normalizeCount(captureFunnel.keptAfterDedupeCount, counts.totalCount);
+      const filteredCount = canUseCaptureFunnelTotals
+        ? normalizeCount(captureFunnel.droppedByHardFilterCount, 0)
+        : 0;
+      const dedupedCount = canUseCaptureFunnelTotals
+        ? normalizeCount(captureFunnel.droppedByDedupeCount, 0)
+        : 0;
+      const foundCount = importedCount + filteredCount + dedupedCount;
       const captureStatus = isFileBackedCapture ? capture.status : "ready";
-      const capturedAt = isFileBackedCapture
-        ? capture.capturedAt
-        : sourceLastSeenAt.get(source.id) || null;
+      const capturedAt = pickLatestTimestamp(
+        typeof latestRunDelta?.capturedAt === "string" ? latestRunDelta.capturedAt : null,
+        typeof latestRunDelta?.recordedAt === "string" ? latestRunDelta.recordedAt : null,
+        isFileBackedCapture ? capture.capturedAt : null,
+        getLatestSourceLastSeenAt(source, sourceLastSeenAt)
+      );
       const importedNormalizedHashes = Array.isArray(
         captureFunnel.importedNormalizedHashes
       )
         ? captureFunnel.importedNormalizedHashes
         : [];
-      const avgScore = computeImportedAverageScore(
-        source.id,
-        importedNormalizedHashes,
-        scoresBySourceIdAndHash
-      );
+      const avgScore =
+        counts.scoredCount > 0
+          ? Math.round(counts.scoreTotal / counts.scoredCount)
+          : computeImportedAverageScore(
+              source.id,
+              importedNormalizedHashes,
+              scoresBySourceIdAndHash
+            );
       const importVerification = buildSourceImportVerification(
-        captureExpectedCount,
+        foundCount,
         importedCount
       );
       const manualRefreshesToday = countSourceEventsForUtcDay(
@@ -1786,14 +1883,15 @@ function buildDashboardData(limit = 200) {
         capturePath: source.capturePath,
         capturedAt,
         jobCount,
+        foundCount,
         importedCount,
         captureJobCount,
         keptAfterHardFilterCount: captureFunnel.keptAfterHardFilterCount,
         keptAfterDedupeCount: captureFunnel.keptAfterDedupeCount,
-        droppedByHardFilterCount: captureFunnel.droppedByHardFilterCount,
-        droppedByDedupeCount: captureFunnel.droppedByDedupeCount,
+        droppedByHardFilterCount: filteredCount,
+        droppedByDedupeCount: dedupedCount,
         captureFunnelError: captureFunnel.captureFunnelError,
-        captureExpectedCount,
+        captureExpectedCount: foundCount,
         importVerification,
         pageUrl: capture.pageUrl,
         captureStatus,
@@ -5396,6 +5494,13 @@ export function renderDashboardPage(dashboard, options = {}) {
               authRequired: sourceRequiresAuth(source),
               status,
               capturedAt: source.capturedAt || null,
+              foundCount: Number(
+                Number.isFinite(Number(source.foundCount))
+                  ? source.foundCount
+                  : Number(source.droppedByHardFilterCount || 0) +
+                    Number(source.droppedByDedupeCount || 0) +
+                    Number(source.importedCount || 0)
+              ),
               capturedCount: Number(source.captureJobCount || 0),
               filteredCount: Number(source.droppedByHardFilterCount || 0),
               dedupedCount: Number(source.droppedByDedupeCount || 0),
@@ -5605,12 +5710,9 @@ export function renderDashboardPage(dashboard, options = {}) {
                 safeName +
                 ' <span class="external-link-icon" aria-hidden="true">&#8599;</span></a>'
               : '<span class="search-name search-link-label">' + safeName + "</span>";
-            const foundLabel =
-              source.hasUnknownExpectedCount || !Number.isFinite(source.expectedFoundCount)
-                ? String(source.importedCount) + "/?"
-                : String(source.importedCount) +
-                  "/" +
-                  String(Math.max(0, Math.round(source.expectedFoundCount)));
+            const foundLabel = String(
+              Math.max(0, Math.round(Number(source.foundCount || 0)))
+            );
             const disableControls = busy || onboardingBusy || Boolean(authFlowSourceId);
             const authBlocked = source.enabled && source.authRequired && source.status.tone === "warn";
             const runNowDisabled = disableControls || !source.manualRefreshAllowed;
@@ -5713,17 +5815,7 @@ export function renderDashboardPage(dashboard, options = {}) {
                     accumulator.filtered += Number(source.filteredCount || 0);
                     accumulator.deduped += Number(source.dedupedCount || 0);
                     accumulator.imported += Number(source.importedCount || 0);
-                    if (
-                      source.hasUnknownExpectedCount ||
-                      !Number.isFinite(Number(source.expectedFoundCount))
-                    ) {
-                      accumulator.hasUnknownExpected = true;
-                    } else {
-                      accumulator.expectedFound += Math.max(
-                        0,
-                        Math.round(Number(source.expectedFoundCount))
-                      );
-                    }
+                    accumulator.found += Number(source.foundCount || 0);
                     if (
                       Number.isFinite(Number(source.avgScore)) &&
                       Number(source.importedCount || 0) > 0
@@ -5739,18 +5831,14 @@ export function renderDashboardPage(dashboard, options = {}) {
                     filtered: 0,
                     deduped: 0,
                     imported: 0,
-                    expectedFound: 0,
-                    hasUnknownExpected: false,
+                    found: 0,
                     avgScoreTotal: 0,
                     avgScoreCount: 0
                   }
                 );
-                const foundTotalLabel =
-                  totals.hasUnknownExpected || !Number.isFinite(totals.expectedFound)
-                    ? String(totals.imported) + "/?"
-                    : String(totals.imported) +
-                      "/" +
-                      String(Math.max(0, Math.round(totals.expectedFound)));
+                const foundTotalLabel = String(
+                  Math.max(0, Math.round(Number(totals.found || 0)))
+                );
                 const totalAvgScore =
                   totals.avgScoreCount > 0
                     ? Math.round(totals.avgScoreTotal / totals.avgScoreCount)

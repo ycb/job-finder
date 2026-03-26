@@ -194,11 +194,30 @@ test("computeSearchTotals rolls up counts and weighted avg score", () => {
   );
 
   assert.equal(totals.stateLabel, "Enabled Total");
-  assert.equal(totals.foundLabel, "8/10");
+  assert.equal(totals.foundLabel, "16");
   assert.equal(totals.filtered, 5);
   assert.equal(totals.deduped, 3);
   assert.equal(totals.imported, 8);
   assert.equal(totals.avgScore, 73);
+});
+
+test("buildSearchRows derives additive found counts from filtered, deduped, and imported totals", () => {
+  const rows = buildSearchRows([
+    {
+      id: "builtin",
+      name: "Built In",
+      type: "builtin_search",
+      searchUrl: "https://builtin.example",
+      enabled: true,
+      authRequired: false,
+      droppedByHardFilterCount: 3,
+      droppedByDedupeCount: 2,
+      importedCount: 5,
+    },
+  ]);
+
+  assert.equal(rows[0].foundCount, 10);
+  assert.equal(presentSearchStatus(rows[0]).foundLabel, "10");
 });
 
 test("presentSearchStatus prioritizes disabled state over capture readiness", () => {

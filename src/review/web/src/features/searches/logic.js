@@ -145,6 +145,13 @@ export function buildSearchRows(sources = [], checksBySourceId = {}) {
           typeof source.lastAttemptedAt === "string" && source.lastAttemptedAt.trim()
             ? source.lastAttemptedAt
             : source.capturedAt || null,
+        foundCount: Number(
+          Number.isFinite(Number(source.foundCount))
+            ? source.foundCount
+            : Number(source.droppedByHardFilterCount || 0) +
+              Number(source.droppedByDedupeCount || 0) +
+              Number(source.importedCount || 0)
+        ),
         capturedCount: Number(source.captureJobCount || 0),
         filteredCount: Number(source.droppedByHardFilterCount || 0),
         dedupedCount: Number(source.droppedByDedupeCount || 0),
@@ -258,11 +265,11 @@ export function computeSearchTotals(searchRows = [], searchState = "enabled") {
       accumulator.filtered += Number(source.filteredCount || 0);
       accumulator.deduped += Number(source.dedupedCount || 0);
       accumulator.imported += Number(source.importedCount || 0);
-      if (source.hasUnknownExpectedCount || !Number.isFinite(Number(source.expectedFoundCount))) {
-        accumulator.hasUnknownExpected = true;
-      } else {
-        accumulator.expectedFound += Math.max(0, Math.round(Number(source.expectedFoundCount)));
-      }
+      accumulator.found += Number.isFinite(Number(source.foundCount))
+        ? Number(source.foundCount)
+        : Number(source.filteredCount || 0) +
+          Number(source.dedupedCount || 0) +
+          Number(source.importedCount || 0);
       if (Number.isFinite(Number(source.avgScore)) && Number(source.importedCount || 0) > 0) {
         accumulator.avgScoreTotal += Number(source.avgScore) * Number(source.importedCount || 0);
         accumulator.avgScoreCount += Number(source.importedCount || 0);
@@ -274,21 +281,15 @@ export function computeSearchTotals(searchRows = [], searchState = "enabled") {
       filtered: 0,
       deduped: 0,
       imported: 0,
-      expectedFound: 0,
-      hasUnknownExpected: false,
+      found: 0,
       avgScoreTotal: 0,
       avgScoreCount: 0,
     },
   );
 
-  const foundLabel =
-    totals.hasUnknownExpected || !Number.isFinite(totals.expectedFound)
-      ? `${totals.imported}/?`
-      : `${totals.imported}/${Math.max(0, Math.round(totals.expectedFound))}`;
-
   return {
     stateLabel: normalizeSearchState(searchState) === "enabled" ? "Enabled Total" : "Disabled Total",
-    foundLabel,
+    foundLabel: String(Math.max(0, Math.round(totals.found))),
     filtered: totals.filtered,
     deduped: totals.deduped,
     imported: totals.imported,
@@ -371,10 +372,7 @@ export function presentSearchStatus(row) {
     label,
     statusDetail,
     formatterDetail: "",
-    foundLabel:
-      row?.hasUnknownExpectedCount || !Number.isFinite(Number(row?.expectedFoundCount))
-        ? `${Number(row?.importedCount || 0)}/?`
-        : `${Number(row?.importedCount || 0)}/${Math.max(0, Math.round(Number(row.expectedFoundCount)))}`,
+    foundLabel: String(Math.max(0, Math.round(Number(row?.foundCount || 0)))),
   };
 }
 

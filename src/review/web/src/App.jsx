@@ -1281,22 +1281,26 @@ export default function App() {
           toast({ title: "Access check passed", description: `${sourceName} is ready.` });
           return true;
         } else {
-          toast({
-            title: "Access check failed",
-            description: `${sourceName} is not authorized. Sign in and retry.`,
-            variant: "destructive",
-          });
+          if (options.suppressFailureToast !== true) {
+            toast({
+              title: "Access check failed",
+              description: `${sourceName} is not authorized. Sign in and retry.`,
+              variant: "destructive",
+            });
+          }
           if (options.openSourceOnFail !== false && source?.searchUrl && authRequired) {
             window.open(source.searchUrl, "_blank", "noopener,noreferrer");
           }
           return false;
         }
       } catch (error) {
-        toast({
-          title: "Access check failed",
-          description: typeof error?.message === "string" ? error.message : "Unable to check source access.",
-          variant: "destructive",
-        });
+        if (options.suppressFailureToast !== true) {
+          toast({
+            title: "Access check failed",
+            description: typeof error?.message === "string" ? error.message : "Unable to check source access.",
+            variant: "destructive",
+          });
+        }
         return false;
       } finally {
         setBusyAction("");
@@ -1399,6 +1403,7 @@ export default function App() {
 
     const passed = await handleCheckAccess(sourceId, sourceName, {
       openSourceOnFail: false,
+      suppressFailureToast: true,
     });
 
     if (passed) {

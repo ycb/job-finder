@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   defaultSourceEnabledMap,
+  getSourceAggregationIds,
   listSourceLibraryDefinitions,
   materializeSourcesFromLibraryMap
 } from "../src/config/source-library.js";
@@ -19,6 +20,7 @@ test("YC Jobs registers in the source library and accepts direct HTTP config", (
   assert.equal(yc.enabled, false);
   assert.equal(yc.cacheTtlHours, 12);
   assert.equal(getDefaultCacheTtlHours("yc_jobs"), 12);
+  assert.deepEqual(getSourceAggregationIds(yc), ["yc-product-jobs"]);
 
   const enabledMap = defaultSourceEnabledMap();
   assert.equal(enabledMap[yc.id], false);

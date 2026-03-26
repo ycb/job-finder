@@ -3,6 +3,7 @@ const SOURCE_LIBRARY = Object.freeze([
     id: "linkedin-live-capture",
     name: "LinkedIn",
     type: "linkedin_capture_file",
+    legacySourceIds: ["linkedin-main", "growth-pm", "founding-pm", "ai-pm", "pm-remote-linkedin"],
     enabled: false,
     searchUrl: "https://www.linkedin.com/jobs/search/",
     capturePath: "data/captures/linkedin-live-capture.json",
@@ -12,6 +13,7 @@ const SOURCE_LIBRARY = Object.freeze([
     id: "builtin-sf-ai-pm",
     name: "Built In",
     type: "builtin_search",
+    legacySourceIds: ["builtin-main"],
     enabled: true,
     searchUrl: "https://www.builtinsf.com/jobs/product-management/product-manager",
     maxJobs: 50,
@@ -21,6 +23,7 @@ const SOURCE_LIBRARY = Object.freeze([
     id: "indeed-ai-pm",
     name: "Indeed",
     type: "indeed_search",
+    legacySourceIds: ["indeed-main", "indeed-ai-pm-sf"],
     enabled: false,
     searchUrl: "https://www.indeed.com/jobs",
     cacheTtlHours: 24
@@ -29,6 +32,7 @@ const SOURCE_LIBRARY = Object.freeze([
     id: "zip-ai-pm",
     name: "ZipRecruiter",
     type: "ziprecruiter_search",
+    legacySourceIds: ["ziprecruiter-main", "ziprecruiter-ai-pm-sf"],
     enabled: false,
     searchUrl: "https://www.ziprecruiter.com/jobs-search",
     cacheTtlHours: 24
@@ -88,6 +92,18 @@ function normalizeEnabledEntry(rawEntry, defaultEnabled) {
 
 export function listSourceLibraryDefinitions() {
   return SOURCE_LIBRARY.map((entry) => clone(entry));
+}
+
+export function getSourceAggregationIds(source) {
+  const ids = [String(source?.id || "").trim()];
+  const legacyIds = Array.isArray(source?.legacySourceIds) ? source.legacySourceIds : [];
+  for (const rawId of legacyIds) {
+    const id = String(rawId || "").trim();
+    if (id && !ids.includes(id)) {
+      ids.push(id);
+    }
+  }
+  return ids.filter(Boolean);
 }
 
 export function defaultSourceEnabledMap() {
