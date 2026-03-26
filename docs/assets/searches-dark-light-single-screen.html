@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Searches - Light and Dark System Mock</title>
+    <style>
+      :root {
+        --radius-xl: 16px;
+        --radius-lg: 12px;
+        --radius-md: 10px;
+        --radius-sm: 8px;
+        --font-sans: "Inter", "Avenir Next", "Segoe UI", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: var(--font-sans);
+        background: hsl(44 22% 95%);
+      }
+
+      .comparison {
+        width: min(1760px, calc(100% - 24px));
+        margin: 12px auto 20px;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .theme {
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        background: var(--canvas);
+        color: var(--text);
+        overflow: hidden;
+        box-shadow: var(--shadow);
+      }
+
+      .theme-header {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface-muted);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .theme-header strong {
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .theme-header span {
+        font-size: 12px;
+        color: var(--text-muted);
+      }
+
+      .style-guide {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border);
+        background: color-mix(in hsl, var(--surface-muted) 84%, transparent);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .token {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 4px 8px;
+        font-size: 11px;
+        color: var(--text-muted);
+        background: var(--surface);
+      }
+
+      .token-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: var(--dot);
+        border: 1px solid hsl(0 0% 100% / 0.22);
+      }
+
+      .page {
+        margin: 12px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-xl);
+        background: var(--surface);
+        padding: 20px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(34px, 2.8vw, 46px);
+        line-height: 1.05;
+        letter-spacing: -0.02em;
+      }
+
+      .subtitle {
+        margin: 10px 0 18px;
+        font-size: 16px;
+        color: var(--text-muted);
+      }
+
+      .page-tabs {
+        width: 100%;
+        display: inline-flex;
+        gap: 6px;
+        padding: 6px;
+        border-radius: var(--radius-lg);
+        border: 1px solid var(--border);
+        background: var(--surface-muted);
+      }
+
+      .tab {
+        border: 0;
+        border-radius: var(--radius-sm);
+        background: transparent;
+        color: var(--text-muted);
+        padding: 10px 16px;
+        font-size: clamp(17px, 1.45vw, 22px);
+        line-height: 1;
+        font-weight: 600;
+        transition: background-color 120ms ease;
+      }
+
+      .tab:hover {
+        background: var(--surface-hover);
+      }
+
+      .tab.active {
+        background: var(--tab-active-bg);
+        color: var(--tab-active-text);
+      }
+
+      .searches {
+        margin-top: 28px;
+      }
+
+      .mode-rail {
+        display: flex;
+        justify-content: flex-end;
+        margin-bottom: -1px;
+        position: relative;
+        z-index: 1;
+      }
+
+      .mode-tabs {
+        display: inline-flex;
+        border: 1px solid var(--border);
+        border-bottom: 0;
+        border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+        overflow: hidden;
+        background: var(--surface-muted);
+      }
+
+      .mode-tabs span {
+        padding: 14px 22px;
+        font-size: clamp(20px, 1.75vw, 28px);
+        line-height: 1;
+        font-weight: 700;
+        color: var(--text-muted);
+        border-right: 1px solid var(--border);
+      }
+
+      .mode-tabs span:last-child {
+        border-right: 0;
+      }
+
+      .mode-tabs .active {
+        background: var(--surface);
+        color: var(--text);
+      }
+
+      .card {
+        border: 1px solid var(--border);
+        border-radius: var(--radius-xl);
+        background: var(--surface);
+        padding: 18px 14px 14px;
+      }
+
+      .card-head {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 14px;
+        align-items: start;
+        margin-bottom: 12px;
+      }
+
+      .card-head h2 {
+        margin: 8px 0 0;
+        font-size: clamp(30px, 2.35vw, 40px);
+        line-height: 1.08;
+      }
+
+      .frequency {
+        min-width: 310px;
+      }
+
+      .frequency label {
+        display: block;
+        margin-bottom: 8px;
+        font-size: clamp(20px, 1.55vw, 28px);
+      }
+
+      .select {
+        height: 54px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        padding: 0 14px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: clamp(19px, 1.55vw, 28px);
+        background: var(--surface);
+      }
+
+      .table-wrap {
+        overflow-x: auto;
+      }
+
+      table {
+        width: 100%;
+        min-width: 880px;
+        border-collapse: collapse;
+      }
+
+      th {
+        text-align: left;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-muted);
+        font-size: clamp(12px, 0.95vw, 14px);
+        border-bottom: 1px solid var(--border);
+        padding: 12px;
+      }
+
+      td {
+        font-size: clamp(16px, 1.05vw, 19px);
+        border-bottom: 1px solid var(--border);
+        padding: 12px;
+      }
+
+      tbody tr:hover {
+        background: var(--row-hover);
+      }
+
+      .source {
+        font-weight: 600;
+      }
+
+      .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        border: 1px solid var(--status-border);
+        border-radius: 999px;
+        background: var(--status-bg);
+        color: var(--status-text);
+        padding: 5px 10px;
+        font-size: clamp(13px, 0.9vw, 15px);
+        font-weight: 600;
+        line-height: 1;
+      }
+
+      .status .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--status-dot);
+      }
+
+      .actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+
+      .btn {
+        border: 1px solid transparent;
+        border-radius: var(--radius-md);
+        font-size: clamp(13px, 0.9vw, 15px);
+        font-weight: 600;
+        line-height: 1;
+        padding: 9px 12px;
+      }
+
+      .btn.primary {
+        background: var(--primary-soft);
+        color: var(--primary-text);
+      }
+
+      .btn.primary:hover {
+        filter: brightness(0.97);
+      }
+
+      .btn.ghost {
+        background: transparent;
+        border-color: var(--border);
+        color: var(--text-muted);
+      }
+
+      .btn.ghost:hover {
+        background: var(--surface-hover);
+      }
+
+      .tab:focus-visible,
+      .btn:focus-visible,
+      .select:focus-visible {
+        outline: 2px solid var(--focus);
+        outline-offset: 2px;
+      }
+
+      tr.total td {
+        background: var(--surface-muted);
+        font-weight: 700;
+      }
+
+      .theme-light {
+        --canvas: hsl(39 22% 96%);
+        --surface: hsl(0 0% 100%);
+        --surface-muted: hsl(40 12% 93%);
+        --surface-hover: hsl(40 16% 96%);
+        --border: hsl(36 13% 81%);
+        --text: hsl(160 22% 18%);
+        --text-muted: hsl(160 9% 42%);
+        --focus: hsl(162 68% 44%);
+        --shadow: 0 8px 24px hsl(30 14% 24% / 0.08);
+
+        --tab-active-bg: hsl(161 30% 84%);
+        --tab-active-text: hsl(162 35% 23%);
+
+        --primary-soft: hsl(160 31% 86%);
+        --primary-text: hsl(162 35% 23%);
+
+        --status-bg: hsl(150 36% 93%);
+        --status-border: hsl(150 24% 78%);
+        --status-text: hsl(155 56% 28%);
+        --status-dot: hsl(156 67% 40%);
+      }
+
+      .theme-dark {
+        --canvas: hsl(164 24% 10%);
+        --surface: hsl(162 23% 13%);
+        --surface-muted: hsl(162 17% 18%);
+        --surface-hover: hsl(162 21% 16%);
+        --border: hsl(164 14% 31%);
+        --text: hsl(50 34% 91%);
+        --text-muted: hsl(49 14% 69%);
+        --focus: hsl(160 69% 45%);
+        --shadow: 0 8px 24px hsl(0 0% 0% / 0.28);
+
+        --tab-active-bg: hsl(162 28% 24%);
+        --tab-active-text: hsl(50 32% 92%);
+
+        --primary-soft: hsl(160 56% 38%);
+        --primary-text: hsl(52 40% 94%);
+
+        --status-bg: hsl(149 44% 17%);
+        --status-border: hsl(149 34% 36%);
+        --status-text: hsl(149 76% 66%);
+        --status-dot: hsl(149 72% 60%);
+      }
+
+      @media (max-width: 1360px) {
+        .comparison {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 960px) {
+        .card-head {
+          grid-template-columns: 1fr;
+        }
+
+        .frequency {
+          min-width: 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="comparison" aria-label="Searches page light and dark mock">
+      <section class="theme theme-light" aria-label="Light searches">
+        <header class="theme-header">
+          <strong>Light Theme</strong>
+          <span>shadcn baseline with subtle mint accent</span>
+        </header>
+        <div class="style-guide">
+          <span class="token" style="--dot: var(--canvas)"><span class="token-dot"></span>bg</span>
+          <span class="token" style="--dot: var(--surface)"><span class="token-dot"></span>surface</span>
+          <span class="token" style="--dot: var(--text)"><span class="token-dot"></span>text</span>
+          <span class="token" style="--dot: var(--primary-soft)"><span class="token-dot"></span>accent</span>
+          <span class="token" style="--dot: var(--status-dot)"><span class="token-dot"></span>success</span>
+        </div>
+
+        <div class="page">
+          <h1>Job Finder</h1>
+          <p class="subtitle">Manage saved searches, run intake, and review ranked jobs in one place.</p>
+
+          <div class="page-tabs" aria-label="Primary tabs">
+            <button class="tab" type="button">Jobs</button>
+            <button class="tab active" type="button">Searches</button>
+            <button class="tab" type="button">Profile</button>
+          </div>
+
+          <section class="searches" aria-label="My job searches light">
+            <div class="mode-rail">
+              <div class="mode-tabs" aria-label="Enabled and disabled tabs">
+                <span class="active">Enabled (3)</span>
+                <span>Disabled (5)</span>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-head">
+                <h2>My Job Searches</h2>
+                <div class="frequency">
+                  <label>Search frequency</label>
+                  <div class="select" tabindex="0">12h (recommended) <span>v</span></div>
+                </div>
+              </div>
+
+              <div class="table-wrap">
+                <table aria-label="Enabled sources light">
+                  <thead>
+                    <tr>
+                      <th>Source</th>
+                      <th>Last run</th>
+                      <th>Status</th>
+                      <th>Found</th>
+                      <th>Filtered</th>
+                      <th>Dupes</th>
+                      <th>Imported</th>
+                      <th>Avg score</th>
+                      <th style="text-align: right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td class="source">Built In</td><td>never</td><td><span class="status"><span class="dot"></span>ready</span></td><td>0/0</td><td>0</td><td>0</td><td>0</td><td>n/a</td><td><div class="actions"><button class="btn primary">Run now</button><button class="btn ghost">...</button></div></td>
+                    </tr>
+                    <tr>
+                      <td class="source">Ashby</td><td>never</td><td><span class="status"><span class="dot"></span>ready</span></td><td>0/0</td><td>0</td><td>0</td><td>0</td><td>n/a</td><td><div class="actions"><button class="btn primary">Run now</button><button class="btn ghost">...</button></div></td>
+                    </tr>
+                    <tr>
+                      <td class="source">Google</td><td>never</td><td><span class="status"><span class="dot"></span>ready</span></td><td>0/0</td><td>0</td><td>0</td><td>0</td><td>n/a</td><td><div class="actions"><button class="btn primary">Run now</button><button class="btn ghost">...</button></div></td>
+                    </tr>
+                    <tr class="total">
+                      <td>Enabled Total</td><td>-</td><td>-</td><td>0/0</td><td>0</td><td>0</td><td>0</td><td>-</td><td></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="theme theme-dark" aria-label="Dark searches">
+        <header class="theme-header">
+          <strong>Dark Theme</strong>
+          <span>shadcn baseline with command-surface contrast</span>
+        </header>
+        <div class="style-guide">
+          <span class="token" style="--dot: var(--canvas)"><span class="token-dot"></span>bg</span>
+          <span class="token" style="--dot: var(--surface)"><span class="token-dot"></span>surface</span>
+          <span class="token" style="--dot: var(--text)"><span class="token-dot"></span>text</span>
+          <span class="token" style="--dot: var(--primary-soft)"><span class="token-dot"></span>accent</span>
+          <span class="token" style="--dot: var(--status-dot)"><span class="token-dot"></span>success</span>
+        </div>
+
+        <div class="page">
+          <h1>Job Finder</h1>
+          <p class="subtitle">Manage saved searches, run intake, and review ranked jobs in one place.</p>
+
+          <div class="page-tabs" aria-label="Primary tabs">
+            <button class="tab" type="button">Jobs</button>
+            <button class="tab active" type="button">Searches</button>
+            <button class="tab" type="button">Profile</button>
+          </div>
+
+          <section class="searches" aria-label="My job searches dark">
+            <div class="mode-rail">
+              <div class="mode-tabs" aria-label="Enabled and disabled tabs">
+                <span class="active">Enabled (3)</span>
+                <span>Disabled (5)</span>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-head">
+                <h2>My Job Searches</h2>
+                <div class="frequency">
+                  <label>Search frequency</label>
+                  <div class="select" tabindex="0">12h (recommended) <span>v</span></div>
+                </div>
+              </div>
+
+              <div class="table-wrap">
+                <table aria-label="Enabled sources dark">
+                  <thead>
+                    <tr>
+                      <th>Source</th>
+                      <th>Last run</th>
+                      <th>Status</th>
+                      <th>Found</th>
+                      <th>Filtered</th>
+                      <th>Dupes</th>
+                      <th>Imported</th>
+                      <th>Avg score</th>
+                      <th style="text-align: right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td class="source">Built In</td><td>never</td><td><span class="status"><span class="dot"></span>ready</span></td><td>0/0</td><td>0</td><td>0</td><td>0</td><td>n/a</td><td><div class="actions"><button class="btn primary">Run now</button><button class="btn ghost">...</button></div></td>
+                    </tr>
+                    <tr>
+                      <td class="source">Ashby</td><td>never</td><td><span class="status"><span class="dot"></span>ready</span></td><td>0/0</td><td>0</td><td>0</td><td>0</td><td>n/a</td><td><div class="actions"><button class="btn primary">Run now</button><button class="btn ghost">...</button></div></td>
+                    </tr>
+                    <tr>
+                      <td class="source">Google</td><td>never</td><td><span class="status"><span class="dot"></span>ready</span></td><td>0/0</td><td>0</td><td>0</td><td>0</td><td>n/a</td><td><div class="actions"><button class="btn primary">Run now</button><button class="btn ghost">...</button></div></td>
+                    </tr>
+                    <tr class="total">
+                      <td>Enabled Total</td><td>-</td><td>-</td><td>0/0</td><td>0</td><td>0</td><td>0</td><td>-</td><td></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

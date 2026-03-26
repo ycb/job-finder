@@ -133,10 +133,17 @@ export function buildSearchRows(sources = [], checksBySourceId = {}) {
     .map((source) => {
       const kind = sourceKindFromType(source.type);
       const readiness = onboardingReadinessState(source, checksBySourceId);
+      const fallbackLabel = sourceKindLabel(kind);
+      const rawLabel = typeof source.name === "string" ? source.name : "";
+      const firstLineLabel = rawLabel.split(/\r?\n/u, 1)[0]?.trim() || "";
+      const normalizedSourceId = String(source.id || "").trim().toLowerCase();
+      const normalizedLabel = firstLineLabel.toLowerCase();
+      const sanitizedLabel =
+        firstLineLabel && normalizedLabel !== normalizedSourceId ? firstLineLabel : fallbackLabel;
       return {
         id: String(source.id || "").trim(),
         kind,
-        label: source.name || sourceKindLabel(kind),
+        label: sanitizedLabel,
         searchUrl: source.searchUrl || "",
         enabled: source.enabled === true,
         authRequired: source.authRequired === true,

@@ -191,7 +191,7 @@ As of 2026-03-06.
 - After React refactors, run a production build and load-path sanity check for table helpers (`formatRelativeTimestamp` etc.); missing imports can pass unit tests but still white-screen at runtime.
 - Keep the Searches `Actions` column non-wrapping with a minimum width and right-aligned controls; wrapping CTA + overflow into a narrow cell creates compressed/touch-hostile UI.
 - Preserve action hierarchy in table design: primary CTA belongs in the `Action` column, overflow belongs in a dedicated `More` column/module to avoid mixed semantics and crowded controls.
-- In dense tables, keep `Action/More` columns compact (`w-*` + reduced cell padding) and prefer opening overflow menus upward to avoid overlapping the next row's CTA hit area.
+- In dense tables, keep compact control columns (`w-*` + reduced cell padding) and prefer opening overflow menus upward to avoid overlapping the next row's CTA hit area.
 - If overflow overlap is acceptable, open the menu sideways/overlaying the row action region rather than between rows; this avoids visual competition from two simultaneous row CTAs.
 - Keep table header alignment consistent by default; if action cells are right-aligned for affordance, don't force just one header label right unless the full header row follows that pattern.
 - Keep primary CTA alignment consistent with column reading flow: when table headers are left-aligned, left-align row CTAs unless there is an explicit right-aligned action pattern across the full table.
@@ -212,6 +212,8 @@ As of 2026-03-06.
 - For row-level status diagnostics, use on-demand toasts instead of persistent inline sub-status blocks/popovers so the primary status cell stays scannable.
 - For onboarding orientation toasts, use standard shadcn toast primitives (`Toaster` + `ToastAction`) and avoid one-off custom toast containers/styles.
 - Surface only actionable status issues to users (currently auth-required). Route formatter/schema drift diagnostics to internal alerts instead of user-facing row details.
+- Source labels in Searches must be source-level only. Strip multiline/sluggified identifiers (for example source IDs/permalinks) and display only the human source name.
+- Overflow (`...`) is a menu trigger, never a direct action. Opening overflow must not fire `Disable`/`Enable`; those actions require an explicit secondary click inside the menu.
 - For search composer UX, support two states explicitly: pre-search (expanded controls) and post-search (collapsed orientation bar + chips for advanced constraints). Keep `Run search` scoped to the full composer, not nested inside one sub-module.
 - In Jobs IA, preserve this ordering to match user mental model: view tabs -> widgets -> filters -> split pane results/detail.
 - When the user asks for a standard shadcn interaction pattern (for example accordion), use the standard primitive instead of inventing a bespoke collapse treatment. Custom expand/collapse buttons drift visually and create unnecessary hierarchy noise.
@@ -256,60 +258,6 @@ As of 2026-03-06.
 - In controller-driven MVP delivery, worker oversight is continuous work, not a status poll. As each lane returns, the controller must do one of four things in the same cycle: integrate, explicitly defer, re-scope with new instructions, or reassign freed capacity to another open lane. Do not leave returned work unreviewed while remaining lanes drift.
 - Delegation is only efficient if the controller distrusts summaries and verifies lane output immediately against the real branch state. A claimed "clean worktree" or "complete lane" is not authoritative; check `git status`, inspect the returned commit, run the targeted suite, and then either integrate or correct the lane report in the same cycle.
 - In source MVP delivery, treat every source lane as pattern-building work, not a one-off adapter. Require each lane to leave behind reusable artifacts: source type, search-construction rules, extraction contract, degradation semantics, and verification pattern. Otherwise the future `add a source` feature will start from scratch.
-- When a source lane is narrowed to adapter-only work, still leave behind one lightweight source note that captures source type, unsupported criteria, canonical review-target rule, minimum extraction contract, and the exact tests that prove the adapter. Reusable artifacts are still required even if registration/config wiring belongs to another lane.
-- When a controller spins up a registration lane for a new direct HTTP source, leave behind a reusable checklist that covers source-library entry, schema acceptance, cache TTL, and reporting expectations. Future source builds should start from that checklist instead of rediscovering the same registration contract.
-- When adding a new source type, wire it through the existing shared auth-gating and readiness/status pipelines in the same change. Do not infer “no auth” from a new type by omission, and do not introduce a new public status label like `live source` when existing vocabulary (`ready`, `not authorized`, `challenge`, `disabled`, `never run`) already covers the state.
-- A controller branch is not ready for stakeholder QA until it is pushed and has an upstream. Local integration commits are not enough. The controller workflow must treat `push -> QA instructions -> roadmap/reporting update` as one gated cycle.
-- If a branch contains MVP-scope fixes that affect what the user should see, push that branch before claiming readiness. A local-only controller branch creates false QA failures because the user cannot validate the actual integrated state.
-- Before diagnosing a controller-branch UI regression, prove what checkout is actually serving the QA port. On macOS, inspect the live review-server PID and its cwd (`lsof -a -p <pid> -d cwd -Fn`) before blaming committed code.
-- If a stakeholder reports that a controller/data-quality branch regressed the UI, diff only the UI-facing files against `main` first. If `App.jsx`, Jobs features, and UI components are unchanged, the bug is in runtime/checkout QA setup, not committed UI code.
-- A controller fix is not real until two things are true: it is pushed to `origin`, and `qa/current` is updated to point at that pushed controller state. If `4311` is still serving `/Users/admin/job-finder` on an old `qa/current` commit, stakeholder QA will regress to stale UI again no matter what changed in the controller worktree.
-
-## Title Bucketing Dependency
-
-- Do not present raw job-title text as if it were a normalized title-family breakdown. If the product promise is canonical title families, bucketing must happen on normalized title families and level heuristics after source cleanup, not on polluted raw titles.
-- When data-quality work is active, treat title-family bucketing as downstream of source cleanup and canonicalization. Otherwise the widget becomes a diagnostic for dirty source data rather than a trustworthy segmentation tool.
-
-## Roadmap Rituals
-
-- Do not let backlog grooming and local ExecPlans replace the roadmap directory rituals. When the work changes roadmap scope, launch readiness, sequencing, or MVP source decisions, update the roadmap artifacts too: at minimum `docs/roadmap/decision-log.md` and the current `docs/roadmap/progress-daily/<date>.md`.
-- If a stakeholder asks about execution process, dispatch, or roadmap visibility, treat missing roadmap updates as a process bug and correct them immediately.
-
-## Dispatch and QA Commit Discipline
-
-- Never hand off QA instructions assuming code is available in downstream worktrees until the fix is committed and pushed (or explicit local-only scope is stated).
-- Before giving QA refresh commands, verify upstream commit presence with `git log -n 1` and branch sync with `git status --short --branch`.
-- In worker packets, explicitly state planning-file precedence (`PROCESS.md` + `PLANS.md` + repo `AGENTS.md`) and ban `tasks/todo.md` for feature ExecPlans to avoid instruction-layer ambiguity.
-
-## Dashboard Smoke Harness Reliability
-
-- A dual-mode smoke harness must assert mode-specific render markers, not just command success + screenshots. Otherwise `react` mode can silently fall back to legacy and still pass.
-- Smoke tooling must use deterministic local dependencies (project-pinned `playwright`) instead of ambient `npx` package resolution.
-- When the React shell intentionally removes legacy scaffolding (for example top-level page tabs or old CTA copy), update the smoke harness in the same change. Harnesses should lock to current user affordances (`Run search`, direct Jobs workspace render), not historical labels (`Find Jobs`, `Jobs` tab).
-- For dashboard mode proof, persist explicit evidence in smoke logs (for example `ui_mode_check=pass` + root page title).
-- For manual QA on local runtime (`/Users/admin/job-finder`), always sync that repo to `origin/main` immediately before launch; pushing from a worktree does not update the separate local runtime checkout automatically.
-- Use a single QA launch command (`npm run review:main:follow`) as source of truth; avoid mixing `git checkout/pull/review` ad-hoc steps that can leave stale commit + live server combinations.
-- Do not merge to `main` before stakeholder QA approval. QA should run from a QA branch that tracks the feature branch; merge to `main` only after explicit sign-off.
-- Avoid fixed-port QA startup (`node src/cli.js review`) in docs/instructions; use scripts that auto-pick an open port and print the active URL to prevent recurring `EADDRINUSE` confusion.
-- For cross-worktree collaboration, Cmd-R reflects local changes only. If another worktree is producing commits, QA must run an auto-follow mode (`review:follow`) or explicit pulls to avoid stale UI confusion.
-- QA startup friction should be one-time per machine, not per branch. Prefer an always-on local review agent that follows the current branch/upstream and serves a fixed URL for Cmd-R.
-- Harden npm build entrypoints against accidental positional args (for example copied checkmark glyphs). Vite treats stray tokens as project roots (`✅/index.html`) and hard-fails; wrapper scripts should ignore non-option args.
-- Keep exactly one human-facing QA command for iterative UI validation (`npm run review:qa`), and make it deterministic: stop stale processes, lock to `127.0.0.1:4311`, follow branch upstream, and run React build watch. Splitting responsibilities across multiple commands (`review`, `review:qa`, `review:react:watch`) caused repeated stale-UI confusion.
-- If the QA runner cannot actually bind the documented fixed port, it must fail loudly or print the real bound URL as the single source of truth. Advertising `4311` while launching on `4312` recreates stale-UI confusion and breaks Cmd-R assumptions.
-- Do not give stakeholder QA instructions against uncommitted local worktree changes. If the user is expected to QA, the work must first be committed and pushed to a named branch they can check out, or the user must be explicitly told QA is blocked until that happens.
-- Do not present `npm run dashboard:web:build` as a QA step. It is only a compile step. Stakeholder QA requires a running review server on the same committed branch being evaluated.
-- Before handing off QA, verify this exact chain is true:
-  1. the implementation commit exists,
-  2. the branch is pushed,
-  3. the user-facing QA command targets that branch,
-  4. the command starts a reachable review server,
-  5. the printed URL is the real URL to refresh.
-- If any one of those conditions is false, do not tell the user to QA yet.
-- A failed `git checkout`/`git switch` invalidates every QA instruction that follows. If checkout errors (for example stale `.git/HEAD.lock`), stop immediately and fix the repository state first; do not keep giving run/refresh guidance against an unknown commit.
-- Before telling a stakeholder to refresh, explicitly verify the target checkout is on the expected branch and commit. A mismatched commit is a process failure, not a user error.
-- Repeated QA-process churn is itself a product/process bug. Prefer one reliable path over “maybe this command” variants, and do not change the prescribed QA flow mid-iteration unless the previous flow has been explicitly retired and validated.
-- For stakeholder QA, `review:qa` must be local-first, not branch-following. The accepted contract is: one terminal command per worktree, then `Cmd-R` for changes in that same worktree. Auto-pulling upstream belongs in a separate script, not the QA script.
-- Current "local-first" storage is repo-relative, not user-local. Treat this as an architectural bug: persistent app state should live in one canonical machine-local folder, with explicit overrides for isolated QA, rather than being silently split across branches/worktrees.
 
 ## QA Process Contract
 
@@ -329,3 +277,10 @@ As of 2026-03-06.
 - New source integrations must reuse existing action hierarchy. Common recovery actions belong on the primary CTA, while overflow menus are only for uncommon actions like `Disable`. Never ship a new source row where the overflow trigger is secretly the destructive action.
 - When adding a new source type, update all source-kind registries in the same change. If React search rows and legacy/server source maps are not both updated, the source will leak as `unknown` even when the adapter works.
 - Novelty tracking for new sources should be internal by default and anchored to an explicit baseline. For MVP source evaluation, default to `LinkedIn + Indeed` unless the stakeholder changes the baseline deliberately.
+
+## Source Metric Semantics
+
+- When a source-specific metric extractor is unreliable, suppress only the untrustworthy values, not the entire metric for that source.
+- For expected-count bugs, the bar is plausibility filtering and parser hardening, not blanket source-level nulling (for example, `indeed_search -> null` for every count).
+- In reviews, if an implementation removes a source's reporting entirely to avoid a bad subset of values, treat that as a correctness bug by default, not an acceptable tradeoff.
+- Distinguish a containment fix from root-cause resolution in status updates. Restoring sane downstream behavior is not sufficient evidence that the upstream cause has been identified.

@@ -653,6 +653,7 @@ export default function App() {
     }
   }, [consentGateRequired, dashboard, jobsTopTab, toast, welcomeToastScope]);
 
+
   const searchRows = useMemo(
     () => buildSearchRows(rawSources, onboardingChecksBySourceId),
     [rawSources, onboardingChecksBySourceId],

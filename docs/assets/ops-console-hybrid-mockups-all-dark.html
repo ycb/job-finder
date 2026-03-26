@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ops Console Hybrid Mockups All Dark</title>
+    <style>
+      :root {
+        --bg: hsl(164 28% 8%);
+        --surface: hsl(162 24% 12%);
+        --panel: hsl(162 18% 16%);
+        --border: hsl(164 14% 31%);
+        --text: hsl(51 34% 91%);
+        --muted: hsl(49 14% 68%);
+
+        --page-tab-active-bg: hsl(162 28% 24%);
+        --page-tab-active-text: hsl(51 30% 91%);
+
+        --row-hover: hsl(162 22% 16%);
+        --status-ready-bg: hsl(149 44% 17%);
+        --status-ready-dot: hsl(149 72% 60%);
+
+        --cta-bg: hsl(160 56% 38%);
+        --cta-text: hsl(52 40% 94%);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Avenir Next", "Inter", "Segoe UI", sans-serif;
+        color: var(--text);
+        background: radial-gradient(1200px 700px at 0% 0%, hsl(198 56% 12% / 0.7), transparent 58%), var(--bg);
+      }
+
+      .shell {
+        width: min(1660px, calc(100% - 28px));
+        margin: 18px auto;
+        border: 1px solid var(--border);
+        border-radius: 22px;
+        background: linear-gradient(180deg, hsl(162 24% 13%), hsl(162 24% 11%));
+        padding: 26px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(44px, 4vw, 62px);
+        line-height: 1.05;
+        letter-spacing: -0.01em;
+      }
+
+      .subtitle {
+        margin: 10px 0 20px;
+        color: var(--muted);
+        font-size: 16px;
+      }
+
+      .page-tabs {
+        display: inline-flex;
+        gap: 8px;
+        padding: 6px;
+        border-radius: 16px;
+        border: 1px solid var(--border);
+        background: hsl(162 18% 15%);
+      }
+
+      .page-tabs button {
+        border: 0;
+        border-radius: 11px;
+        background: transparent;
+        color: var(--muted);
+        font-size: clamp(18px, 2vw, 26px);
+        font-weight: 700;
+        line-height: 1;
+        padding: 10px 26px;
+      }
+
+      .page-tabs button.active {
+        background: var(--page-tab-active-bg);
+        color: var(--page-tab-active-text);
+      }
+
+      .searches {
+        margin-top: 46px;
+      }
+
+      .tab-rail {
+        display: flex;
+        justify-content: flex-end;
+        margin-bottom: -1px;
+        position: relative;
+        z-index: 2;
+      }
+
+      .mode-tabs {
+        display: inline-flex;
+        border: 1px solid var(--border);
+        border-bottom: 0;
+        border-radius: 14px 14px 0 0;
+        overflow: hidden;
+        background: var(--panel);
+      }
+
+      .mode-tabs span {
+        font-size: clamp(22px, 2.2vw, 34px);
+        font-weight: 700;
+        line-height: 1;
+        padding: 16px 34px;
+        color: var(--muted);
+        border-right: 1px solid var(--border);
+      }
+
+      .mode-tabs span:last-child {
+        border-right: 0;
+      }
+
+      .mode-tabs .active {
+        background: var(--surface);
+        color: var(--text);
+      }
+
+      .card {
+        border: 1px solid var(--border);
+        border-radius: 22px;
+        background: var(--surface);
+        padding: 24px 18px 18px;
+      }
+
+      .card-top {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 20px;
+        align-items: start;
+        margin-bottom: 16px;
+      }
+
+      .card-top h2 {
+        margin: 8px 0 0;
+        font-size: clamp(32px, 3vw, 52px);
+        line-height: 1.08;
+      }
+
+      .frequency {
+        min-width: 390px;
+      }
+
+      .frequency label {
+        display: block;
+        font-size: clamp(22px, 2.1vw, 34px);
+        margin-bottom: 8px;
+      }
+
+      .select {
+        height: 62px;
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 0 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: clamp(22px, 2vw, 36px);
+        background: hsl(162 20% 14%);
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      th {
+        text-align: left;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+        font-size: clamp(16px, 1.4vw, 24px);
+        border-bottom: 1px solid var(--border);
+        padding: 13px 14px;
+      }
+
+      td {
+        font-size: clamp(18px, 1.5vw, 30px);
+        border-bottom: 1px solid var(--border);
+        padding: 14px;
+      }
+
+      tbody tr:hover {
+        background: var(--row-hover);
+      }
+
+      .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border-radius: 999px;
+        border: 1px solid hsl(149 34% 35%);
+        padding: 5px 12px;
+        background: var(--status-ready-bg);
+        font-size: clamp(15px, 1.2vw, 22px);
+        font-weight: 700;
+      }
+
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: var(--status-ready-dot);
+      }
+
+      .actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+
+      .btn {
+        border: 1px solid transparent;
+        border-radius: 14px;
+        font-size: clamp(15px, 1.2vw, 22px);
+        font-weight: 700;
+        line-height: 1;
+        padding: 10px 14px;
+      }
+
+      .btn.primary {
+        background: var(--cta-bg);
+        color: var(--cta-text);
+      }
+
+      .btn.ghost {
+        background: transparent;
+        border-color: var(--border);
+        color: var(--muted);
+      }
+
+      tr.total td {
+        font-weight: 700;
+        background: hsl(162 10% 23%);
+      }
+
+      @media (max-width: 1200px) {
+        .card-top {
+          grid-template-columns: 1fr;
+        }
+
+        .frequency {
+          min-width: 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <h1>Job Finder</h1>
+      <p class="subtitle">Manage saved searches, run intake, and review ranked jobs in one place.</p>
+
+      <div class="page-tabs" aria-label="Page tabs">
+        <button type="button">Jobs</button>
+        <button type="button" class="active">Searches</button>
+        <button type="button">Profile</button>
+      </div>
+
+      <section class="searches" aria-label="My Job Searches">
+        <div class="tab-rail">
+          <div class="mode-tabs" aria-label="Enabled and disabled tabs">
+            <span class="active">Enabled (3)</span>
+            <span>Disabled (5)</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-top">
+            <h2>My Job Searches</h2>
+            <div class="frequency">
+              <label>Search frequency</label>
+              <div class="select">12h (recommended) <span>▼</span></div>
+            </div>
+          </div>
+
+          <table aria-label="Enabled sources table">
+            <thead>
+              <tr>
+                <th>Source</th>
+                <th>Last run</th>
+                <th>Status</th>
+                <th>Found</th>
+                <th>Filtered</th>
+                <th>Dupes</th>
+                <th>Imported</th>
+                <th>Avg score</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Built In -&gt;</td>
+                <td>never</td>
+                <td><span class="status"><span class="dot"></span>ready</span></td>
+                <td>0/0</td>
+                <td>0</td>
+                <td>0</td>
+                <td>0</td>
+                <td>n/a</td>
+                <td><div class="actions"><button class="btn primary">Run now</button><button class="btn ghost">...</button></div></td>
+              </tr>
+              <tr>
+                <td>Ashby -&gt;</td>
+                <td>never</td>
+                <td><span class="status"><span class="dot"></span>ready</span></td>
+                <td>0/0</td>
+                <td>0</td>
+                <td>0</td>
+                <td>0</td>
+                <td>n/a</td>
+                <td><div class="actions"><button class="btn primary">Run now</button><button class="btn ghost">...</button></div></td>
+              </tr>
+              <tr>
+                <td>Google -&gt;</td>
+                <td>never</td>
+                <td><span class="status"><span class="dot"></span>ready</span></td>
+                <td>0/0</td>
+                <td>0</td>
+                <td>0</td>
+                <td>0</td>
+                <td>n/a</td>
+                <td><div class="actions"><button class="btn primary">Run now</button><button class="btn ghost">...</button></div></td>
+              </tr>
+              <tr class="total">
+                <td>Enabled Total</td>
+                <td>-</td>
+                <td>-</td>
+                <td>0/0</td>
+                <td>0</td>
+                <td>0</td>
+                <td>0</td>
+                <td>n/a</td>
+                <td>-</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
