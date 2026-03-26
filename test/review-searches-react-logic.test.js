@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildSearchOverflowActions,
   SEARCH_RUN_CADENCE_KEY,
   SEARCHES_WELCOME_TOAST_SEEN_KEY,
   buildSearchRows,
@@ -14,6 +15,7 @@ import {
   normalizeSearchState,
   onboardingReadinessState,
   persistSearchRunCadence,
+  presentSearchPrimaryAction,
   presentSearchStatus,
   readSearchRunCadence,
   resolveSearchesWelcomeToastScope,
@@ -249,7 +251,7 @@ test("presentSearchStatus only exposes actionable auth-required details", () => 
   });
   assert.equal(authRequiredStatus.label, "not authorized");
   assert.equal(authRequiredStatus.tone, "warn");
-  assert.equal(authRequiredStatus.statusDetail, "Sign in to this source, then run Check access from More.");
+  assert.equal(authRequiredStatus.statusDetail, "Sign in to this source to continue.");
 
   const nonActionableStatus = presentSearchStatus({
     enabled: true,
@@ -263,6 +265,57 @@ test("presentSearchStatus only exposes actionable auth-required details", () => 
   assert.equal(nonActionableStatus.label, "ready");
   assert.equal(nonActionableStatus.statusDetail, null);
   assert.equal(nonActionableStatus.formatterDetail, "");
+});
+
+test("presentSearchPrimaryAction promotes sign-in over run-now for auth-blocked sources", () => {
+  const disabledAction = presentSearchPrimaryAction(
+    { enabled: false },
+    { controlsDisabled: false },
+  );
+  assert.deepEqual(disabledAction, {
+    kind: "enable",
+    label: "Enable",
+    disabled: false,
+  });
+
+  const authBlockedAction = presentSearchPrimaryAction(
+    {
+      enabled: true,
+      authRequired: true,
+      readiness: { key: "not_authorized" },
+      manualRefreshAllowed: true,
+    },
+    { controlsDisabled: false },
+  );
+  assert.deepEqual(authBlockedAction, {
+    kind: "sign_in",
+    label: "Sign in",
+    disabled: false,
+  });
+
+  const coolingDownAction = presentSearchPrimaryAction(
+    {
+      enabled: true,
+      authRequired: false,
+      readiness: { key: "ready" },
+      manualRefreshAllowed: false,
+      manualRefreshNextEligibleAt: "2099-03-20T12:00:00.000Z",
+    },
+    { controlsDisabled: false },
+  );
+  assert.equal(coolingDownAction.kind, "run_now");
+  assert.equal(coolingDownAction.disabled, true);
+  assert.match(coolingDownAction.label, /^Available in /);
+});
+
+test("buildSearchOverflowActions keeps disable as an uncommon overflow action only", () => {
+  assert.deepEqual(buildSearchOverflowActions({ enabled: false }), []);
+  assert.deepEqual(buildSearchOverflowActions({ enabled: true }), [
+    {
+      kind: "disable",
+      label: "Disable",
+    },
+  ]);
 });
 
 test("welcome toast + run cadence storage helpers persist values", () => {

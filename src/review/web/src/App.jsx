@@ -54,6 +54,7 @@ import {
   buildJobsSalaryHistogram,
 } from "@/features/jobs/logic";
 import {
+  buildSearchOverflowActions,
   buildSearchRows,
   computeSearchTotals,
   formatDurationFromNow,
@@ -61,6 +62,7 @@ import {
   hasSeenSearchesWelcomeToast,
   markSearchesWelcomeToastSeen,
   normalizeSearchState,
+  presentSearchPrimaryAction,
   presentSearchStatus,
   persistSearchRunCadence,
   readSearchRunCadence,
@@ -526,6 +528,7 @@ export default function App() {
     error: false,
     busy: false,
   });
+  const [openSourceActionsMenuId, setOpenSourceActionsMenuId] = useState("");
   const { toast } = useToast();
 
   const loadDashboard = useCallback(async (options = {}) => {
@@ -1189,6 +1192,25 @@ export default function App() {
     [currentEnabledSourceIds, ensureConsentAccepted, persistEnabledSources, toast],
   );
 
+  const handleStartAuthFlow = useCallback((sourceId) => {
+    if (!ensureConsentAccepted()) {
+      return;
+    }
+
+    const source = sourceById[sourceId];
+    if (!source) {
+      return;
+    }
+
+    setOpenSourceActionsMenuId("");
+    setAuthFlow({
+      sourceId,
+      message: AUTH_FLOW_HELP_TEXT,
+      error: false,
+      busy: false,
+    });
+  }, [ensureConsentAccepted, sourceById]);
+
   const handleRunSourceNow = useCallback(
     async (sourceId) => {
       if (!ensureConsentAccepted()) {
@@ -1320,6 +1342,32 @@ export default function App() {
 
   const authFlowSource =
     authFlow.sourceId && sourceById[authFlow.sourceId] ? sourceById[authFlow.sourceId] : null;
+
+  useEffect(() => {
+    if (!openSourceActionsMenuId) {
+      return undefined;
+    }
+
+    function handlePointerDown(event) {
+      if (event.target instanceof Element && event.target.closest("[data-source-actions-menu-root='1']")) {
+        return;
+      }
+      setOpenSourceActionsMenuId("");
+    }
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        setOpenSourceActionsMenuId("");
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [openSourceActionsMenuId]);
 
   const handleOpenSourceFromAuthFlow = useCallback(() => {
     if (!authFlowSource?.searchUrl) {
@@ -2186,12 +2234,9 @@ export default function App() {
                         const hasStatusDetails =
                           Boolean(statusPresentation.statusDetail) ||
                           Boolean(statusPresentation.formatterDetail);
-                        const runNowDisabled = controlsDisabled || !row.manualRefreshAllowed;
-                        const runNowLabel = runNowDisabled
-                          ? row.manualRefreshNextEligibleAt
-                            ? `Available in ${formatDurationFromNow(row.manualRefreshNextEligibleAt)}`
-                            : "Run now"
-                          : "Run now";
+                        const primaryAction = presentSearchPrimaryAction(row, { controlsDisabled });
+                        const overflowActions = buildSearchOverflowActions(row);
+                        const actionsMenuOpen = openSourceActionsMenuId === row.id;
 
                         return (
                           <TableRow key={row.id} className={cn(!row.enabled && "bg-secondary/20")}>
@@ -2253,44 +2298,75 @@ export default function App() {
                             <TableCell>{row.importedCount}</TableCell>
                             <TableCell>{row.avgScore === null ? "n/a" : row.avgScore}</TableCell>
                             <TableCell className="align-middle pr-1">
-                              {row.enabled ? (
-                                <Button
-                                  size="sm"
-                                  variant={runNowDisabled ? "secondary" : "default"}
-                                  className="min-w-[140px] justify-center"
-                                  disabled={runNowDisabled}
-                                  onClick={() => {
-                                    void handleRunSourceNow(row.id);
-                                  }}
-                                >
-                                  {runNowLabel}
-                                </Button>
-                              ) : (
-                                <Button
-                                  size="sm"
-                                  className="min-w-[104px] justify-center"
-                                  disabled={controlsDisabled}
-                                  onClick={() => {
+                              <Button
+                                size="sm"
+                                variant={
+                                  primaryAction.kind === "run_now" && primaryAction.disabled
+                                    ? "secondary"
+                                    : "default"
+                                }
+                                className="min-w-[140px] justify-center"
+                                disabled={primaryAction.disabled}
+                                onClick={() => {
+                                  if (primaryAction.kind === "enable") {
                                     void handleEnableSource(row.id, row.label);
-                                  }}
-                                >
-                                  Enable
-                                </Button>
-                              )}
+                                    return;
+                                  }
+                                  if (primaryAction.kind === "sign_in") {
+                                    handleStartAuthFlow(row.id);
+                                    return;
+                                  }
+                                  void handleRunSourceNow(row.id);
+                                }}
+                              >
+                                {primaryAction.label}
+                              </Button>
                             </TableCell>
                             <TableCell className="align-middle pl-1 pr-2">
-                              {row.enabled ? (
-                                <Button
-                                  variant="outline"
-                                  size="icon"
-                                  className="h-11 w-11"
-                                  disabled={controlsDisabled}
-                                  onClick={() => {
-                                    void handleDisableSource(row.id, row.label);
-                                  }}
+                              {overflowActions.length > 0 ? (
+                                <div
+                                  className="relative flex justify-end"
+                                  data-source-actions-menu-root="1"
                                 >
-                                  …
-                                </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-11 w-11"
+                                    disabled={controlsDisabled}
+                                    aria-haspopup="menu"
+                                    aria-expanded={actionsMenuOpen}
+                                    onClick={() => {
+                                      setOpenSourceActionsMenuId((current) =>
+                                        current === row.id ? "" : row.id,
+                                      );
+                                    }}
+                                  >
+                                    …
+                                  </Button>
+                                  {actionsMenuOpen ? (
+                                    <div
+                                      className="absolute right-0 top-full z-20 mt-2 min-w-[9rem] rounded-md border border-border bg-card p-1 shadow-panel"
+                                      role="menu"
+                                    >
+                                      {overflowActions.map((action) => (
+                                        <button
+                                          key={action.kind}
+                                          type="button"
+                                          role="menuitem"
+                                          className="flex w-full items-center rounded-sm px-3 py-2 text-sm text-foreground hover:bg-secondary/60"
+                                          onClick={() => {
+                                            setOpenSourceActionsMenuId("");
+                                            if (action.kind === "disable") {
+                                              void handleDisableSource(row.id, row.label);
+                                            }
+                                          }}
+                                        >
+                                          {action.label}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  ) : null}
+                                </div>
                               ) : null}
                             </TableCell>
                           </TableRow>

@@ -5611,6 +5611,7 @@ export function renderDashboardPage(dashboard, options = {}) {
                   "/" +
                   String(Math.max(0, Math.round(source.expectedFoundCount)));
             const disableControls = busy || onboardingBusy || Boolean(authFlowSourceId);
+            const authBlocked = source.enabled && source.authRequired && source.status.tone === "warn";
             const runNowDisabled = disableControls || !source.manualRefreshAllowed;
             const runNowLabel = runNowDisabled
               ? source.manualRefreshNextEligibleAt
@@ -5680,18 +5681,21 @@ export function renderDashboardPage(dashboard, options = {}) {
                       ">Enable</button>"
                   : "") +
                 (source.enabled
-                  ? '<button class="secondary" data-stop-row-open="1" data-run-source-now="' +
-                      escapeHtml(source.id) +
-                      '"' +
-                      (runNowDisabled ? " disabled" : "") +
-                      ' title="Manual refreshes remaining today: ' +
-                      escapeHtml(source.manualRefreshRemaining) +
-                      '">' +
-                      escapeHtml(runNowLabel) +
-                    "</button>"
-                  : "") +
-                (source.enabled && source.authRequired && source.status.tone === "warn"
-                  ? '<button class="secondary" data-stop-row-open="1" data-onboarding-check-source="' + escapeHtml(source.id) + '"' + (disableControls ? " disabled" : "") + '>Check access</button>'
+                  ? authBlocked
+                    ? '<button class="primary" data-stop-row-open="1" data-onboarding-open-auth-source="' +
+                        escapeHtml(source.id) +
+                        '"' +
+                        (disableControls ? " disabled" : "") +
+                        ">Sign in</button>"
+                    : '<button class="secondary" data-stop-row-open="1" data-run-source-now="' +
+                        escapeHtml(source.id) +
+                        '"' +
+                        (runNowDisabled ? " disabled" : "") +
+                        ' title="Manual refreshes remaining today: ' +
+                        escapeHtml(source.manualRefreshRemaining) +
+                        '">' +
+                        escapeHtml(runNowLabel) +
+                      "</button>"
                   : "") +
                 overflowMenu +
                 "</div></td>",
@@ -6543,6 +6547,15 @@ export function renderDashboardPage(dashboard, options = {}) {
           for (const button of document.querySelectorAll("[data-onboarding-check-source]")) {
             button.addEventListener("click", () => {
               void verifySingleOnboardingSource(button.dataset.onboardingCheckSource);
+            });
+          }
+
+          for (const button of document.querySelectorAll("[data-onboarding-open-auth-source]")) {
+            button.addEventListener("click", () => {
+              openAuthFlowModal(
+                button.dataset.onboardingOpenAuthSource,
+                "Step 1: Open source. Step 2: Sign in. Step 3: Click I\u2019m logged in."
+              );
             });
           }
 

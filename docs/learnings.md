@@ -326,5 +326,6 @@ As of 2026-03-06.
 
 - A live QA environment is not the same thing as a feature being ready for stakeholder QA. Do not declare QA readiness if known MVP-source integration gaps still exist.
 - New sources are not QA-ready until they fully reuse existing product contracts: source-type semantics, enablement/auth flows, status vocabulary, and existing reporting surfaces.
+- New source integrations must reuse existing action hierarchy. Common recovery actions belong on the primary CTA, while overflow menus are only for uncommon actions like `Disable`. Never ship a new source row where the overflow trigger is secretly the destructive action.
 - When adding a new source type, update all source-kind registries in the same change. If React search rows and legacy/server source maps are not both updated, the source will leak as `unknown` even when the adapter works.
 - Novelty tracking for new sources should be internal by default and anchored to an explicit baseline. For MVP source evaluation, default to `LinkedIn + Indeed` unless the stakeholder changes the baseline deliberately.

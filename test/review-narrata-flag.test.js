@@ -335,6 +335,37 @@ test("renderDashboardPage keeps overflow menu off disabled rows", () => {
   );
 });
 
+test("renderDashboardPage promotes sign-in and keeps disable in overflow for auth-blocked enabled sources", () => {
+  const html = renderDashboardPage({
+    featureFlags: { onboardingWizard: true },
+    onboarding: {
+      completed: false,
+      consentComplete: true,
+      consent: {
+        termsAccepted: true,
+        privacyAccepted: true,
+        tosRiskAccepted: true
+      },
+      checks: { sources: {} }
+    },
+    sources: [
+      {
+        id: "linkedin-live-capture",
+        name: "LinkedIn",
+        type: "linkedin_capture_file",
+        authRequired: true,
+        enabled: true,
+        status: { tone: "warn" }
+      }
+    ]
+  });
+
+  assert.equal(html.includes("data-onboarding-open-auth-source"), true);
+  assert.equal(html.includes(">Sign in</button>"), true);
+  assert.equal(html.includes('data-onboarding-check-source="linkedin-live-capture"'), false);
+  assert.equal(html.includes("data-onboarding-disable-source"), true);
+});
+
 test("renderDashboardPage blocks access with legal interstitial until consent is complete", () => {
   const html = renderDashboardPage({
     featureFlags: { onboardingWizard: true },

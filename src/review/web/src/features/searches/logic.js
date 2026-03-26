@@ -353,7 +353,7 @@ export function presentSearchStatus(row) {
           : statusLabelRaw;
 
   const statusDetail = authActionRequired
-    ? "Sign in to this source, then run Check access from More."
+    ? "Sign in to this source to continue."
     : latestAttemptFailed
       ? [
           latestAttemptOutcome === "challenge"
@@ -376,6 +376,49 @@ export function presentSearchStatus(row) {
         ? `${Number(row?.importedCount || 0)}/?`
         : `${Number(row?.importedCount || 0)}/${Math.max(0, Math.round(Number(row.expectedFoundCount)))}`,
   };
+}
+
+export function presentSearchPrimaryAction(row, options = {}) {
+  const controlsDisabled = options?.controlsDisabled === true;
+
+  if (row?.enabled !== true) {
+    return {
+      kind: "enable",
+      label: "Enable",
+      disabled: controlsDisabled,
+    };
+  }
+
+  if (row?.authRequired === true && row?.readiness?.key === "not_authorized") {
+    return {
+      kind: "sign_in",
+      label: "Sign in",
+      disabled: controlsDisabled,
+    };
+  }
+
+  const runNowDisabled = controlsDisabled || row?.manualRefreshAllowed !== true;
+  return {
+    kind: "run_now",
+    label:
+      runNowDisabled && row?.manualRefreshNextEligibleAt
+        ? `Available in ${formatDurationFromNow(row.manualRefreshNextEligibleAt)}`
+        : "Run now",
+    disabled: runNowDisabled,
+  };
+}
+
+export function buildSearchOverflowActions(row) {
+  if (row?.enabled !== true) {
+    return [];
+  }
+
+  return [
+    {
+      kind: "disable",
+      label: "Disable",
+    },
+  ];
 }
 
 export function shouldShowSearchesWelcomeToast({
