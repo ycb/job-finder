@@ -331,4 +331,5 @@ As of 2026-03-06.
 - Novelty tracking for new sources should be internal by default and anchored to an explicit baseline. For MVP source evaluation, default to `LinkedIn + Indeed` unless the stakeholder changes the baseline deliberately.
 - When an auth-required recovery flow is already active in a modal, failure feedback must stay inside that modal. Do not stack a destructive toast on top of inline modal state for the same auth failure.
 - Source-row reporting must preserve source-identity continuity across renamed source configs. If canonical source IDs change, legacy IDs need explicit aggregation aliases or the source table stops being cumulative and ceases to be a source of truth.
+- When a new source-library field matters at runtime, verify the full config-loading path preserves it. Adding metadata to the library definition alone is insufficient if `validateSources()` strips the field before the server builds dashboard rows.
 - After every controller-delivered feature that is intended for stakeholder QA, push the branch and refresh `qa/current` immediately. QA prep is part of delivery, not a follow-up chore.
