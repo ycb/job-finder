@@ -1386,25 +1386,31 @@ export default function App() {
       return;
     }
 
+    const sourceName = authFlowSource.name;
+    const sourceId = authFlowSource.id;
+
     setAuthFlow((current) => ({
       ...current,
       busy: true,
       error: false,
-      message: `Checking access for ${authFlowSource.name}...`,
+      message: `Checking access for ${sourceName}...`,
     }));
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    const passed = await handleCheckAccess(authFlowSource.id, authFlowSource.name, {
+    const passed = await handleCheckAccess(sourceId, sourceName, {
       openSourceOnFail: false,
     });
+
+    if (passed) {
+      setAuthFlow({ sourceId: null, message: "", error: false, busy: false });
+      return;
+    }
 
     setAuthFlow((current) => ({
       ...current,
       busy: false,
-      error: !passed,
-      message: passed
-        ? `Success! ${authFlowSource.name} is now enabled.`
-        : `${authFlowSource.name} is not authorized. Sign in and retry.`,
+      error: true,
+      message: `${sourceName} is not authorized. Sign in and retry.`,
     }));
   }, [authFlow.busy, authFlowSource, handleCheckAccess]);
 

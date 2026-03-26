@@ -4393,8 +4393,9 @@ export function renderDashboardPage(dashboard, options = {}) {
             openSourceOnFail: false
           });
           if (passed) {
-            authFlowMessage = "Success! " + source.name + " is now enabled.";
-            authFlowError = false;
+            closeAuthFlowModal();
+            setFeedback(source.name + " is ready.");
+            return;
           } else {
             authFlowMessage = source.name + " is not authorized. Sign in and retry.";
             authFlowError = true;
