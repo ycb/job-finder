@@ -171,6 +171,7 @@ test(
         assertStringOrNull(source.lastAttemptedAt, `${sourcePath}.lastAttemptedAt`);
         assertStringOrNull(source.lastAttemptOutcome, `${sourcePath}.lastAttemptOutcome`);
         assertStringOrNull(source.lastAttemptError, `${sourcePath}.lastAttemptError`);
+        assertNumberOrNull(source.foundCount, `${sourcePath}.foundCount`);
         assertNumberOrNull(source.captureJobCount, `${sourcePath}.captureJobCount`);
         assertNumberOrNull(source.droppedByHardFilterCount, `${sourcePath}.droppedByHardFilterCount`);
         assertNumberOrNull(source.droppedByDedupeCount, `${sourcePath}.droppedByDedupeCount`);

@@ -6,6 +6,7 @@ import {
   computeImportedAverageScore,
   resolveReviewTarget
 } from "../src/review/server.js";
+import { getSourceAggregationIds, listSourceLibraryDefinitions } from "../src/config/source-library.js";
 import { buildSearchRows, presentSearchStatus } from "../src/review/web/src/features/searches/logic.js";
 
 test("resolveReviewTarget keeps non-LinkedIn numeric external ids on their source URL", () => {
@@ -186,4 +187,31 @@ test("buildSearchRows surfaces the latest attempt separately from the last succe
   assert.equal(status.label, "challenge");
   assert.equal(status.tone, "warn");
   assert.equal(status.statusDetail.includes("Additional verification needed"), true);
+});
+
+test("source library preserves legacy aggregation ids for MVP source continuity", () => {
+  const byId = new Map(listSourceLibraryDefinitions().map((source) => [source.id, source]));
+
+  assert.deepEqual(getSourceAggregationIds(byId.get("linkedin-live-capture")), [
+    "linkedin-live-capture",
+    "linkedin-main",
+    "growth-pm",
+    "founding-pm",
+    "ai-pm",
+    "pm-remote-linkedin",
+  ]);
+  assert.deepEqual(getSourceAggregationIds(byId.get("builtin-sf-ai-pm")), [
+    "builtin-sf-ai-pm",
+    "builtin-main",
+  ]);
+  assert.deepEqual(getSourceAggregationIds(byId.get("indeed-ai-pm")), [
+    "indeed-ai-pm",
+    "indeed-main",
+    "indeed-ai-pm-sf",
+  ]);
+  assert.deepEqual(getSourceAggregationIds(byId.get("zip-ai-pm")), [
+    "zip-ai-pm",
+    "ziprecruiter-main",
+    "ziprecruiter-ai-pm-sf",
+  ]);
 });

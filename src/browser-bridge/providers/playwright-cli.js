@@ -92,7 +92,7 @@ function writeSnapshotFile(snapshotPath, snapshotText) {
   fs.writeFileSync(snapshotPath, snapshotText, "utf8");
 }
 
-function authProbeLooksUnauthorized(payload) {
+export function authProbeLooksUnauthorizedForSource(sourceType, payload) {
   if (!payload || typeof payload !== "object") {
     return true;
   }
@@ -102,11 +102,27 @@ function authProbeLooksUnauthorized(payload) {
   const text = String(payload.textSnippet || "").toLowerCase();
   const host = String(payload.host || "").toLowerCase();
   const pathname = String(payload.pathname || "").toLowerCase();
+  const source = String(sourceType || "").toLowerCase();
+
+  let hostPattern = /(linkedin|workatastartup|indeed|ziprecruiter|wellfound|remoteok)\./;
+  if (source === "linkedin_capture_file") {
+    hostPattern = /linkedin\./;
+  } else if (source === "yc_jobs") {
+    hostPattern = /workatastartup\./;
+  } else if (source === "indeed_search") {
+    hostPattern = /indeed\./;
+  } else if (source === "ziprecruiter_search") {
+    hostPattern = /ziprecruiter\./;
+  } else if (source === "wellfound_search") {
+    hostPattern = /wellfound\./;
+  } else if (source === "remoteok_search") {
+    hostPattern = /remoteok\./;
+  }
 
   const hasLoginPath =
-    /(linkedin|indeed|ziprecruiter|wellfound|remoteok)\./.test(host) &&
-    /(login|signin|sign-in|authwall|checkpoint|session)/.test(pathname);
-  const hasLoginInHref = /(login|signin|sign-in|authwall|checkpoint|session)/.test(href);
+    hostPattern.test(host) &&
+    /(login|signin|sign-in|authwall|checkpoint|session|sign_in)/.test(pathname);
+  const hasLoginInHref = /(login|signin|sign-in|authwall|checkpoint|session|sign_in)/.test(href);
   const hasPasswordField = payload.hasPasswordField === true;
   const likelyLoginTitle = /(sign in|log in|login)/.test(title);
   const likelyLoginText = /(sign in|log in|login|continue with)/.test(text);
@@ -193,7 +209,7 @@ export function probeSourceAccessWithPlaywrightCli(source, options = {}) {
     .map((line) => line.trim())
     .filter(Boolean);
   const payload = JSON.parse(lines[lines.length - 1] || "{}");
-  const unauthorized = authProbeLooksUnauthorized(payload);
+  const unauthorized = authProbeLooksUnauthorizedForSource(source?.type, payload);
 
   return {
     status: unauthorized ? "unauthorized" : "authorized",

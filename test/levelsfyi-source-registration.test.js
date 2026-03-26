@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   defaultSourceEnabledMap,
+  getSourceAggregationIds,
   listSourceLibraryDefinitions,
   materializeSourcesFromLibraryMap
 } from "../src/config/source-library.js";
@@ -19,6 +20,7 @@ test("Levels.fyi registers in the source library and accepts direct HTTP config"
   assert.equal(levels.enabled, false);
   assert.equal(levels.cacheTtlHours, 12);
   assert.equal(getDefaultCacheTtlHours("levelsfyi_search"), 12);
+  assert.deepEqual(getSourceAggregationIds(levels), ["levelsfyi-ai-pm"]);
 
   const enabledMap = defaultSourceEnabledMap();
   assert.equal(enabledMap[levels.id], false);
