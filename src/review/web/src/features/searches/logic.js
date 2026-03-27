@@ -6,6 +6,17 @@ const SEARCH_RUN_CADENCE_VALUES = new Set(["12h", "daily", "weekly", "cached"]);
 
 const SOURCE_KIND_ORDER = ["li", "bi", "id", "zr", "lf", "yc", "ah", "gg", "wf", "ro", "unknown"];
 
+function hasFiniteMetric(value) {
+  return value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
+}
+
+function normalizeOptionalCount(value) {
+  if (!hasFiniteMetric(value)) {
+    return null;
+  }
+  return Math.max(0, Math.round(Number(value)));
+}
+
 function normalizeExpectedFoundCount(value) {
   if (value === null || value === undefined || value === "") {
     return null;
@@ -140,6 +151,14 @@ export function buildSearchRows(sources = [], checksBySourceId = {}) {
       const normalizedLabel = firstLineLabel.toLowerCase();
       const sanitizedLabel =
         firstLineLabel && normalizedLabel !== normalizedSourceId ? firstLineLabel : fallbackLabel;
+      const filteredCount = normalizeOptionalCount(source.droppedByHardFilterCount);
+      const dedupedCount = normalizeOptionalCount(source.droppedByDedupeCount);
+      const importedCount = Math.max(0, Math.round(Number(source.importedCount || 0)));
+      const foundCount = hasFiniteMetric(source.foundCount)
+        ? Math.max(0, Math.round(Number(source.foundCount)))
+        : filteredCount !== null && dedupedCount !== null
+          ? importedCount + filteredCount + dedupedCount
+          : null;
       return {
         id: String(source.id || "").trim(),
         kind,
@@ -152,17 +171,11 @@ export function buildSearchRows(sources = [], checksBySourceId = {}) {
           typeof source.lastAttemptedAt === "string" && source.lastAttemptedAt.trim()
             ? source.lastAttemptedAt
             : source.capturedAt || null,
-        foundCount: Number(
-          Number.isFinite(Number(source.foundCount))
-            ? source.foundCount
-            : Number(source.droppedByHardFilterCount || 0) +
-              Number(source.droppedByDedupeCount || 0) +
-              Number(source.importedCount || 0)
-        ),
+        foundCount,
         capturedCount: Number(source.captureJobCount || 0),
-        filteredCount: Number(source.droppedByHardFilterCount || 0),
-        dedupedCount: Number(source.droppedByDedupeCount || 0),
-        importedCount: Number(source.importedCount || 0),
+        filteredCount,
+        dedupedCount,
+        importedCount,
         hasUnknownExpectedCount: normalizeExpectedFoundCount(source.captureExpectedCount) === null,
         expectedFoundCount: normalizeExpectedFoundCount(source.captureExpectedCount),
         formatterUnsupported: Array.isArray(source?.formatterDiagnostics?.unsupported)
@@ -184,10 +197,9 @@ export function buildSearchRows(sources = [], checksBySourceId = {}) {
           source.statusReason === "mock_profile",
         adapterHealthStatus:
           typeof source.adapterHealthStatus === "string" ? source.adapterHealthStatus : "unknown",
-        adapterHealthScore:
-          Number.isFinite(Number(source.adapterHealthScore))
-            ? Number(source.adapterHealthScore)
-            : null,
+        adapterHealthScore: hasFiniteMetric(source.adapterHealthScore)
+          ? Number(source.adapterHealthScore)
+          : null,
         adapterHealthReason:
           Array.isArray(source.adapterHealthReasons) && source.adapterHealthReasons.length > 0
             ? String(source.adapterHealthReasons[0] || "")
@@ -220,23 +232,23 @@ export function buildSearchRows(sources = [], checksBySourceId = {}) {
           typeof source.servedFrom === "string" && source.servedFrom.trim()
             ? source.servedFrom
             : null,
-        runNewCount: Number.isFinite(Number(source.runNewCount))
+        runNewCount: hasFiniteMetric(source.runNewCount)
           ? Math.max(0, Math.round(Number(source.runNewCount)))
           : null,
-        runUpdatedCount: Number.isFinite(Number(source.runUpdatedCount))
+        runUpdatedCount: hasFiniteMetric(source.runUpdatedCount)
           ? Math.max(0, Math.round(Number(source.runUpdatedCount)))
           : null,
-        runUnchangedCount: Number.isFinite(Number(source.runUnchangedCount))
+        runUnchangedCount: hasFiniteMetric(source.runUnchangedCount)
           ? Math.max(0, Math.round(Number(source.runUnchangedCount)))
           : null,
         hasRunDelta:
-          Number.isFinite(Number(source.runNewCount)) ||
-          Number.isFinite(Number(source.runUpdatedCount)) ||
-          Number.isFinite(Number(source.runUnchangedCount)),
+          hasFiniteMetric(source.runNewCount) ||
+          hasFiniteMetric(source.runUpdatedCount) ||
+          hasFiniteMetric(source.runUnchangedCount),
         avgScore:
           source.avgScore === null || source.avgScore === undefined
             ? null
-            : Number.isFinite(Number(source.avgScore))
+            : hasFiniteMetric(source.avgScore)
               ? Math.round(Number(source.avgScore))
               : null,
         manualRefreshAllowed: source.manualRefreshAllowed === true,
@@ -269,15 +281,28 @@ export function computeSearchTotals(searchRows = [], searchState = "enabled") {
   const totals = searchRows.reduce(
     (accumulator, source) => {
       accumulator.captured += Number(source.capturedCount || 0);
-      accumulator.filtered += Number(source.filteredCount || 0);
-      accumulator.deduped += Number(source.dedupedCount || 0);
+      if (hasFiniteMetric(source.filteredCount)) {
+        accumulator.filtered += Number(source.filteredCount);
+      } else {
+        accumulator.filteredKnown = false;
+      }
+      if (hasFiniteMetric(source.dedupedCount)) {
+        accumulator.deduped += Number(source.dedupedCount);
+      } else {
+        accumulator.dedupedKnown = false;
+      }
       accumulator.imported += Number(source.importedCount || 0);
-      accumulator.found += Number.isFinite(Number(source.foundCount))
-        ? Number(source.foundCount)
-        : Number(source.filteredCount || 0) +
-          Number(source.dedupedCount || 0) +
-          Number(source.importedCount || 0);
-      if (Number.isFinite(Number(source.avgScore)) && Number(source.importedCount || 0) > 0) {
+      if (hasFiniteMetric(source.foundCount)) {
+        accumulator.found += Number(source.foundCount);
+      } else if (hasFiniteMetric(source.filteredCount) && hasFiniteMetric(source.dedupedCount)) {
+        accumulator.found +=
+          Number(source.importedCount || 0) +
+          Number(source.filteredCount) +
+          Number(source.dedupedCount);
+      } else {
+        accumulator.foundKnown = false;
+      }
+      if (hasFiniteMetric(source.avgScore) && Number(source.importedCount || 0) > 0) {
         accumulator.avgScoreTotal += Number(source.avgScore) * Number(source.importedCount || 0);
         accumulator.avgScoreCount += Number(source.importedCount || 0);
       }
@@ -286,9 +311,12 @@ export function computeSearchTotals(searchRows = [], searchState = "enabled") {
     {
       captured: 0,
       filtered: 0,
+      filteredKnown: true,
       deduped: 0,
+      dedupedKnown: true,
       imported: 0,
       found: 0,
+      foundKnown: true,
       avgScoreTotal: 0,
       avgScoreCount: 0,
     },
@@ -296,9 +324,9 @@ export function computeSearchTotals(searchRows = [], searchState = "enabled") {
 
   return {
     stateLabel: normalizeSearchState(searchState) === "enabled" ? "Enabled Total" : "Disabled Total",
-    foundLabel: String(Math.max(0, Math.round(totals.found))),
-    filtered: totals.filtered,
-    deduped: totals.deduped,
+    foundLabel: totals.foundKnown ? String(Math.max(0, Math.round(totals.found))) : "—",
+    filtered: totals.filteredKnown ? totals.filtered : null,
+    deduped: totals.dedupedKnown ? totals.deduped : null,
     imported: totals.imported,
     avgScore:
       totals.avgScoreCount > 0
@@ -379,7 +407,9 @@ export function presentSearchStatus(row) {
     label,
     statusDetail,
     formatterDetail: "",
-    foundLabel: String(Math.max(0, Math.round(Number(row?.foundCount || 0)))),
+    foundLabel: hasFiniteMetric(row?.foundCount)
+      ? String(Math.max(0, Math.round(Number(row.foundCount))))
+      : "—",
   };
 }
 

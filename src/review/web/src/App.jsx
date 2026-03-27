@@ -139,6 +139,10 @@ function sourceKindLabel(kind) {
   return "Unknown";
 }
 
+function formatSearchMetricValue(value) {
+  return Number.isFinite(Number(value)) ? Math.max(0, Math.round(Number(value))) : "—";
+}
+
 function formatJobStatus(status) {
   if (status === "skip_for_now") {
     return "skip for now";
@@ -2305,8 +2309,8 @@ export default function App() {
                               </div>
                             </TableCell>
                             <TableCell>{statusPresentation.foundLabel}</TableCell>
-                            <TableCell>{row.filteredCount}</TableCell>
-                            <TableCell>{row.dedupedCount}</TableCell>
+                            <TableCell>{formatSearchMetricValue(row.filteredCount)}</TableCell>
+                            <TableCell>{formatSearchMetricValue(row.dedupedCount)}</TableCell>
                             <TableCell>{row.importedCount}</TableCell>
                             <TableCell>{row.avgScore === null ? "n/a" : row.avgScore}</TableCell>
                             <TableCell className="align-middle pr-1">
@@ -2389,8 +2393,8 @@ export default function App() {
                         <TableCell>—</TableCell>
                         <TableCell>—</TableCell>
                         <TableCell>{totals.foundLabel}</TableCell>
-                        <TableCell>{totals.filtered}</TableCell>
-                        <TableCell>{totals.deduped}</TableCell>
+                        <TableCell>{formatSearchMetricValue(totals.filtered)}</TableCell>
+                        <TableCell>{formatSearchMetricValue(totals.deduped)}</TableCell>
                         <TableCell>{totals.imported}</TableCell>
                         <TableCell>{totals.avgScore}</TableCell>
                         <TableCell>—</TableCell>
