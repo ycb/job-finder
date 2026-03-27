@@ -1,3 +1,5 @@
+import { filterActiveQueueJobs } from "./logic.js";
+
 const JOBS_PAGE_SIZE = 6;
 
 const DEFAULT_CRITERIA = {
@@ -355,14 +357,15 @@ function collectSourcesFromDashboard(dashboard, jobs) {
 }
 
 function countJobsForView(jobs, view) {
+  const activeJobs = filterActiveQueueJobs(jobs);
   if (view === "new") {
-    return jobs.filter((job) => job.isNew === true).length;
+    return activeJobs.filter((job) => job.isNew === true).length;
   }
   if (view === "unread") {
-    return jobs.filter((job) => job.isUnread === true).length;
+    return activeJobs.filter((job) => job.isUnread === true).length;
   }
   if (view === "best_match") {
-    return jobs.filter((job) => job.status !== "rejected" && job.bucket === "high_signal").length;
+    return activeJobs.filter((job) => job.bucket === "high_signal").length;
   }
   if (view === "applied") {
     return jobs.filter((job) => job.status === "applied").length;
@@ -373,18 +376,19 @@ function countJobsForView(jobs, view) {
   if (view === "rejected") {
     return jobs.filter((job) => job.status === "rejected").length;
   }
-  return jobs.filter((job) => job.status === "new" || job.status === "viewed").length;
+  return activeJobs.length;
 }
 
 function filterJobsByView(jobs, view) {
+  const activeJobs = filterActiveQueueJobs(jobs);
   if (view === "new") {
-    return jobs.filter((job) => job.isNew === true);
+    return activeJobs.filter((job) => job.isNew === true);
   }
   if (view === "unread") {
-    return jobs.filter((job) => job.isUnread === true);
+    return activeJobs.filter((job) => job.isUnread === true);
   }
   if (view === "best_match") {
-    return jobs.filter((job) => job.status !== "rejected" && job.bucket === "high_signal");
+    return activeJobs.filter((job) => job.bucket === "high_signal");
   }
   if (view === "applied") {
     return jobs.filter((job) => job.status === "applied");
@@ -395,7 +399,7 @@ function filterJobsByView(jobs, view) {
   if (view === "rejected") {
     return jobs.filter((job) => job.status === "rejected");
   }
-  return jobs.filter((job) => job.status === "new" || job.status === "viewed");
+  return activeJobs;
 }
 
 function filterJobsBySource(jobs, selectedSource) {

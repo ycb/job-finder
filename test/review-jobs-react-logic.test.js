@@ -11,6 +11,7 @@ import {
   buildSourceFilterOptions,
   countJobsInSalaryRange,
   countJobsInScoreRange,
+  filterActiveQueueJobs,
   filterJobsBySource,
   getPageForSelectedJob,
   paginateJobs,
@@ -148,6 +149,36 @@ test("selectJobsForView returns the expected queue slice for each jobs view", ()
   assert.deepEqual(
     selectJobsForView({ ...payload, view: "rejected" }).map((job) => job.id),
     ["job-rejected"],
+  );
+});
+
+test("filterActiveQueueJobs drops reject-bucket jobs even if backend queue is polluted", () => {
+  const polluted = [
+    ...ACTIVE_QUEUE,
+    {
+      id: "job-reject-active",
+      title: "Engineering Lead",
+      status: "new",
+      isNew: true,
+      isUnread: true,
+      bucket: "reject",
+      hardFiltered: 1,
+      sourceIds: ["yc-1"],
+    },
+  ];
+
+  assert.deepEqual(filterActiveQueueJobs(polluted).map((job) => job.id), [
+    "job-new",
+    "job-viewed",
+    "job-remote",
+  ]);
+  assert.deepEqual(
+    selectJobsForView({ view: "new", queue: polluted }).map((job) => job.id),
+    ["job-new", "job-viewed"],
+  );
+  assert.deepEqual(
+    selectJobsForView({ view: "unread", queue: polluted }).map((job) => job.id),
+    ["job-new", "job-remote"],
   );
 });
 

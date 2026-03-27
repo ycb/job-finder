@@ -52,6 +52,7 @@ import {
 import {
   buildJobsActiveFilterChips,
   buildJobsSalaryHistogram,
+  filterActiveQueueJobs,
 } from "@/features/jobs/logic";
 import {
   buildSearchOverflowActions,
@@ -720,7 +721,7 @@ export default function App() {
     [visibleJobSources],
   );
   const activeJobs = useMemo(
-    () => filterJobsForVisibleSources(dashboard?.queue),
+    () => filterActiveQueueJobs(filterJobsForVisibleSources(dashboard?.queue)),
     [dashboard, filterJobsForVisibleSources],
   );
   const appliedJobs = useMemo(

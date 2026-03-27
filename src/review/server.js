@@ -41,6 +41,7 @@ import {
 import { loadRetentionPolicy } from "../config/retention-policy.js";
 import { openDatabase } from "../db/client.js";
 import { runMigrations } from "../db/migrations.js";
+import { filterActiveQueueJobs, isActiveQueueJob } from "../jobs/active-queue.js";
 import { normalizeJobRecord } from "../jobs/normalize.js";
 import { applyRetentionPolicyCleanup, writeRetentionCleanupAudit } from "../jobs/retention.js";
 import {
@@ -1812,9 +1813,7 @@ function buildDashboardData(limit = 200) {
   const sourceRunTotalsBySourceId = new Map(
     sourceRunTotals.map((row) => [row.sourceId, row])
   );
-  const queue = statsQueue
-    .filter((job) => job.status === "new" || job.status === "viewed")
-    .slice(0, limit);
+  const queue = filterActiveQueueJobs(statsQueue).slice(0, limit);
   const appliedQueue = statsQueue.filter((job) => job.status === "applied").slice(0, limit);
   const skippedQueue = statsQueue
     .filter((job) => job.status === "skip_for_now")
@@ -1844,7 +1843,7 @@ function buildDashboardData(limit = 200) {
         current.skippedCount += 1;
       } else if (job.status === "rejected") {
         current.rejectedCount += 1;
-      } else {
+      } else if (isActiveQueueJob(job)) {
         current.activeCount += 1;
       }
 
