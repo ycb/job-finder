@@ -491,6 +491,49 @@ function buildSourceRefreshContext(source, options = {}) {
   };
 }
 
+function buildPersistedSourceRunMetrics(capturePayload, importedCount) {
+  const rawFunnel =
+    capturePayload?.captureFunnel &&
+    typeof capturePayload.captureFunnel === "object" &&
+    !Array.isArray(capturePayload.captureFunnel)
+      ? capturePayload.captureFunnel
+      : null;
+
+  const normalizeCount = (value, fallback = null) => {
+    if (value === null || value === undefined || value === "" || !Number.isFinite(Number(value))) {
+      return fallback;
+    }
+    return Math.max(0, Math.round(Number(value)));
+  };
+
+  const imported = normalizeCount(importedCount, 0);
+  const capturedRawCount = normalizeCount(rawFunnel?.capturedRawCount);
+  const postHardFilterCount = normalizeCount(rawFunnel?.postHardFilterCount);
+  const postDedupeCount = normalizeCount(rawFunnel?.postDedupeCount);
+
+  const filteredCount =
+    capturedRawCount !== null && postHardFilterCount !== null
+      ? Math.max(0, capturedRawCount - postHardFilterCount)
+      : null;
+  const dedupedCount =
+    postHardFilterCount !== null && postDedupeCount !== null
+      ? Math.max(0, postHardFilterCount - postDedupeCount)
+      : null;
+  const foundCount =
+    capturedRawCount !== null
+      ? capturedRawCount
+      : imported +
+        (filteredCount !== null ? filteredCount : 0) +
+        (dedupedCount !== null ? dedupedCount : 0);
+
+  return {
+    foundCount,
+    filteredCount,
+    dedupedCount,
+    importedCount: imported
+  };
+}
+
 function runSync(options = {}) {
   const sources = loadSources();
   const { db } = withDatabase();
@@ -544,6 +587,10 @@ function runSync(options = {}) {
       expectedCount:
         captureSummaryAfterCollection.expectedCount ?? captureSummary.expectedCount,
       pageUrl: captureSummaryAfterCollection.pageUrl || captureSummary.pageUrl,
+      captureFunnel:
+        captureSummaryAfterCollection?.payload?.captureFunnel ||
+        captureSummary?.payload?.captureFunnel ||
+        null,
       jobs: rawJobs
     };
     const evaluation = evaluateCaptureRun(source, capturePayload, {
@@ -602,6 +649,10 @@ function runSync(options = {}) {
       existingRows,
       incomingJobs: normalizedJobs
     });
+    const runMetrics = buildPersistedSourceRunMetrics(
+      capturePayload,
+      normalizedJobs.length
+    );
     const refreshContext = buildSourceRefreshContext(source, options);
 
     totalCollected += normalizedJobs.length;
@@ -617,10 +668,13 @@ function runSync(options = {}) {
     sourceDeltaRows.push({
       runId,
       sourceId: source.id,
+      foundCount: runMetrics.foundCount,
+      filteredCount: runMetrics.filteredCount,
+      dedupedCount: runMetrics.dedupedCount,
       newCount: deltas.newCount,
       updatedCount: deltas.updatedCount,
       unchangedCount: deltas.unchangedCount,
-      importedCount: normalizedJobs.length,
+      importedCount: runMetrics.importedCount,
       refreshMode: refreshContext.refreshMode,
       servedFrom: refreshContext.servedFrom,
       statusReason: refreshContext.statusReason,

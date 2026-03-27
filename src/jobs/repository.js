@@ -199,10 +199,18 @@ export function recordSourceRunDeltas(db, rows = []) {
     return 0;
   }
 
+  const normalizeOptionalCount = (value) =>
+    value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value))
+      ? Math.max(0, Math.round(Number(value)))
+      : null;
+
   const statement = db.prepare(`
     INSERT INTO source_run_deltas (
       run_id,
       source_id,
+      found_count,
+      filtered_count,
+      deduped_count,
       new_count,
       updated_count,
       unchanged_count,
@@ -213,7 +221,7 @@ export function recordSourceRunDeltas(db, rows = []) {
       status_label,
       captured_at,
       recorded_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
   `);
 
   let inserted = 0;
@@ -228,6 +236,9 @@ export function recordSourceRunDeltas(db, rows = []) {
     statement.run(
       runId,
       sourceId,
+      normalizeOptionalCount(row?.foundCount),
+      normalizeOptionalCount(row?.filteredCount),
+      normalizeOptionalCount(row?.dedupedCount),
       Math.max(0, Math.round(Number(row?.newCount) || 0)),
       Math.max(0, Math.round(Number(row?.updatedCount) || 0)),
       Math.max(0, Math.round(Number(row?.unchangedCount) || 0)),
@@ -252,6 +263,9 @@ export function listLatestSourceRunDeltas(db) {
       SELECT
         latest.run_id AS runId,
         latest.source_id AS sourceId,
+        latest.found_count AS foundCount,
+        latest.filtered_count AS filteredCount,
+        latest.deduped_count AS dedupedCount,
         latest.new_count AS newCount,
         latest.updated_count AS updatedCount,
         latest.unchanged_count AS unchangedCount,
@@ -271,6 +285,27 @@ export function listLatestSourceRunDeltas(db) {
         LIMIT 1
       )
       ORDER BY latest.source_id ASC;
+    `
+    )
+    .all();
+}
+
+export function listSourceRunTotals(db) {
+  return db
+    .prepare(
+      `
+      SELECT
+        source_id AS sourceId,
+        SUM(imported_count) AS importedCount,
+        SUM(found_count) AS foundCount,
+        SUM(filtered_count) AS filteredCount,
+        SUM(deduped_count) AS dedupedCount,
+        COUNT(found_count) AS foundSamples,
+        COUNT(filtered_count) AS filteredSamples,
+        COUNT(deduped_count) AS dedupedSamples
+      FROM source_run_deltas
+      GROUP BY source_id
+      ORDER BY source_id ASC;
     `
     )
     .all();

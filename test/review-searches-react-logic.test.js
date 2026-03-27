@@ -220,6 +220,25 @@ test("buildSearchRows derives additive found counts from filtered, deduped, and 
   assert.equal(presentSearchStatus(rows[0]).foundLabel, "10");
 });
 
+test("buildSearchRows preserves unknown filtered and deduped history instead of coercing zeros", () => {
+  const rows = buildSearchRows([
+    {
+      id: "builtin",
+      name: "Built In",
+      type: "builtin_search",
+      searchUrl: "https://builtin.example",
+      enabled: true,
+      authRequired: false,
+      importedCount: 5,
+    },
+  ]);
+
+  assert.equal(rows[0].foundCount, null);
+  assert.equal(rows[0].filteredCount, null);
+  assert.equal(rows[0].dedupedCount, null);
+  assert.equal(presentSearchStatus(rows[0]).foundLabel, "—");
+});
+
 test("presentSearchStatus prioritizes disabled state over capture readiness", () => {
   const disabledStatus = presentSearchStatus({
     enabled: false,
@@ -259,6 +278,33 @@ test("presentSearchStatus folds legacy live_source rows into ready", () => {
 
   assert.equal(legacyLiveSourceStatus.label, "ready");
   assert.equal(legacyLiveSourceStatus.tone, "ok");
+});
+
+test("computeSearchTotals preserves unknown filtered and deduped totals", () => {
+  const totals = computeSearchTotals(
+    [
+      {
+        importedCount: 5,
+        filteredCount: null,
+        dedupedCount: null,
+        foundCount: null,
+        avgScore: 80,
+      },
+      {
+        importedCount: 3,
+        filteredCount: 2,
+        dedupedCount: 1,
+        foundCount: 6,
+        avgScore: 60,
+      },
+    ],
+    "enabled",
+  );
+
+  assert.equal(totals.foundLabel, "—");
+  assert.equal(totals.filtered, null);
+  assert.equal(totals.deduped, null);
+  assert.equal(totals.imported, 8);
 });
 
 test("presentSearchStatus only exposes actionable auth-required details", () => {

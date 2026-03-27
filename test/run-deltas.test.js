@@ -8,6 +8,7 @@ import { openDatabase } from "../src/db/client.js";
 import { runMigrations } from "../src/db/migrations.js";
 import { classifyRunDeltas } from "../src/jobs/run-deltas.js";
 import {
+  listSourceRunTotals,
   listLatestSourceRunDeltas,
   recordSourceRunDeltas
 } from "../src/jobs/repository.js";
@@ -136,6 +137,9 @@ test("recordSourceRunDeltas persists rows and listLatestSourceRunDeltas returns 
       {
         runId: "run-1",
         sourceId: "source-a",
+        foundCount: 20,
+        filteredCount: 5,
+        dedupedCount: 2,
         newCount: 4,
         updatedCount: 1,
         unchangedCount: 8,
@@ -150,6 +154,9 @@ test("recordSourceRunDeltas persists rows and listLatestSourceRunDeltas returns 
       {
         runId: "run-1",
         sourceId: "source-b",
+        foundCount: 8,
+        filteredCount: 2,
+        dedupedCount: 1,
         newCount: 2,
         updatedCount: 0,
         unchangedCount: 3,
@@ -167,6 +174,9 @@ test("recordSourceRunDeltas persists rows and listLatestSourceRunDeltas returns 
       {
         runId: "run-2",
         sourceId: "source-a",
+        foundCount: 18,
+        filteredCount: 4,
+        dedupedCount: 2,
         newCount: 1,
         updatedCount: 2,
         unchangedCount: 9,
@@ -185,6 +195,9 @@ test("recordSourceRunDeltas persists rows and listLatestSourceRunDeltas returns 
       {
         runId: "run-2",
         sourceId: "source-a",
+        foundCount: 18,
+        filteredCount: 4,
+        dedupedCount: 2,
         newCount: 1,
         updatedCount: 2,
         unchangedCount: 9,
@@ -199,6 +212,9 @@ test("recordSourceRunDeltas persists rows and listLatestSourceRunDeltas returns 
       {
         runId: "run-1",
         sourceId: "source-b",
+        foundCount: 8,
+        filteredCount: 2,
+        dedupedCount: 1,
         newCount: 2,
         updatedCount: 0,
         unchangedCount: 3,
@@ -209,6 +225,54 @@ test("recordSourceRunDeltas persists rows and listLatestSourceRunDeltas returns 
         statusLabel: "ready_live",
         capturedAt: "2026-03-09T06:00:00.000Z",
         recordedAt: "2026-03-09T06:00:10.000Z"
+      }
+    ]);
+  } finally {
+    cleanupTempDb(db, dir);
+  }
+});
+
+test("listSourceRunTotals returns cumulative persisted source funnel metrics", () => {
+  const { db, dir } = createTempDb();
+
+  try {
+    recordSourceRunDeltas(db, [
+      {
+        runId: "run-1",
+        sourceId: "source-a",
+        foundCount: 20,
+        filteredCount: 5,
+        dedupedCount: 2,
+        newCount: 4,
+        updatedCount: 1,
+        unchangedCount: 8,
+        importedCount: 13,
+        recordedAt: "2026-03-09T06:00:10.000Z"
+      },
+      {
+        runId: "run-2",
+        sourceId: "source-a",
+        foundCount: 18,
+        filteredCount: 4,
+        dedupedCount: 2,
+        newCount: 1,
+        updatedCount: 2,
+        unchangedCount: 9,
+        importedCount: 12,
+        recordedAt: "2026-03-09T07:00:10.000Z"
+      }
+    ]);
+
+    assert.deepEqual(listSourceRunTotals(db).map((row) => ({ ...row })), [
+      {
+        sourceId: "source-a",
+        importedCount: 25,
+        foundCount: 38,
+        filteredCount: 9,
+        dedupedCount: 4,
+        foundSamples: 2,
+        filteredSamples: 2,
+        dedupedSamples: 2
       }
     ]);
   } finally {

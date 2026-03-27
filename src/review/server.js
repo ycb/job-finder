@@ -47,6 +47,7 @@ import {
   listAllJobs,
   listAllJobsWithStatus,
   listLatestSourceRunDeltas,
+  listSourceRunTotals,
   listSourceJobsForDelta,
   listReviewQueue,
   markApplicationStatusByNormalizedHash,
@@ -338,9 +339,13 @@ function buildSourceImportVerification(expectedCount, importedCount) {
 }
 
 function normalizeCount(value, fallback = 0) {
-  return Number.isFinite(Number(value))
+  return value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value))
     ? Math.max(0, Math.round(Number(value)))
     : fallback;
+}
+
+function hasCountValue(value) {
+  return value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
 }
 
 function pickLatestTimestamp(...values) {
@@ -395,6 +400,56 @@ function aggregateSourceCounts(source, countsBySourceId) {
   return aggregate;
 }
 
+function aggregateSourceRunTotals(source, sourceRunTotalsBySourceId) {
+  const aggregate = {
+    importedCount: null,
+    foundCount: null,
+    filteredCount: null,
+    dedupedCount: null,
+    foundSamples: 0,
+    filteredSamples: 0,
+    dedupedSamples: 0
+  };
+
+  let importedTotal = 0;
+  let importedSeen = false;
+  let foundTotal = 0;
+  let filteredTotal = 0;
+  let dedupedTotal = 0;
+
+  for (const sourceId of getSourceAggregationIds(source)) {
+    const totals = sourceRunTotalsBySourceId.get(sourceId);
+    if (!totals) {
+      continue;
+    }
+
+    if (hasCountValue(totals.importedCount)) {
+      importedTotal += normalizeCount(totals.importedCount);
+      importedSeen = true;
+    }
+    if (hasCountValue(totals.foundCount)) {
+      foundTotal += normalizeCount(totals.foundCount);
+    }
+    if (hasCountValue(totals.filteredCount)) {
+      filteredTotal += normalizeCount(totals.filteredCount);
+    }
+    if (hasCountValue(totals.dedupedCount)) {
+      dedupedTotal += normalizeCount(totals.dedupedCount);
+    }
+
+    aggregate.foundSamples += normalizeCount(totals.foundSamples);
+    aggregate.filteredSamples += normalizeCount(totals.filteredSamples);
+    aggregate.dedupedSamples += normalizeCount(totals.dedupedSamples);
+  }
+
+  aggregate.importedCount = importedSeen ? importedTotal : null;
+  aggregate.foundCount = aggregate.foundSamples > 0 ? foundTotal : null;
+  aggregate.filteredCount = aggregate.filteredSamples > 0 ? filteredTotal : null;
+  aggregate.dedupedCount = aggregate.dedupedSamples > 0 ? dedupedTotal : null;
+
+  return aggregate;
+}
+
 function pickLatestSourceRunDelta(source, latestSourceRunDeltaBySourceId) {
   let winner = null;
   let winnerAt = Number.NEGATIVE_INFINITY;
@@ -417,12 +472,6 @@ function pickLatestSourceRunDelta(source, latestSourceRunDeltaBySourceId) {
   return winner;
 }
 
-function getLatestSourceLastSeenAt(source, sourceLastSeenAt) {
-  return pickLatestTimestamp(
-    ...getSourceAggregationIds(source).map((sourceId) => sourceLastSeenAt.get(sourceId) || null)
-  );
-}
-
 function isCaptureFunnelReadSafeSource(source) {
   return (
     source?.type === "linkedin_capture_file" ||
@@ -434,6 +483,48 @@ function isCaptureFunnelReadSafeSource(source) {
     source?.type === "ziprecruiter_search" ||
     source?.type === "remoteok_search"
   );
+}
+
+function buildPersistedSourceRunMetrics(capturePayload, importedCount) {
+  const rawFunnel =
+    capturePayload?.captureFunnel &&
+    typeof capturePayload.captureFunnel === "object" &&
+    !Array.isArray(capturePayload.captureFunnel)
+      ? capturePayload.captureFunnel
+      : null;
+
+  const imported = normalizeCount(importedCount, 0);
+  const capturedRawCount = hasCountValue(rawFunnel?.capturedRawCount)
+    ? normalizeCount(rawFunnel.capturedRawCount)
+    : null;
+  const postHardFilterCount = hasCountValue(rawFunnel?.postHardFilterCount)
+    ? normalizeCount(rawFunnel.postHardFilterCount)
+    : null;
+  const postDedupeCount = hasCountValue(rawFunnel?.postDedupeCount)
+    ? normalizeCount(rawFunnel.postDedupeCount)
+    : null;
+
+  const filteredCount =
+    capturedRawCount !== null && postHardFilterCount !== null
+      ? Math.max(0, capturedRawCount - postHardFilterCount)
+      : null;
+  const dedupedCount =
+    postHardFilterCount !== null && postDedupeCount !== null
+      ? Math.max(0, postHardFilterCount - postDedupeCount)
+      : null;
+  const foundCount =
+    capturedRawCount !== null
+      ? capturedRawCount
+      : imported +
+        (filteredCount !== null ? filteredCount : 0) +
+        (dedupedCount !== null ? dedupedCount : 0);
+
+  return {
+    foundCount,
+    filteredCount,
+    dedupedCount,
+    importedCount: imported
+  };
 }
 
 export function computeImportedAverageScore(
@@ -1116,6 +1207,12 @@ function runSyncAndScore() {
         capturedAt: captureSummary.capturedAt || new Date().toISOString(),
         expectedCount: captureSummary.expectedCount,
         pageUrl: captureSummary.pageUrl,
+        captureFunnel:
+          captureSummary?.payload?.captureFunnel &&
+          typeof captureSummary.payload.captureFunnel === "object" &&
+          !Array.isArray(captureSummary.payload.captureFunnel)
+            ? captureSummary.payload.captureFunnel
+            : null,
         jobs: rawJobs
       };
       const evaluation = evaluateCaptureRun(source, capturePayload, {
@@ -1173,6 +1270,10 @@ function runSyncAndScore() {
         existingRows,
         incomingJobs: normalizedJobs
       });
+      const runMetrics = buildPersistedSourceRunMetrics(
+        capturePayload,
+        normalizedJobs.length
+      );
       const refreshMeta = buildSourceRefreshMeta(source);
 
       totalCollected += normalizedJobs.length;
@@ -1188,10 +1289,13 @@ function runSyncAndScore() {
       sourceDeltaRows.push({
         runId,
         sourceId: source.id,
+        foundCount: runMetrics.foundCount,
+        filteredCount: runMetrics.filteredCount,
+        dedupedCount: runMetrics.dedupedCount,
         newCount: deltas.newCount,
         updatedCount: deltas.updatedCount,
         unchangedCount: deltas.unchangedCount,
-        importedCount: normalizedJobs.length,
+        importedCount: runMetrics.importedCount,
         refreshMode: refreshMeta.refreshMode,
         servedFrom: refreshMeta.servedFrom,
         statusReason: refreshMeta.statusReason,
@@ -1653,7 +1757,6 @@ function buildDashboardData(limit = 200) {
       }
     }
   }
-  const sourceLastSeenAt = getSourceLastSeenAtMap();
   const sourceNoveltyBySourceId = computeSourceNoveltyBySourceId({
     sources,
     importedJobs: statsQueue
@@ -1665,6 +1768,10 @@ function buildDashboardData(limit = 200) {
   const latestSourceRunDeltas = withDatabase((db) => listLatestSourceRunDeltas(db));
   const latestSourceRunDeltaBySourceId = new Map(
     latestSourceRunDeltas.map((row) => [row.sourceId, row])
+  );
+  const sourceRunTotals = withDatabase((db) => listSourceRunTotals(db));
+  const sourceRunTotalsBySourceId = new Map(
+    sourceRunTotals.map((row) => [row.sourceId, row])
   );
   const queue = statsQueue
     .filter((job) => job.status === "new" || job.status === "viewed")
@@ -1793,6 +1900,7 @@ function buildDashboardData(limit = 200) {
         source,
         latestSourceRunDeltaBySourceId
       );
+      const runTotals = aggregateSourceRunTotals(source, sourceRunTotalsBySourceId);
       const counts = aggregateSourceCounts(source, countsBySourceId);
       const isFileBackedCapture = Boolean(source.capturePath);
       const captureJobCount = isFileBackedCapture
@@ -1804,25 +1912,27 @@ function buildDashboardData(limit = 200) {
           : null;
       const jobCount = counts.totalCount;
       const importedCount =
-        counts.totalCount > 0
-          ? counts.totalCount
-          : normalizeCount(captureFunnel.keptAfterDedupeCount, 0);
-      const canUseCaptureFunnelTotals =
-        counts.totalCount <= 0 ||
-        counts.totalCount === normalizeCount(captureFunnel.keptAfterDedupeCount, counts.totalCount);
-      const filteredCount = canUseCaptureFunnelTotals
-        ? normalizeCount(captureFunnel.droppedByHardFilterCount, 0)
-        : 0;
-      const dedupedCount = canUseCaptureFunnelTotals
-        ? normalizeCount(captureFunnel.droppedByDedupeCount, 0)
-        : 0;
-      const foundCount = importedCount + filteredCount + dedupedCount;
+        hasCountValue(runTotals.importedCount)
+          ? normalizeCount(runTotals.importedCount)
+          : counts.totalCount > 0
+            ? counts.totalCount
+            : normalizeCount(captureFunnel.keptAfterDedupeCount, 0);
+      const filteredCount = hasCountValue(runTotals.filteredCount)
+        ? normalizeCount(runTotals.filteredCount)
+        : null;
+      const dedupedCount = hasCountValue(runTotals.dedupedCount)
+        ? normalizeCount(runTotals.dedupedCount)
+        : null;
+      const foundCount = hasCountValue(runTotals.foundCount)
+        ? normalizeCount(runTotals.foundCount)
+        : importedCount +
+          (hasCountValue(filteredCount) ? normalizeCount(filteredCount) : 0) +
+          (hasCountValue(dedupedCount) ? normalizeCount(dedupedCount) : 0);
       const captureStatus = isFileBackedCapture ? capture.status : "ready";
       const capturedAt = pickLatestTimestamp(
         typeof latestRunDelta?.capturedAt === "string" ? latestRunDelta.capturedAt : null,
         typeof latestRunDelta?.recordedAt === "string" ? latestRunDelta.recordedAt : null,
-        isFileBackedCapture ? capture.capturedAt : null,
-        getLatestSourceLastSeenAt(source, sourceLastSeenAt)
+        isFileBackedCapture ? capture.capturedAt : null
       );
       const importedNormalizedHashes = Array.isArray(
         captureFunnel.importedNormalizedHashes
@@ -5494,16 +5604,26 @@ export function renderDashboardPage(dashboard, options = {}) {
               authRequired: sourceRequiresAuth(source),
               status,
               capturedAt: source.capturedAt || null,
-              foundCount: Number(
-                Number.isFinite(Number(source.foundCount))
-                  ? source.foundCount
-                  : Number(source.droppedByHardFilterCount || 0) +
-                    Number(source.droppedByDedupeCount || 0) +
-                    Number(source.importedCount || 0)
-              ),
+              foundCount: hasCountValue(source.foundCount)
+                ? Math.max(0, Math.round(Number(source.foundCount)))
+                : hasCountValue(source.droppedByHardFilterCount) &&
+                    hasCountValue(source.droppedByDedupeCount)
+                  ? Math.max(
+                      0,
+                      Math.round(
+                        Number(source.droppedByHardFilterCount) +
+                          Number(source.droppedByDedupeCount) +
+                          Number(source.importedCount || 0)
+                      )
+                    )
+                  : null,
               capturedCount: Number(source.captureJobCount || 0),
-              filteredCount: Number(source.droppedByHardFilterCount || 0),
-              dedupedCount: Number(source.droppedByDedupeCount || 0),
+              filteredCount: hasCountValue(source.droppedByHardFilterCount)
+                ? Math.max(0, Math.round(Number(source.droppedByHardFilterCount)))
+                : null,
+              dedupedCount: hasCountValue(source.droppedByDedupeCount)
+                ? Math.max(0, Math.round(Number(source.droppedByDedupeCount)))
+                : null,
               importedCount: Number(source.importedCount || 0),
               hasUnknownExpectedCount: normalizeExpectedCount(source.captureExpectedCount) === null,
               expectedFoundCount: normalizeExpectedCount(source.captureExpectedCount),
@@ -5710,9 +5830,18 @@ export function renderDashboardPage(dashboard, options = {}) {
                 safeName +
                 ' <span class="external-link-icon" aria-hidden="true">&#8599;</span></a>'
               : '<span class="search-name search-link-label">' + safeName + "</span>";
-            const foundLabel = String(
-              Math.max(0, Math.round(Number(source.foundCount || 0)))
-            );
+            const foundLabel =
+              hasCountValue(source.foundCount)
+                ? String(Math.max(0, Math.round(Number(source.foundCount))))
+                : "—";
+            const filteredLabel =
+              hasCountValue(source.filteredCount)
+                ? String(Math.max(0, Math.round(Number(source.filteredCount))))
+                : "—";
+            const dedupedLabel =
+              hasCountValue(source.dedupedCount)
+                ? String(Math.max(0, Math.round(Number(source.dedupedCount))))
+                : "—";
             const disableControls = busy || onboardingBusy || Boolean(authFlowSourceId);
             const authBlocked = source.enabled && source.authRequired && source.status.tone === "warn";
             const runNowDisabled = disableControls || !source.manualRefreshAllowed;
@@ -5758,12 +5887,12 @@ export function renderDashboardPage(dashboard, options = {}) {
               '  <td class="search-row-hotspot"' +
                 (source.enabled ? ' data-open-jobs-row="' + escapeHtml(source.kind) + '"' : "") +
                 ">" +
-                escapeHtml(source.filteredCount) +
+                escapeHtml(filteredLabel) +
                 "</td>",
               '  <td class="search-row-hotspot"' +
                 (source.enabled ? ' data-open-jobs-row="' + escapeHtml(source.kind) + '"' : "") +
                 ">" +
-                escapeHtml(source.dedupedCount) +
+                escapeHtml(dedupedLabel) +
                 "</td>",
               '  <td class="search-row-hotspot"' +
                 (source.enabled ? ' data-open-jobs-row="' + escapeHtml(source.kind) + '"' : "") +
@@ -5812,10 +5941,22 @@ export function renderDashboardPage(dashboard, options = {}) {
                 const totals = filteredSearchSources.reduce(
                   (accumulator, source) => {
                     accumulator.captured += Number(source.capturedCount || 0);
-                    accumulator.filtered += Number(source.filteredCount || 0);
-                    accumulator.deduped += Number(source.dedupedCount || 0);
+                    if (hasCountValue(source.filteredCount)) {
+                      accumulator.filtered += Number(source.filteredCount);
+                    } else {
+                      accumulator.filteredKnown = false;
+                    }
+                    if (hasCountValue(source.dedupedCount)) {
+                      accumulator.deduped += Number(source.dedupedCount);
+                    } else {
+                      accumulator.dedupedKnown = false;
+                    }
                     accumulator.imported += Number(source.importedCount || 0);
-                    accumulator.found += Number(source.foundCount || 0);
+                    if (hasCountValue(source.foundCount)) {
+                      accumulator.found += Number(source.foundCount);
+                    } else {
+                      accumulator.foundKnown = false;
+                    }
                     if (
                       Number.isFinite(Number(source.avgScore)) &&
                       Number(source.importedCount || 0) > 0
@@ -5829,16 +5970,25 @@ export function renderDashboardPage(dashboard, options = {}) {
                   {
                     captured: 0,
                     filtered: 0,
+                    filteredKnown: true,
                     deduped: 0,
+                    dedupedKnown: true,
                     imported: 0,
                     found: 0,
+                    foundKnown: true,
                     avgScoreTotal: 0,
                     avgScoreCount: 0
                   }
                 );
-                const foundTotalLabel = String(
-                  Math.max(0, Math.round(Number(totals.found || 0)))
-                );
+                const foundTotalLabel = totals.foundKnown
+                  ? String(Math.max(0, Math.round(Number(totals.found || 0))))
+                  : "—";
+                const filteredTotalLabel = totals.filteredKnown
+                  ? String(Math.max(0, Math.round(Number(totals.filtered || 0))))
+                  : "—";
+                const dedupedTotalLabel = totals.dedupedKnown
+                  ? String(Math.max(0, Math.round(Number(totals.deduped || 0))))
+                  : "—";
                 const totalAvgScore =
                   totals.avgScoreCount > 0
                     ? Math.round(totals.avgScoreTotal / totals.avgScoreCount)
@@ -5856,8 +6006,8 @@ export function renderDashboardPage(dashboard, options = {}) {
                   "  <td>—</td>",
                   "  <td>—</td>",
                   "  <td>" + escapeHtml(foundTotalLabel) + "</td>",
-                  "  <td>" + escapeHtml(totals.filtered) + "</td>",
-                  "  <td>" + escapeHtml(totals.deduped) + "</td>",
+                  "  <td>" + escapeHtml(filteredTotalLabel) + "</td>",
+                  "  <td>" + escapeHtml(dedupedTotalLabel) + "</td>",
                   "  <td>" + escapeHtml(totals.imported) + "</td>",
                   "  <td>" + escapeHtml(totalAvgScore) + "</td>",
                   "  <td>—</td>",

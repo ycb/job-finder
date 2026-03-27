@@ -123,6 +123,9 @@ export function runMigrations(db) {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         run_id TEXT NOT NULL,
         source_id TEXT NOT NULL,
+        found_count INTEGER,
+        filtered_count INTEGER,
+        deduped_count INTEGER,
         new_count INTEGER NOT NULL DEFAULT 0,
         updated_count INTEGER NOT NULL DEFAULT 0,
         unchanged_count INTEGER NOT NULL DEFAULT 0,
@@ -155,5 +158,8 @@ export function runMigrations(db) {
   addColumnIfMissing(db, "source_run_deltas", "status_reason", "TEXT");
   addColumnIfMissing(db, "source_run_deltas", "status_label", "TEXT");
   addColumnIfMissing(db, "source_run_deltas", "captured_at", "TEXT");
+  addColumnIfMissing(db, "source_run_deltas", "found_count", "INTEGER");
+  addColumnIfMissing(db, "source_run_deltas", "filtered_count", "INTEGER");
+  addColumnIfMissing(db, "source_run_deltas", "deduped_count", "INTEGER");
   backfillJobNormalization(db);
 }

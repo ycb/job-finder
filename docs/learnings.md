@@ -333,3 +333,5 @@ As of 2026-03-06.
 - Source-row reporting must preserve source-identity continuity across renamed source configs. If canonical source IDs change, legacy IDs need explicit aggregation aliases or the source table stops being cumulative and ceases to be a source of truth.
 - When a new source-library field matters at runtime, verify the full config-loading path preserves it. Adding metadata to the library definition alone is insufficient if `validateSources()` strips the field before the server builds dashboard rows.
 - After every controller-delivered feature that is intended for stakeholder QA, push the branch and refresh `qa/current` immediately. QA prep is part of delivery, not a follow-up chore.
+- Source reporting metrics must never coerce missing historical accounting into zero. If cumulative `filtered` or `deduped` history was never persisted, render those values as unavailable until a new run records them.
+- If a table is intended to be a source of truth, every displayed metric needs a matching persistence model. Do not mix lifetime imports with latest-run funnel counters and pretend the row is cumulative.
