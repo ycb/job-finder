@@ -14,6 +14,8 @@ test("loadSourceContracts parses configured contracts", () => {
   assert.ok(loaded.contracts.length > 0);
   assert.ok(loaded.byType.has("linkedin_capture_file"));
   assert.ok(loaded.byType.has("indeed_search"));
+  assert.ok(loaded.byType.has("levelsfyi_search"));
+  assert.ok(loaded.byType.has("yc_jobs"));
   const linkedIn = loaded.byType.get("linkedin_capture_file");
   assert.ok(linkedIn.searchParameterShape);
   assert.ok(Array.isArray(linkedIn.searchParameterShape.supported));
@@ -25,6 +27,15 @@ test("loadSourceContracts parses configured contracts", () => {
   assert.ok(Array.isArray(linkedIn.extraction.optionalMetadata));
   assert.ok(linkedIn.searchParameterShape.supported.includes("title"));
   assert.equal(linkedIn.searchParameterShape.unsupported.includes("title"), false);
+  const zip = loaded.byType.get("ziprecruiter_search");
+  assert.ok(zip.searchParameterShape.supported.includes("hardIncludeTerms"));
+  assert.ok(zip.searchParameterShape.supported.includes("includeTerms"));
+  assert.ok(zip.searchParameterShape.supported.includes("keywordMode"));
+  assert.ok(zip.searchParameterShape.supported.includes("excludeTerms"));
+  const yc = loaded.byType.get("yc_jobs");
+  assert.ok(yc.searchParameterShape.unsupported.includes("hardIncludeTerms"));
+  assert.ok(yc.searchParameterShape.unsupported.includes("keywordMode"));
+  assert.ok(yc.searchParameterShape.supported.includes("excludeTerms"));
 });
 
 test("loadSourceContracts rejects duplicate source type contracts", () => {

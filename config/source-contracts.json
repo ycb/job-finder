@@ -1,13 +1,17 @@
 {
-  "version": "2026-03-07",
+  "version": "2026-03-27",
   "contracts": [
     {
       "sourceType": "linkedin_capture_file",
       "contractVersion": "1.1.0",
-      "lastVerified": "2026-03-08",
+      "lastVerified": "2026-03-27",
       "criteriaMapping": {
         "title": "url",
         "keywords": "url",
+        "keywordMode": "url",
+        "hardIncludeTerms": "url",
+        "includeTerms": "url",
+        "excludeTerms": "post_capture",
         "location": "url",
         "distanceMiles": "url",
         "datePosted": "url",
@@ -32,10 +36,14 @@
     {
       "sourceType": "builtin_search",
       "contractVersion": "1.0.0",
-      "lastVerified": "2026-03-07",
+      "lastVerified": "2026-03-27",
       "criteriaMapping": {
         "title": "url",
         "keywords": "url",
+        "keywordMode": "url",
+        "hardIncludeTerms": "url",
+        "includeTerms": "url",
+        "excludeTerms": "post_capture",
         "location": "url",
         "distanceMiles": "unsupported",
         "datePosted": "url",
@@ -140,10 +148,14 @@
     {
       "sourceType": "indeed_search",
       "contractVersion": "1.1.0",
-      "lastVerified": "2026-03-08",
+      "lastVerified": "2026-03-27",
       "criteriaMapping": {
         "title": "url",
         "keywords": "url",
+        "keywordMode": "url",
+        "hardIncludeTerms": "url",
+        "includeTerms": "url",
+        "excludeTerms": "post_capture",
         "location": "url",
         "distanceMiles": "url",
         "datePosted": "url",
@@ -167,10 +179,14 @@
     {
       "sourceType": "ziprecruiter_search",
       "contractVersion": "1.1.0",
-      "lastVerified": "2026-03-08",
+      "lastVerified": "2026-03-27",
       "criteriaMapping": {
         "title": "url",
         "keywords": "url",
+        "keywordMode": "url",
+        "hardIncludeTerms": "url",
+        "includeTerms": "url",
+        "excludeTerms": "post_capture",
         "location": "url",
         "distanceMiles": "url",
         "datePosted": "url",
@@ -190,6 +206,66 @@
       },
       "expectedCountStrategy": "dom_counter_best_effort",
       "paginationStrategy": "page_param"
+    },
+    {
+      "sourceType": "levelsfyi_search",
+      "contractVersion": "1.0.0",
+      "lastVerified": "2026-03-27",
+      "criteriaMapping": {
+        "title": "url",
+        "keywords": "url",
+        "keywordMode": "url",
+        "hardIncludeTerms": "url",
+        "includeTerms": "url",
+        "excludeTerms": "post_capture",
+        "location": "url",
+        "distanceMiles": "unsupported",
+        "datePosted": "url",
+        "experienceLevel": "unsupported",
+        "minSalary": "url"
+      },
+      "extraction": {
+        "requiredFields": [
+          "title",
+          "company",
+          "location",
+          "description",
+          "salaryText"
+        ],
+        "fullJobDescription": "partial"
+      },
+      "expectedCountStrategy": "none",
+      "paginationStrategy": "page_param"
+    },
+    {
+      "sourceType": "yc_jobs",
+      "contractVersion": "1.0.0",
+      "lastVerified": "2026-03-27",
+      "criteriaMapping": {
+        "title": "unsupported",
+        "keywords": "unsupported",
+        "keywordMode": "unsupported",
+        "hardIncludeTerms": "unsupported",
+        "includeTerms": "unsupported",
+        "excludeTerms": "post_capture",
+        "location": "unsupported",
+        "distanceMiles": "unsupported",
+        "datePosted": "unsupported",
+        "experienceLevel": "unsupported",
+        "minSalary": "unsupported"
+      },
+      "extraction": {
+        "requiredFields": [
+          "title",
+          "company",
+          "location",
+          "description",
+          "employmentType"
+        ],
+        "fullJobDescription": "partial"
+      },
+      "expectedCountStrategy": "none",
+      "paginationStrategy": "single_page"
     },
     {
       "sourceType": "remoteok_search",

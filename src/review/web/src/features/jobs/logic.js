@@ -3,6 +3,7 @@ export const JOBS_PAGE_SIZE = 10;
 const JOB_VIEW_VALUES = new Set([
   "all",
   "new",
+  "unread",
   "best_match",
   "applied",
   "skipped",
@@ -11,7 +12,7 @@ const JOB_VIEW_VALUES = new Set([
 
 const JOB_SORT_VALUES = new Set(["score", "date"]);
 
-const SOURCE_KIND_ORDER = ["li", "bi", "ah", "id", "zr", "gg", "wf", "ro", "unknown"];
+const SOURCE_KIND_ORDER = ["li", "bi", "id", "zr", "lf", "yc", "ah", "gg", "wf", "ro", "unknown"];
 
 const QUEUE_GROUP_KEYS = ["queue", "appliedQueue", "skippedQueue", "rejectedQueue"];
 
@@ -47,6 +48,12 @@ export function sourceKindFromType(type) {
   if (type === "ziprecruiter_search") {
     return "zr";
   }
+  if (type === "levelsfyi_search") {
+    return "lf";
+  }
+  if (type === "yc_jobs") {
+    return "yc";
+  }
   if (type === "remoteok_search") {
     return "ro";
   }
@@ -74,6 +81,12 @@ export function sourceKindLabel(kind) {
   }
   if (kind === "zr") {
     return "ZipRecruiter";
+  }
+  if (kind === "lf") {
+    return "Levels.fyi";
+  }
+  if (kind === "yc") {
+    return "YC Jobs";
   }
   if (kind === "ro") {
     return "RemoteOK";
@@ -541,7 +554,10 @@ export function selectJobsForView({
 
   const activeQueue = asArray(queue);
   if (normalizedView === "new") {
-    return activeQueue.filter((job) => job?.status === "new");
+    return activeQueue.filter((job) => job?.isNew === true);
+  }
+  if (normalizedView === "unread") {
+    return activeQueue.filter((job) => job?.isUnread === true);
   }
   if (normalizedView === "best_match") {
     return activeQueue.filter((job) => job?.bucket === "high_signal");
@@ -686,24 +702,55 @@ export function paginateJobs(jobs = [], page = 1, pageSize = JOBS_PAGE_SIZE) {
 
 export function applyViewedStatus(queues, jobId) {
   const target = asArray(queues?.queue).find((job) => job?.id === jobId);
-  if (!target || target.status !== "new") {
+  if (!target || target.isUnread !== true) {
     return {
       changed: false,
       previousStatus: null,
+      previousFirstViewedAt: null,
       queues,
     };
   }
 
+  const viewedAt = new Date().toISOString();
+  const nextQueues = QUEUE_GROUP_KEYS.reduce((accumulator, key) => {
+    accumulator[key] = asArray(queues?.[key]).map((job) => {
+      if (job?.id !== jobId) {
+        return job;
+      }
+      return {
+        ...job,
+        status: "viewed",
+        firstViewedAt: job.firstViewedAt || viewedAt,
+        isUnread: false,
+      };
+    });
+    return accumulator;
+  }, {});
+
   return {
     changed: true,
     previousStatus: target.status,
-    queues: mapQueuesStatus(queues, jobId, "viewed"),
+    previousFirstViewedAt: target.firstViewedAt ?? null,
+    queues: nextQueues,
   };
 }
 
-export function restoreViewedStatus(queues, jobId, previousStatus) {
+export function restoreViewedStatus(queues, jobId, previousStatus, previousFirstViewedAt = null) {
   if (previousStatus === null || previousStatus === undefined) {
     return queues;
   }
-  return mapQueuesStatus(queues, jobId, previousStatus);
+  return QUEUE_GROUP_KEYS.reduce((accumulator, key) => {
+    accumulator[key] = asArray(queues?.[key]).map((job) => {
+      if (job?.id !== jobId) {
+        return job;
+      }
+      return {
+        ...job,
+        status: previousStatus,
+        firstViewedAt: previousFirstViewedAt,
+        isUnread: !previousFirstViewedAt,
+      };
+    });
+    return accumulator;
+  }, {});
 }

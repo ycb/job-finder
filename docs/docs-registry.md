@@ -31,6 +31,7 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/analysis/backlog-review.md` | Contributors | Analysis of backlog state and gaps | Backlog review refresh |
 | `docs/analysis/product-analysis.md` | Contributors | Product-level analysis and recommendations | Product analysis refresh |
 | `docs/analysis/2026-03-06-source-field-coverage-analysis.md` | Contributors | Baseline field-coverage analysis across sources | Coverage measurement refresh |
+| `docs/analysis/2026-03-27-mvp-source-map-audit.md` | Contributors/operators | Internal MVP source-map matrix covering contract/runtime truth, drift, and prioritized fixes | MVP source capability or source-map truth changes |
 | `docs/analysis/source-contract-governance.md` | Contributors/operators | Governance model for source contracts and drift handling | Contract model/drift workflow changes |
 | `docs/brand/BRAND_GUIDELINES.md` | Contributors/marketing | Brand voice and style rules | Brand direction updates |
 | `docs/plans/2026-03-06-search-construction-design.md` | Contributors | Search construction design rationale | Superseding search design changes |
@@ -44,6 +45,8 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/plans/2026-03-09-phase-1-1-closeout-execution-plan.md` | Contributors/operators | Phase 1.1 closeout implementation sequencing plan for remaining MVP items | Phase 1.1 scope or sequencing changes |
 | `docs/plans/2026-03-06-onboarding-analytics-monetization-foundation-execplan.md` | Contributors/operators | Onboarding, consent, analytics, and monetization-foundation execution plan | Onboarding/consent/telemetry contract changes |
 | `docs/plans/2026-03-11-dashboard-frontend-foundation-execplan.md` | Contributors/operators | Frontend foundation migration plan (React + Tailwind + shadcn) before full QA closeout | Frontend architecture/stack/sequencing changes |
+| `docs/plans/2026-03-19-source-data-quality-pass-execplan.md` | Contributors/operators | Source-data-quality execution plan for MVP source quality and reporting work | Source-quality scope, sequencing, or verification changes |
+| `docs/plans/2026-03-27-new-unread-source-map-execplan.md` | Contributors/operators | Execution plan for persisted `New` vs `Unread` queue semantics and the MVP source-map/runtime audit | Queue-semantic or source-map implementation changes |
 | `docs/backlog-specs/completed-core-url-construction-rollout.md` | Contributors | Completed URL construction rollout record | Backfilled completion notes |
 | `docs/backlog-specs/p0-source-capture-verification-framework.md` | Contributors | P0 source capture verification specification | Verification framework changes |
 | `docs/backlog-specs/p0-source-full-jd-gap-closure.md` | Contributors | P0 source full-JD gap closure specification | Source extraction quality roadmap changes |
@@ -72,6 +75,7 @@ Canonical inventory of documentation artifacts, their audience, and update trigg
 | `docs/backlog-specs/p1-operations-local-storage-retention.md` | Contributors/operators | Local storage management and automatic deletion specification | Storage retention and cleanup workflow changes |
 | `docs/backlog-specs/p1-operations-canonical-machine-local-storage.md` | Contributors/operators | Canonical machine-local storage specification | Runtime state-root or migration strategy changes |
 | `docs/backlog-specs/p1-direct-http-source-registration-checklist.md` | Contributors | Direct HTTP source registration checklist | Reusable registration/config/reporting expectations for direct HTTP sources |
+| `docs/backlog-specs/p1-source-map-acceptance-checklist.md` | Contributors/operators | Reusable acceptance checklist for source-map truth, shared builder wiring, and reporting parity | Source onboarding/governance rule changes |
 | `docs/backlog-specs/p1-source-slate-mvp.md` | Stakeholders, contributors | Approved six-source MVP slate specification | MVP source-scope changes |
 | `docs/backlog-specs/p1-source-quality-ziprecruiter-direct-job-url.md` | Contributors | ZipRecruiter direct-job URL fix specification | ZipRecruiter launch-blocker changes |
 | `docs/backlog-specs/p1-source-expansion-yc-mvp.md` | Contributors | YC Jobs MVP source addition specification | YC Jobs launch-scope source changes |

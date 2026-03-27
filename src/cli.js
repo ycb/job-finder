@@ -656,7 +656,7 @@ function runSync(options = {}) {
     const refreshContext = buildSourceRefreshContext(source, options);
 
     totalCollected += normalizedJobs.length;
-    totalUpserted += upsertJobs(db, normalizedJobs);
+    totalUpserted += upsertJobs(db, normalizedJobs, { lastImportBatchId: runId });
     totalPruned += pruneSourceJobs(
       db,
       source.id,

@@ -8,9 +8,11 @@ import { openDatabase } from "../src/db/client.js";
 import { runMigrations } from "../src/db/migrations.js";
 import { classifyRunDeltas } from "../src/jobs/run-deltas.js";
 import {
+  getLatestImportedRunId,
   listSourceRunTotals,
   listLatestSourceRunDeltas,
-  recordSourceRunDeltas
+  recordSourceRunDeltas,
+  upsertJobs
 } from "../src/jobs/repository.js";
 
 function createTempDb() {
@@ -275,6 +277,163 @@ test("listSourceRunTotals returns cumulative persisted source funnel metrics", (
         dedupedSamples: 2
       }
     ]);
+  } finally {
+    cleanupTempDb(db, dir);
+  }
+});
+
+test("getLatestImportedRunId returns the latest completed run even when imports are zero", () => {
+  const { db, dir } = createTempDb();
+
+  try {
+    recordSourceRunDeltas(db, [
+      {
+        runId: "run-empty",
+        sourceId: "source-a",
+        foundCount: 10,
+        filteredCount: 5,
+        dedupedCount: 5,
+        newCount: 0,
+        updatedCount: 0,
+        unchangedCount: 0,
+        importedCount: 0,
+        recordedAt: "2026-03-09T08:00:10.000Z"
+      },
+      {
+        runId: "run-imported",
+        sourceId: "source-a",
+        foundCount: 12,
+        filteredCount: 3,
+        dedupedCount: 1,
+        newCount: 2,
+        updatedCount: 0,
+        unchangedCount: 6,
+        importedCount: 8,
+        recordedAt: "2026-03-09T07:00:10.000Z"
+      }
+    ]);
+
+    assert.equal(getLatestImportedRunId(db), "run-empty");
+  } finally {
+    cleanupTempDb(db, dir);
+  }
+});
+
+test("queue semantics migration backfills legacy batch ids and first viewed timestamps", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "job-finder-queue-semantics-"));
+  const dbPath = path.join(dir, "jobs.db");
+  const { db } = openDatabase(dbPath);
+
+  try {
+    db.exec(`
+      CREATE TABLE jobs (
+        id TEXT PRIMARY KEY,
+        source TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        source_url TEXT,
+        external_id TEXT,
+        title TEXT NOT NULL,
+        company TEXT,
+        location TEXT,
+        posted_at TEXT,
+        employment_type TEXT,
+        easy_apply INTEGER DEFAULT 0,
+        salary_text TEXT,
+        description TEXT,
+        normalized_hash TEXT,
+        structured_meta TEXT,
+        metadata_quality_score REAL,
+        missing_required_fields TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE applications (
+        job_id TEXT PRIMARY KEY,
+        status TEXT NOT NULL DEFAULT 'new',
+        notes TEXT,
+        submitted_at TEXT,
+        last_action_at TEXT
+      );
+    `);
+
+    const createdAt = "2026-03-01T00:00:00.000Z";
+    const updatedAt = "2026-03-02T00:00:00.000Z";
+    db.prepare(
+      `
+      INSERT INTO jobs (
+        id, source, source_id, source_url, external_id, title, company, location,
+        posted_at, employment_type, easy_apply, salary_text, description,
+        normalized_hash, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `
+    ).run(
+      "legacy-job",
+      "builtin_search",
+      "builtin-sf-ai-pm",
+      "https://example.com/jobs/1",
+      "1",
+      "Senior Product Manager",
+      "Example",
+      "San Francisco, CA",
+      null,
+      null,
+      0,
+      null,
+      "Role",
+      "hash-1",
+      createdAt,
+      updatedAt,
+    );
+    db.prepare(
+      `
+      INSERT INTO applications (job_id, status, submitted_at, last_action_at)
+      VALUES (?, ?, ?, ?)
+    `
+    ).run("legacy-job", "viewed", null, updatedAt);
+
+    runMigrations(db);
+
+    const migrated = db
+      .prepare(
+        `
+        SELECT j.last_import_batch_id AS lastImportBatchId, a.first_viewed_at AS firstViewedAt
+        FROM jobs j
+        LEFT JOIN applications a ON a.job_id = j.id
+        WHERE j.id = 'legacy-job'
+      `,
+      )
+      .get();
+
+    assert.equal(migrated.lastImportBatchId, "legacy-import-batch");
+    assert.equal(migrated.firstViewedAt, updatedAt);
+
+    const normalizedJob = {
+      id: "legacy-job",
+      source: "builtin_search",
+      sourceId: "builtin-sf-ai-pm",
+      sourceUrl: "https://example.com/jobs/1",
+      externalId: "1",
+      title: "Senior Product Manager",
+      company: "Example",
+      location: "San Francisco, CA",
+      postedAt: null,
+      employmentType: null,
+      easyApply: false,
+      salaryText: null,
+      description: "Role",
+      normalizedHash: "hash-1",
+      structuredMeta: null,
+      metadataQualityScore: null,
+      missingRequiredFields: null,
+      createdAt,
+      updatedAt,
+    };
+
+    upsertJobs(db, [normalizedJob], { lastImportBatchId: "run-123" });
+    const updated = db
+      .prepare(`SELECT last_import_batch_id AS lastImportBatchId FROM jobs WHERE id = 'legacy-job'`)
+      .get();
+    assert.equal(updated.lastImportBatchId, "run-123");
   } finally {
     cleanupTempDb(db, dir);
   }

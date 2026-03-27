@@ -342,6 +342,41 @@ function resolveDatePostedCriteria(criteria = {}) {
     return null;
   }
 
+  if (rawDatePosted === "1d") {
+    return {
+      postedAfterTimeType: "days",
+      postedAfterValue: "1"
+    };
+  }
+
+  if (rawDatePosted === "3d") {
+    return {
+      postedAfterTimeType: "days",
+      postedAfterValue: "3"
+    };
+  }
+
+  if (rawDatePosted === "1w") {
+    return {
+      postedAfterTimeType: "days",
+      postedAfterValue: "7"
+    };
+  }
+
+  if (rawDatePosted === "2w") {
+    return {
+      postedAfterTimeType: "days",
+      postedAfterValue: "14"
+    };
+  }
+
+  if (rawDatePosted === "1m") {
+    return {
+      postedAfterTimeType: "days",
+      postedAfterValue: "30"
+    };
+  }
+
   const dayMatch = rawDatePosted.match(/^(\d+)\s*(?:d|day|days)?$/i);
   if (dayMatch?.[1]) {
     return {

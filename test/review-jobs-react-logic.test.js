@@ -24,6 +24,8 @@ const SOURCES = [
   { id: "linkedin-1", type: "linkedin_capture_file", name: "LinkedIn" },
   { id: "linkedin-2", type: "linkedin_capture_file", name: "LinkedIn Saved Search" },
   { id: "builtin-1", type: "builtin_search", name: "Built In AI" },
+  { id: "levels-1", type: "levelsfyi_search", name: "Levels.fyi" },
+  { id: "yc-1", type: "yc_jobs", name: "YC Jobs" },
   { id: "remote-1", type: "remoteok_search", name: "RemoteOK" },
 ];
 
@@ -32,6 +34,10 @@ const ACTIVE_QUEUE = [
     id: "job-new",
     title: "AI Product Lead",
     status: "new",
+    isNew: true,
+    isUnread: true,
+    firstViewedAt: null,
+    lastImportBatchId: "run-2",
     bucket: "high_signal",
     score: 92,
     postedAt: "2026-03-11T12:00:00.000Z",
@@ -42,6 +48,10 @@ const ACTIVE_QUEUE = [
     id: "job-viewed",
     title: "Platform PM",
     status: "viewed",
+    isNew: true,
+    isUnread: false,
+    firstViewedAt: "2026-03-10T12:35:00.000Z",
+    lastImportBatchId: "run-2",
     bucket: "medium",
     score: 88,
     postedAt: "2026-03-10T12:00:00.000Z",
@@ -52,6 +62,10 @@ const ACTIVE_QUEUE = [
     id: "job-remote",
     title: "Remote Staff PM",
     status: "new",
+    isNew: false,
+    isUnread: true,
+    firstViewedAt: null,
+    lastImportBatchId: "legacy-import-batch",
     bucket: "medium",
     score: null,
     postedAt: "",
@@ -113,6 +127,10 @@ test("selectJobsForView returns the expected queue slice for each jobs view", ()
   );
   assert.deepEqual(
     selectJobsForView({ ...payload, view: "new" }).map((job) => job.id),
+    ["job-new", "job-viewed"],
+  );
+  assert.deepEqual(
+    selectJobsForView({ ...payload, view: "unread" }).map((job) => job.id),
     ["job-new", "job-remote"],
   );
   assert.deepEqual(
@@ -143,6 +161,14 @@ test("buildSourceFilterOptions groups counts by source kind, dedupes mixed attri
       id: "cross-posted",
       sourceIds: ["linkedin-1", "builtin-1"],
     },
+    {
+      id: "levels-role",
+      sourceIds: ["levels-1"],
+    },
+    {
+      id: "yc-role",
+      sourceIds: ["yc-1"],
+    },
   ];
 
   const model = buildSourceFilterOptions({
@@ -157,6 +183,8 @@ test("buildSourceFilterOptions groups counts by source kind, dedupes mixed attri
     [
       ["li", 2],
       ["bi", 1],
+      ["lf", 1],
+      ["yc", 1],
       ["ro", 0],
     ],
   );
@@ -183,6 +211,35 @@ test("filterJobsBySource keeps all jobs for all filter and narrows to matching s
     sourceFilter: "wf",
   });
   assert.deepEqual(unknownJobs, []);
+});
+
+test("filterJobsBySource recognizes Levels.fyi and YC Jobs as first-class kinds", () => {
+  const jobs = [
+    {
+      id: "levels-role",
+      sourceIds: ["levels-1"],
+    },
+    {
+      id: "yc-role",
+      sourceIds: ["yc-1"],
+    },
+  ];
+
+  assert.deepEqual(
+    filterJobsBySource(jobs, {
+      sources: SOURCES,
+      sourceFilter: "lf",
+    }).map((job) => job.id),
+    ["levels-role"],
+  );
+
+  assert.deepEqual(
+    filterJobsBySource(jobs, {
+      sources: SOURCES,
+      sourceFilter: "yc",
+    }).map((job) => job.id),
+    ["yc-role"],
+  );
 });
 
 test("sortJobs orders by score or date with stable fallbacks", () => {
@@ -275,10 +332,19 @@ test("applyViewedStatus only marks new active jobs as viewed and can restore the
   assert.equal(mutation.changed, true);
   assert.equal(mutation.previousStatus, "new");
   assert.equal(mutation.queues.queue.find((job) => job.id === "job-new").status, "viewed");
+  assert.equal(mutation.queues.queue.find((job) => job.id === "job-new").isUnread, false);
+  assert.equal(typeof mutation.queues.queue.find((job) => job.id === "job-new").firstViewedAt, "string");
   assert.equal(mutation.queues.appliedQueue.find((job) => job.id === "job-new").status, "viewed");
 
-  const restored = restoreViewedStatus(mutation.queues, "job-new", mutation.previousStatus);
+  const restored = restoreViewedStatus(
+    mutation.queues,
+    "job-new",
+    mutation.previousStatus,
+    mutation.previousFirstViewedAt,
+  );
   assert.equal(restored.queue.find((job) => job.id === "job-new").status, "new");
+  assert.equal(restored.queue.find((job) => job.id === "job-new").isUnread, true);
+  assert.equal(restored.queue.find((job) => job.id === "job-new").firstViewedAt, null);
   assert.equal(restored.appliedQueue.find((job) => job.id === "job-new").status, "new");
 
   const noOp = applyViewedStatus(queues, "job-viewed");

@@ -1,4 +1,8 @@
-export function upsertJobs(db, jobs) {
+export function upsertJobs(db, jobs, options = {}) {
+  const lastImportBatchId =
+    typeof options?.lastImportBatchId === "string" && options.lastImportBatchId.trim()
+      ? options.lastImportBatchId.trim()
+      : null;
   const statement = db.prepare(`
     INSERT INTO jobs (
       id,
@@ -18,9 +22,10 @@ export function upsertJobs(db, jobs) {
       structured_meta,
       metadata_quality_score,
       missing_required_fields,
+      last_import_batch_id,
       created_at,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT DO UPDATE SET
       external_id = excluded.external_id,
       title = excluded.title,
@@ -35,6 +40,7 @@ export function upsertJobs(db, jobs) {
       structured_meta = excluded.structured_meta,
       metadata_quality_score = excluded.metadata_quality_score,
       missing_required_fields = excluded.missing_required_fields,
+      last_import_batch_id = COALESCE(excluded.last_import_batch_id, jobs.last_import_batch_id),
       updated_at = excluded.updated_at;
   `);
 
@@ -64,6 +70,7 @@ export function upsertJobs(db, jobs) {
       Array.isArray(job.missingRequiredFields)
         ? JSON.stringify(job.missingRequiredFields)
         : null,
+      lastImportBatchId,
       job.createdAt,
       job.updatedAt
     );
@@ -323,7 +330,9 @@ export function listAllJobs(db) {
         e.confidence,
         e.freshness_days AS freshnessDays,
         e.hard_filtered AS hardFiltered,
-        a.status
+        a.status,
+        a.first_viewed_at AS firstViewedAt,
+        j.last_import_batch_id AS lastImportBatchId
       FROM jobs j
       LEFT JOIN evaluations e ON e.job_id = j.id
       LEFT JOIN applications a ON a.job_id = j.id
@@ -350,7 +359,9 @@ export function listTopJobs(db, limit = 20) {
         e.confidence,
         e.freshness_days AS freshnessDays,
         e.hard_filtered AS hardFiltered,
-        COALESCE(a.status, 'new') AS status
+        COALESCE(a.status, 'new') AS status,
+        a.first_viewed_at AS firstViewedAt,
+        j.last_import_batch_id AS lastImportBatchId
       FROM jobs j
       LEFT JOIN evaluations e ON e.job_id = j.id
       LEFT JOIN applications a ON a.job_id = j.id
@@ -384,6 +395,7 @@ export function listReviewQueue(db, limit = 100) {
         j.structured_meta AS structuredMeta,
         j.metadata_quality_score AS metadataQualityScore,
         j.missing_required_fields AS missingRequiredFields,
+        j.last_import_batch_id AS lastImportBatchId,
         e.score,
         e.bucket,
         e.summary,
@@ -392,7 +404,8 @@ export function listReviewQueue(db, limit = 100) {
         e.freshness_days AS freshnessDays,
         e.hard_filtered AS hardFiltered,
         COALESCE(a.status, 'new') AS status,
-        COALESCE(a.notes, '') AS notes
+        COALESCE(a.notes, '') AS notes,
+        a.first_viewed_at AS firstViewedAt
       FROM jobs j
       LEFT JOIN evaluations e ON e.job_id = j.id
       LEFT JOIN applications a ON a.job_id = j.id
@@ -427,6 +440,7 @@ export function listAllJobsWithStatus(db, limit = 100) {
         j.structured_meta AS structuredMeta,
         j.metadata_quality_score AS metadataQualityScore,
         j.missing_required_fields AS missingRequiredFields,
+        j.last_import_batch_id AS lastImportBatchId,
         e.score,
         e.bucket,
         e.summary,
@@ -435,7 +449,8 @@ export function listAllJobsWithStatus(db, limit = 100) {
         e.freshness_days AS freshnessDays,
         e.hard_filtered AS hardFiltered,
         COALESCE(a.status, 'new') AS status,
-        COALESCE(a.notes, '') AS notes
+        COALESCE(a.notes, '') AS notes,
+        a.first_viewed_at AS firstViewedAt
       FROM jobs j
       LEFT JOIN evaluations e ON e.job_id = j.id
       LEFT JOIN applications a ON a.job_id = j.id
@@ -495,18 +510,21 @@ export function upsertEvaluations(db, evaluations) {
 
 function upsertApplicationStatus(db, jobId, status, notes = "") {
   const now = new Date().toISOString();
+  const firstViewedAt = status === "new" ? null : now;
   const statement = db.prepare(`
     INSERT INTO applications (
       job_id,
       status,
       notes,
       draft_path,
+      first_viewed_at,
       last_action_at,
       submitted_at
-    ) VALUES (?, ?, ?, NULL, ?, ?)
+    ) VALUES (?, ?, ?, NULL, ?, ?, ?)
     ON CONFLICT(job_id) DO UPDATE SET
       status = excluded.status,
       notes = excluded.notes,
+      first_viewed_at = COALESCE(applications.first_viewed_at, excluded.first_viewed_at),
       last_action_at = excluded.last_action_at,
       submitted_at = COALESCE(excluded.submitted_at, applications.submitted_at);
   `);
@@ -515,6 +533,7 @@ function upsertApplicationStatus(db, jobId, status, notes = "") {
     jobId,
     status,
     notes,
+    firstViewedAt,
     now,
     status === "applied" ? now : null
   );
@@ -548,4 +567,19 @@ export function markApplicationStatusByNormalizedHash(
   for (const row of rows) {
     upsertApplicationStatus(db, row.id, status, notes);
   }
+}
+
+export function getLatestImportedRunId(db) {
+  const row = db
+    .prepare(
+      `
+      SELECT run_id AS runId
+      FROM source_run_deltas
+      ORDER BY recorded_at DESC, id DESC
+      LIMIT 1;
+    `
+    )
+    .get();
+
+  return typeof row?.runId === "string" && row.runId.trim() ? row.runId : null;
 }

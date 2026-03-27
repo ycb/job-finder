@@ -93,8 +93,14 @@ test("normalizeSearchCriteriaDraft maps legacy keyword/include fields into the n
 test("applyJobStatusToDashboard moves jobs across queue groups and preserves reason notes", () => {
   const dashboard = {
     queue: [
-      { id: "job-1", status: "new", notes: "" },
-      { id: "job-2", status: "viewed", notes: "" },
+      { id: "job-1", status: "new", notes: "", isUnread: true, firstViewedAt: null },
+      {
+        id: "job-2",
+        status: "viewed",
+        notes: "",
+        isUnread: false,
+        firstViewedAt: "2026-03-27T00:00:00.000Z",
+      },
     ],
     appliedQueue: [],
     skippedQueue: [],
@@ -108,6 +114,8 @@ test("applyJobStatusToDashboard moves jobs across queue groups and preserves rea
   assert.equal(updated.rejectedQueue[0].id, "job-1");
   assert.equal(updated.rejectedQueue[0].status, "rejected");
   assert.equal(updated.rejectedQueue[0].notes, "already closed");
+  assert.equal(updated.rejectedQueue[0].isUnread, false);
+  assert.equal(typeof updated.rejectedQueue[0].firstViewedAt, "string");
   assert.equal(dashboard.rejectedQueue.length, 0);
 });
 

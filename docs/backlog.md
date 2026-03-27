@@ -230,6 +230,10 @@ The current backlog has strong item-level specs, but we need explicit epic-level
   - SCOPE: External legal review only. No implementation work. Flag any required changes back to backlog as follow-on items.
 
 **Theme: Source Coverage Expansion**
+- `P1` Complete MVP source-map truth pass and prioritize follow-on fixes from the audit. [Detailed spec](./backlog-specs/p1-source-map-acceptance-checklist.md)
+  - STATUS: Planned
+  - WHY: The shared source-map layer must truthfully capture what each MVP source can query, extract, and report. Manual ZipRecruiter validation already proved runtime drift between generated searches and live source behavior.
+  - IMPACT: Trustworthy source diagnostics, better QA, and a reusable acceptance bar for future source additions.
 - `P1` Fix ZipRecruiter job-specific URL resolution in the adapter. [Detailed spec](./backlog-specs/p1-source-quality-ziprecruiter-direct-job-url.md)
   - STATUS: Planned
   - WHY: Current `View Job` behavior can land on the company-wide ZipRecruiter jobs portal instead of the selected posting, which breaks the core apply flow.

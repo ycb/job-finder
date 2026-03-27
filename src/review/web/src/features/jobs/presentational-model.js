@@ -25,6 +25,7 @@ const EMPTY_CRITERIA = {
 const VIEW_OPTIONS = [
   { value: "all", label: "All" },
   { value: "new", label: "New" },
+  { value: "unread", label: "Unread" },
   { value: "best_match", label: "Best Match" },
   { value: "applied", label: "Applied" },
   { value: "skipped", label: "Skipped" },
@@ -258,13 +259,24 @@ function normalizeJobs(rawJobs) {
               url: typeof job.url === "string" ? job.url : "#",
               label: "Open role",
             };
+      const status = String(job.status || "new");
+      const firstViewedAt =
+        typeof job.firstViewedAt === "string" && job.firstViewedAt.trim() ? job.firstViewedAt : null;
       return {
         id: job.id,
         title: String(job.title || "Untitled role"),
         company: String(job.company || "Unknown company"),
         location: String(job.location || "Location unknown"),
         bucket: String(job.bucket || "unscored"),
-        status: String(job.status || "new"),
+        status,
+        firstViewedAt,
+        lastImportBatchId:
+          typeof job.lastImportBatchId === "string" && job.lastImportBatchId.trim()
+            ? job.lastImportBatchId
+            : null,
+        isUnread:
+          typeof job.isUnread === "boolean" ? job.isUnread : firstViewedAt === null && status === "new",
+        isNew: typeof job.isNew === "boolean" ? job.isNew : status === "new",
         score: asFiniteNumber(job.score),
         confidence: asFiniteNumber(job.confidence),
         summary: String(job.summary || "No summary captured yet."),
@@ -344,7 +356,10 @@ function collectSourcesFromDashboard(dashboard, jobs) {
 
 function countJobsForView(jobs, view) {
   if (view === "new") {
-    return jobs.filter((job) => job.status === "new").length;
+    return jobs.filter((job) => job.isNew === true).length;
+  }
+  if (view === "unread") {
+    return jobs.filter((job) => job.isUnread === true).length;
   }
   if (view === "best_match") {
     return jobs.filter((job) => job.status !== "rejected" && job.bucket === "high_signal").length;
@@ -363,7 +378,10 @@ function countJobsForView(jobs, view) {
 
 function filterJobsByView(jobs, view) {
   if (view === "new") {
-    return jobs.filter((job) => job.status === "new");
+    return jobs.filter((job) => job.isNew === true);
+  }
+  if (view === "unread") {
+    return jobs.filter((job) => job.isUnread === true);
   }
   if (view === "best_match") {
     return jobs.filter((job) => job.status !== "rejected" && job.bucket === "high_signal");
@@ -538,6 +556,7 @@ export function buildJobsPresentationalModel({ dashboard, state = {} } = {}) {
     summary: {
       activeCount: countJobsForView(allJobs, "all"),
       newCount: countJobsForView(allJobs, "new"),
+      unreadCount: countJobsForView(allJobs, "unread"),
       appliedCount: countJobsForView(allJobs, "applied"),
       skippedCount: countJobsForView(allJobs, "skipped"),
       rejectedCount: countJobsForView(allJobs, "rejected"),
