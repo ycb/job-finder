@@ -336,3 +336,5 @@ As of 2026-03-06.
 - Source reporting metrics must never coerce missing historical accounting into zero. If cumulative `filtered` or `deduped` history was never persisted, render those values as unavailable until a new run records them.
 - If a table is intended to be a source of truth, every displayed metric needs a matching persistence model. Do not mix lifetime imports with latest-run funnel counters and pretend the row is cumulative.
 - `review:qa` must start every runtime dependency required for the approved QA path. For auth-gated source checks, that includes the local browser bridge on `4315`; otherwise the QA flow reports false auth failures even when the user is correctly signed in.
+
+- Before asking for stakeholder QA on auth-gated flows, verify the live QA checkout is actually running the bridge and execute the same endpoint the UI uses at least once (for example `/api/onboarding/check-source`). A healthy page alone is not enough.
