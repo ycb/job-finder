@@ -221,3 +221,41 @@ test("buildJobsPresentationalModel separates new and unread cohorts", () => {
     ["job-new-unread", "job-old-unread"],
   );
 });
+
+test("buildJobsPresentationalModel excludes reject-bucket jobs from active views", () => {
+  const model = buildJobsPresentationalModel({
+    dashboard: {
+      queue: [
+        {
+          id: "job-valid",
+          title: "AI Product Manager",
+          company: "Alpha",
+          location: "San Francisco, CA",
+          bucket: "high_signal",
+          status: "new",
+          isNew: true,
+          isUnread: true,
+        },
+        {
+          id: "job-reject",
+          title: "Engineering Lead",
+          company: "Beta",
+          location: "San Francisco, CA",
+          bucket: "reject",
+          hardFiltered: 1,
+          status: "new",
+          isNew: true,
+          isUnread: true,
+        },
+      ],
+    },
+    state: {
+      view: "all",
+    },
+  });
+
+  assert.equal(model.controls.viewOptions.find((option) => option.value === "all")?.count, 1);
+  assert.equal(model.controls.viewOptions.find((option) => option.value === "new")?.count, 1);
+  assert.equal(model.controls.viewOptions.find((option) => option.value === "unread")?.count, 1);
+  assert.deepEqual(model.queue.jobs.map((job) => job.id), ["job-valid"]);
+});

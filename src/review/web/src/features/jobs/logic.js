@@ -1,3 +1,5 @@
+import { filterActiveQueueJobs as filterSharedActiveQueueJobs } from "../../../../../jobs/active-queue.js";
+
 export const JOBS_PAGE_SIZE = 10;
 
 const JOB_VIEW_VALUES = new Set([
@@ -15,6 +17,10 @@ const JOB_SORT_VALUES = new Set(["score", "date"]);
 const SOURCE_KIND_ORDER = ["li", "bi", "id", "zr", "lf", "yc", "ah", "gg", "wf", "ro", "unknown"];
 
 const QUEUE_GROUP_KEYS = ["queue", "appliedQueue", "skippedQueue", "rejectedQueue"];
+
+export function filterActiveQueueJobs(queue = []) {
+  return filterSharedActiveQueueJobs(queue);
+}
 
 export function normalizeJobsView(value) {
   const normalized = String(value || "").trim().toLowerCase();
@@ -552,7 +558,7 @@ export function selectJobsForView({
     return asArray(rejectedQueue);
   }
 
-  const activeQueue = asArray(queue);
+  const activeQueue = filterActiveQueueJobs(queue);
   if (normalizedView === "new") {
     return activeQueue.filter((job) => job?.isNew === true);
   }
