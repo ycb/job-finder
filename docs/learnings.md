@@ -335,3 +335,4 @@ As of 2026-03-06.
 - After every controller-delivered feature that is intended for stakeholder QA, push the branch and refresh `qa/current` immediately. QA prep is part of delivery, not a follow-up chore.
 - Source reporting metrics must never coerce missing historical accounting into zero. If cumulative `filtered` or `deduped` history was never persisted, render those values as unavailable until a new run records them.
 - If a table is intended to be a source of truth, every displayed metric needs a matching persistence model. Do not mix lifetime imports with latest-run funnel counters and pretend the row is cumulative.
+- `review:qa` must start every runtime dependency required for the approved QA path. For auth-gated source checks, that includes the local browser bridge on `4315`; otherwise the QA flow reports false auth failures even when the user is correctly signed in.
