@@ -575,7 +575,6 @@ export function getLatestImportedRunId(db) {
       `
       SELECT run_id AS runId
       FROM source_run_deltas
-      WHERE imported_count > 0
       ORDER BY recorded_at DESC, id DESC
       LIMIT 1;
     `

@@ -12,7 +12,7 @@ const JOB_VIEW_VALUES = new Set([
 
 const JOB_SORT_VALUES = new Set(["score", "date"]);
 
-const SOURCE_KIND_ORDER = ["li", "bi", "ah", "id", "zr", "gg", "wf", "ro", "unknown"];
+const SOURCE_KIND_ORDER = ["li", "bi", "id", "zr", "lf", "yc", "ah", "gg", "wf", "ro", "unknown"];
 
 const QUEUE_GROUP_KEYS = ["queue", "appliedQueue", "skippedQueue", "rejectedQueue"];
 
@@ -48,6 +48,12 @@ export function sourceKindFromType(type) {
   if (type === "ziprecruiter_search") {
     return "zr";
   }
+  if (type === "levelsfyi_search") {
+    return "lf";
+  }
+  if (type === "yc_jobs") {
+    return "yc";
+  }
   if (type === "remoteok_search") {
     return "ro";
   }
@@ -75,6 +81,12 @@ export function sourceKindLabel(kind) {
   }
   if (kind === "zr") {
     return "ZipRecruiter";
+  }
+  if (kind === "lf") {
+    return "Levels.fyi";
+  }
+  if (kind === "yc") {
+    return "YC Jobs";
   }
   if (kind === "ro") {
     return "RemoteOK";

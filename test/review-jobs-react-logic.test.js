@@ -24,6 +24,8 @@ const SOURCES = [
   { id: "linkedin-1", type: "linkedin_capture_file", name: "LinkedIn" },
   { id: "linkedin-2", type: "linkedin_capture_file", name: "LinkedIn Saved Search" },
   { id: "builtin-1", type: "builtin_search", name: "Built In AI" },
+  { id: "levels-1", type: "levelsfyi_search", name: "Levels.fyi" },
+  { id: "yc-1", type: "yc_jobs", name: "YC Jobs" },
   { id: "remote-1", type: "remoteok_search", name: "RemoteOK" },
 ];
 
@@ -159,6 +161,14 @@ test("buildSourceFilterOptions groups counts by source kind, dedupes mixed attri
       id: "cross-posted",
       sourceIds: ["linkedin-1", "builtin-1"],
     },
+    {
+      id: "levels-role",
+      sourceIds: ["levels-1"],
+    },
+    {
+      id: "yc-role",
+      sourceIds: ["yc-1"],
+    },
   ];
 
   const model = buildSourceFilterOptions({
@@ -173,6 +183,8 @@ test("buildSourceFilterOptions groups counts by source kind, dedupes mixed attri
     [
       ["li", 2],
       ["bi", 1],
+      ["lf", 1],
+      ["yc", 1],
       ["ro", 0],
     ],
   );
@@ -199,6 +211,35 @@ test("filterJobsBySource keeps all jobs for all filter and narrows to matching s
     sourceFilter: "wf",
   });
   assert.deepEqual(unknownJobs, []);
+});
+
+test("filterJobsBySource recognizes Levels.fyi and YC Jobs as first-class kinds", () => {
+  const jobs = [
+    {
+      id: "levels-role",
+      sourceIds: ["levels-1"],
+    },
+    {
+      id: "yc-role",
+      sourceIds: ["yc-1"],
+    },
+  ];
+
+  assert.deepEqual(
+    filterJobsBySource(jobs, {
+      sources: SOURCES,
+      sourceFilter: "lf",
+    }).map((job) => job.id),
+    ["levels-role"],
+  );
+
+  assert.deepEqual(
+    filterJobsBySource(jobs, {
+      sources: SOURCES,
+      sourceFilter: "yc",
+    }).map((job) => job.id),
+    ["yc-role"],
+  );
 });
 
 test("sortJobs orders by score or date with stable fallbacks", () => {

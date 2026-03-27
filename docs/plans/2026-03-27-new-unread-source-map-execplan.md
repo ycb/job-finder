@@ -19,6 +19,7 @@ This change also makes the MVP source-map truthful. Each active MVP source will 
 - [x] (2026-03-27 22:42Z) Completed the shared source-map/runtime layer for all MVP sources: `levelsfyi_search` and `yc_jobs` now have explicit shared builder branches and generic collection dispatch, and Zip/Indeed accountability now reports `hardIncludeTerms` truthfully.
 - [x] (2026-03-27 22:49Z) Wrote the internal MVP source-map audit matrix and reusable source-map acceptance checklist.
 - [x] (2026-03-27 22:57Z) Ran final targeted verification for queue semantics plus source-map/runtime alignment, then updated roadmap/progress/docs registry and learnings for QA handoff.
+- [x] (2026-03-27 23:18Z) Incorporated controller review findings before QA: `New` now clears on the latest completed run even if imports are zero, legacy optimistic viewed-state updates mutate `isUnread/firstViewedAt`, and shared React jobs logic recognizes `Levels.fyi` and `YC Jobs` as first-class source kinds.
 
 ## Surprises & Discoveries
 
@@ -56,12 +57,16 @@ The queue model now distinguishes “what just came in” from “what I have ne
 
 The MVP source-map layer is also materially more truthful. `levelsfyi_search` and `yc_jobs` now have explicit shared-builder support and generic collection dispatch, ZipRecruiter and Indeed no longer misreport `hardIncludeTerms`, and the source contract schema now covers the full current criteria surface instead of a legacy subset.
 
+Late review tightened the queue semantics further: the active `New` cohort now tracks the latest completed run rather than the latest run with imports, which ensures a zero-import run correctly clears `New`. The legacy dashboard's optimistic "viewed" path now also updates `isUnread` and `firstViewedAt`, so the server-rendered fallback matches the React semantics immediately instead of waiting for a full refresh.
+
 Verification evidence:
 
 - `node --test test/review-jobs-react-logic.test.js test/review-jobs-api.test.js test/review-jobs-react-ui-model.test.js test/run-deltas.test.js test/source-criteria-accountability.test.js test/source-contracts.test.js test/levelsfyi-jobs.test.js`
   - `44` passing, `0` failed
 - `npm run dashboard:web:build`
   - passed
+- `node --test test/dashboard-api-contract.test.js test/review-source-data-quality.test.js`
+  - `11` passing, `0` failed
 
 Remaining work after this plan is not queue/source-map infrastructure. It is downstream product follow-through:
 

@@ -5299,7 +5299,7 @@ export function renderDashboardPage(dashboard, options = {}) {
         }
       }
 
-      function setLocalStatus(jobId, status) {
+      function setLocalStatus(jobId, status, updates = {}) {
         const groups = [
           Array.isArray(dashboard?.queue) ? dashboard.queue : [],
           Array.isArray(dashboard?.appliedQueue) ? dashboard.appliedQueue : [],
@@ -5311,6 +5311,15 @@ export function renderDashboardPage(dashboard, options = {}) {
           for (const item of group) {
             if (item.id === jobId) {
               item.status = status;
+              if (Object.prototype.hasOwnProperty.call(updates, "firstViewedAt")) {
+                item.firstViewedAt = updates.firstViewedAt;
+              }
+              if (Object.prototype.hasOwnProperty.call(updates, "isUnread")) {
+                item.isUnread = updates.isUnread;
+              }
+              if (Object.prototype.hasOwnProperty.call(updates, "isNew")) {
+                item.isNew = updates.isNew;
+              }
             }
           }
         }
@@ -5318,17 +5327,31 @@ export function renderDashboardPage(dashboard, options = {}) {
 
       async function markViewed(jobId) {
         const target = (dashboard.queue || []).find((item) => item.id === jobId);
-        if (!target || target.status !== "new") {
+        if (!target || target.isUnread !== true) {
           return;
         }
 
-        setLocalStatus(jobId, "viewed");
+        const previousStatus = target.status;
+        const previousFirstViewedAt =
+          typeof target.firstViewedAt === "string" && target.firstViewedAt.trim()
+            ? target.firstViewedAt
+            : null;
+        const previousIsUnread = target.isUnread === true;
+        const viewedAt = new Date().toISOString();
+
+        setLocalStatus(jobId, "viewed", {
+          firstViewedAt: viewedAt,
+          isUnread: false
+        });
         render();
 
         try {
           await persistStatus(jobId, "viewed");
         } catch (error) {
-          setLocalStatus(jobId, "new");
+          setLocalStatus(jobId, previousStatus, {
+            firstViewedAt: previousFirstViewedAt,
+            isUnread: previousIsUnread
+          });
           setFeedback(error.message, true);
         }
       }

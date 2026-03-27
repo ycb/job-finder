@@ -282,7 +282,7 @@ test("listSourceRunTotals returns cumulative persisted source funnel metrics", (
   }
 });
 
-test("getLatestImportedRunId returns the latest run with imported jobs", () => {
+test("getLatestImportedRunId returns the latest completed run even when imports are zero", () => {
   const { db, dir } = createTempDb();
 
   try {
@@ -297,7 +297,7 @@ test("getLatestImportedRunId returns the latest run with imported jobs", () => {
         updatedCount: 0,
         unchangedCount: 0,
         importedCount: 0,
-        recordedAt: "2026-03-09T06:00:10.000Z"
+        recordedAt: "2026-03-09T08:00:10.000Z"
       },
       {
         runId: "run-imported",
@@ -313,7 +313,7 @@ test("getLatestImportedRunId returns the latest run with imported jobs", () => {
       }
     ]);
 
-    assert.equal(getLatestImportedRunId(db), "run-imported");
+    assert.equal(getLatestImportedRunId(db), "run-empty");
   } finally {
     cleanupTempDb(db, dir);
   }
