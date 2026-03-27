@@ -6,9 +6,11 @@ import { collectBuiltInJobsFromSearch } from "./builtin-jobs.js";
 import { collectGoogleJobsFromSearch } from "./google-jobs.js";
 import { applySourceHardFilters } from "./hard-filter.js";
 import { collectIndeedJobsFromSearch } from "./indeed-jobs.js";
+import { collectLevelsFyiJobsFromSearch } from "./levelsfyi-jobs.js";
 import { sanitizeLinkedInJob } from "./linkedin-cleanup.js";
 import { collectRemoteOkJobsFromSearch } from "./remoteok-jobs.js";
 import { collectWellfoundJobsFromSearch } from "./wellfound-jobs.js";
+import { collectYcJobsFromSearch } from "./yc-jobs.js";
 import { collectZipRecruiterJobsFromSearch } from "./ziprecruiter-jobs.js";
 
 function readSourceJson(filePath, errorLabel) {
@@ -326,6 +328,10 @@ export function collectJobsFromSource(source) {
     jobs = collectIndeedJobsFromSearch(source);
   } else if (source.type === "ziprecruiter_search") {
     jobs = collectZipRecruiterJobsFromSearch(source);
+  } else if (source.type === "levelsfyi_search") {
+    jobs = collectLevelsFyiJobsFromSearch(source);
+  } else if (source.type === "yc_jobs") {
+    jobs = collectYcJobsFromSearch(source);
   } else if (source.type === "remoteok_search") {
     jobs = collectRemoteOkJobsFromSearch(source);
   } else {

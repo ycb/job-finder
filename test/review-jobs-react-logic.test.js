@@ -32,6 +32,10 @@ const ACTIVE_QUEUE = [
     id: "job-new",
     title: "AI Product Lead",
     status: "new",
+    isNew: true,
+    isUnread: true,
+    firstViewedAt: null,
+    lastImportBatchId: "run-2",
     bucket: "high_signal",
     score: 92,
     postedAt: "2026-03-11T12:00:00.000Z",
@@ -42,6 +46,10 @@ const ACTIVE_QUEUE = [
     id: "job-viewed",
     title: "Platform PM",
     status: "viewed",
+    isNew: true,
+    isUnread: false,
+    firstViewedAt: "2026-03-10T12:35:00.000Z",
+    lastImportBatchId: "run-2",
     bucket: "medium",
     score: 88,
     postedAt: "2026-03-10T12:00:00.000Z",
@@ -52,6 +60,10 @@ const ACTIVE_QUEUE = [
     id: "job-remote",
     title: "Remote Staff PM",
     status: "new",
+    isNew: false,
+    isUnread: true,
+    firstViewedAt: null,
+    lastImportBatchId: "legacy-import-batch",
     bucket: "medium",
     score: null,
     postedAt: "",
@@ -113,6 +125,10 @@ test("selectJobsForView returns the expected queue slice for each jobs view", ()
   );
   assert.deepEqual(
     selectJobsForView({ ...payload, view: "new" }).map((job) => job.id),
+    ["job-new", "job-viewed"],
+  );
+  assert.deepEqual(
+    selectJobsForView({ ...payload, view: "unread" }).map((job) => job.id),
     ["job-new", "job-remote"],
   );
   assert.deepEqual(
@@ -275,10 +291,19 @@ test("applyViewedStatus only marks new active jobs as viewed and can restore the
   assert.equal(mutation.changed, true);
   assert.equal(mutation.previousStatus, "new");
   assert.equal(mutation.queues.queue.find((job) => job.id === "job-new").status, "viewed");
+  assert.equal(mutation.queues.queue.find((job) => job.id === "job-new").isUnread, false);
+  assert.equal(typeof mutation.queues.queue.find((job) => job.id === "job-new").firstViewedAt, "string");
   assert.equal(mutation.queues.appliedQueue.find((job) => job.id === "job-new").status, "viewed");
 
-  const restored = restoreViewedStatus(mutation.queues, "job-new", mutation.previousStatus);
+  const restored = restoreViewedStatus(
+    mutation.queues,
+    "job-new",
+    mutation.previousStatus,
+    mutation.previousFirstViewedAt,
+  );
   assert.equal(restored.queue.find((job) => job.id === "job-new").status, "new");
+  assert.equal(restored.queue.find((job) => job.id === "job-new").isUnread, true);
+  assert.equal(restored.queue.find((job) => job.id === "job-new").firstViewedAt, null);
   assert.equal(restored.appliedQueue.find((job) => job.id === "job-new").status, "new");
 
   const noOp = applyViewedStatus(queues, "job-viewed");

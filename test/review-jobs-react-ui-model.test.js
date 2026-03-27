@@ -38,6 +38,9 @@ test("buildJobsPresentationalModel respects view, source, sort, and page state a
         location: "Remote",
         bucket: "high_signal",
         status: "new",
+        isNew: true,
+        isUnread: true,
+        lastImportBatchId: "run-latest",
         score: 92,
         confidence: 81,
         sourceIds: ["source-a"],
@@ -51,6 +54,10 @@ test("buildJobsPresentationalModel respects view, source, sort, and page state a
         location: "Remote",
         bucket: "medium_signal",
         status: "viewed",
+        isNew: true,
+        isUnread: false,
+        firstViewedAt: "2026-03-12T12:30:00.000Z",
+        lastImportBatchId: "run-latest",
         score: 78,
         confidence: 70,
         sourceIds: ["source-b"],
@@ -133,6 +140,8 @@ test("buildJobsPresentationalModel keeps best-match counts aligned with rendered
           location: "Remote",
           bucket: "high_signal",
           status: "new",
+          isNew: true,
+          isUnread: true,
         },
         {
           id: "job-rejected",
@@ -155,4 +164,60 @@ test("buildJobsPresentationalModel keeps best-match counts aligned with rendered
   );
   assert.equal(model.queue.total, 1);
   assert.equal(model.queue.jobs[0].id, "job-new");
+});
+
+test("buildJobsPresentationalModel separates new and unread cohorts", () => {
+  const model = buildJobsPresentationalModel({
+    dashboard: {
+      queue: [
+        {
+          id: "job-new-unread",
+          title: "Latest unread role",
+          company: "Alpha",
+          location: "Remote",
+          bucket: "medium_signal",
+          status: "new",
+          isNew: true,
+          isUnread: true,
+        },
+        {
+          id: "job-new-viewed",
+          title: "Latest viewed role",
+          company: "Beta",
+          location: "Remote",
+          bucket: "medium_signal",
+          status: "viewed",
+          isNew: true,
+          isUnread: false,
+          firstViewedAt: "2026-03-12T12:00:00.000Z",
+        },
+        {
+          id: "job-old-unread",
+          title: "Older unread role",
+          company: "Gamma",
+          location: "Remote",
+          bucket: "medium_signal",
+          status: "new",
+          isNew: false,
+          isUnread: true,
+        },
+      ],
+    },
+    state: {
+      view: "unread",
+    },
+  });
+
+  assert.equal(
+    model.controls.viewOptions.find((option) => option.value === "new")?.count,
+    2,
+  );
+  assert.equal(
+    model.controls.viewOptions.find((option) => option.value === "unread")?.count,
+    2,
+  );
+  assert.deepEqual(
+    model.queue.jobs.map((job) => job.id),
+    ["job-new-unread", "job-old-unread"],
+  );
 });

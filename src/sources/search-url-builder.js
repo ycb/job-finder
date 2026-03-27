@@ -3,6 +3,7 @@ import {
   normalizeKeywordInput,
   parseKeywordTerms
 } from "../search/keywords.js";
+import { buildLevelsFyiSearchUrl } from "./levelsfyi-jobs.js";
 
 const SUPPORTED_DATE_POSTED = new Set(["any", "1d", "3d", "1w", "2w", "1m"]);
 const SUPPORTED_EXPERIENCE_LEVELS = new Set([
@@ -262,6 +263,14 @@ function defaultUrlForSourceType(sourceType) {
 
   if (sourceType === "ziprecruiter_search") {
     return "https://www.ziprecruiter.com/jobs-search";
+  }
+
+  if (sourceType === "levelsfyi_search") {
+    return "https://www.levels.fyi/jobs";
+  }
+
+  if (sourceType === "yc_jobs") {
+    return "https://www.workatastartup.com/jobs/l/product-manager";
   }
 
   if (sourceType === "remoteok_search") {
@@ -582,6 +591,7 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
       nextParams.set("search", titleKeywords);
       if (criteria.title) criteriaAccountability.markAppliedInUrl("title");
       if (criteria.keywords) criteriaAccountability.markAppliedInUrl("keywords");
+      if (criteria.hardIncludeTerms) criteriaAccountability.markAppliedInUrl("hardIncludeTerms");
       if (criteria.includeTerms) criteriaAccountability.markAppliedInUrl("includeTerms");
       if (criteria.keywordMode) criteriaAccountability.markAppliedInUrl("keywordMode");
     }
@@ -745,6 +755,9 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
       nextParams.set("q", titleKeywords);
       if (criteria.title) criteriaAccountability.markAppliedInUrl("title");
       if (criteria.keywords) criteriaAccountability.markAppliedInUrl("keywords");
+      if (criteria.hardIncludeTerms) {
+        criteriaAccountability.markAppliedInUrl("hardIncludeTerms");
+      }
       if (criteria.includeTerms) criteriaAccountability.markAppliedInUrl("includeTerms");
       if (criteria.keywordMode) criteriaAccountability.markAppliedInUrl("keywordMode");
     } else {
@@ -825,6 +838,9 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
       nextParams.set("search", titleKeywords);
       if (criteria.title) criteriaAccountability.markAppliedInUrl("title");
       if (criteria.keywords) criteriaAccountability.markAppliedInUrl("keywords");
+      if (criteria.hardIncludeTerms) {
+        criteriaAccountability.markAppliedInUrl("hardIncludeTerms");
+      }
       if (criteria.includeTerms) criteriaAccountability.markAppliedInUrl("includeTerms");
       if (criteria.keywordMode) criteriaAccountability.markAppliedInUrl("keywordMode");
     } else {
@@ -888,6 +904,84 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
     parsed.hash = "";
     const finalized = criteriaAccountability.finalize();
 
+    return {
+      url: parsed.toString(),
+      unsupported: finalized.unsupported,
+      notes,
+      criteriaAccountability: finalized
+    };
+  }
+
+  if (sourceType === "levelsfyi_search") {
+    const nextCriteria = {
+      ...criteria
+    };
+    const searchText = combineTitleAndKeywords(criteria);
+
+    if (searchText) {
+      nextCriteria.keywords = searchText;
+      if (criteria.title) criteriaAccountability.markAppliedInUrl("title");
+      if (criteria.keywords) criteriaAccountability.markAppliedInUrl("keywords");
+      if (criteria.hardIncludeTerms) {
+        criteriaAccountability.markAppliedInUrl("hardIncludeTerms");
+      }
+      if (criteria.includeTerms) criteriaAccountability.markAppliedInUrl("includeTerms");
+      if (criteria.keywordMode) criteriaAccountability.markAppliedInUrl("keywordMode");
+    }
+
+    if (criteria.location) {
+      criteriaAccountability.markAppliedInUrl("location");
+    }
+
+    if (criteria.datePosted) {
+      criteriaAccountability.markAppliedInUrl("datePosted");
+    }
+
+    if (criteria.minSalary) {
+      criteriaAccountability.markAppliedInUrl("minSalary");
+    }
+
+    if (criteria.distanceMiles) {
+      criteriaAccountability.markUnsupported("distanceMiles");
+    }
+
+    if (criteria.experienceLevel) {
+      criteriaAccountability.markUnsupported("experienceLevel");
+    }
+
+    const finalized = criteriaAccountability.finalize();
+    return {
+      url: buildLevelsFyiSearchUrl(nextCriteria),
+      unsupported: finalized.unsupported,
+      notes,
+      criteriaAccountability: finalized
+    };
+  }
+
+  if (sourceType === "yc_jobs") {
+    const providedFields = [
+      "title",
+      "keywords",
+      "keywordMode",
+      "hardIncludeTerms",
+      "includeTerms",
+      "location",
+      "distanceMiles",
+      "datePosted",
+      "experienceLevel",
+      "minSalary"
+    ];
+    for (const field of providedFields) {
+      if (criteria[field] !== undefined) {
+        criteriaAccountability.markUnsupported(field);
+      }
+    }
+
+    notes.push(
+      "YC Jobs currently uses the fixed product-manager route; dynamic product criteria are not yet modeled."
+    );
+
+    const finalized = criteriaAccountability.finalize();
     return {
       url: parsed.toString(),
       unsupported: finalized.unsupported,

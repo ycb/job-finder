@@ -44,6 +44,7 @@ import { runMigrations } from "../db/migrations.js";
 import { normalizeJobRecord } from "../jobs/normalize.js";
 import { applyRetentionPolicyCleanup, writeRetentionCleanupAudit } from "../jobs/retention.js";
 import {
+  getLatestImportedRunId,
   listAllJobs,
   listAllJobsWithStatus,
   listLatestSourceRunDeltas,
@@ -950,6 +951,10 @@ function pickStatus(statuses) {
 function hydrateQueue(queue, options = {}) {
   const includeRejected = options.includeRejected === true;
   const sourceById = options.sourceById instanceof Map ? options.sourceById : null;
+  const currentImportBatchId =
+    typeof options.currentImportBatchId === "string" && options.currentImportBatchId.trim()
+      ? options.currentImportBatchId.trim()
+      : null;
   const groups = new Map();
 
   for (const rawJob of queue) {
@@ -968,6 +973,14 @@ function hydrateQueue(queue, options = {}) {
         : "";
 
     if (!existing) {
+      const firstViewedAt =
+        typeof sanitizedJob.firstViewedAt === "string" && sanitizedJob.firstViewedAt.trim()
+          ? sanitizedJob.firstViewedAt
+          : null;
+      const lastImportBatchId =
+        typeof sanitizedJob.lastImportBatchId === "string" && sanitizedJob.lastImportBatchId.trim()
+          ? sanitizedJob.lastImportBatchId
+          : null;
       groups.set(groupKey, {
         ...sanitizedJob,
         id: groupKey,
@@ -979,6 +992,10 @@ function hydrateQueue(queue, options = {}) {
         sourceIds: sanitizedJob.sourceId ? [sanitizedJob.sourceId] : [],
         duplicateCount: 1,
         notes: note,
+        firstViewedAt,
+        lastImportBatchId,
+        isUnread: firstViewedAt === null,
+        isNew: currentImportBatchId !== null && lastImportBatchId === currentImportBatchId,
         _statuses: [status]
       });
       continue;
@@ -1012,6 +1029,26 @@ function hydrateQueue(queue, options = {}) {
 
     existing._statuses.push(status);
     existing.status = pickStatus(existing._statuses);
+    const incomingFirstViewedAt =
+      typeof sanitizedJob.firstViewedAt === "string" && sanitizedJob.firstViewedAt.trim()
+        ? sanitizedJob.firstViewedAt
+        : null;
+    if (incomingFirstViewedAt) {
+      if (!existing.firstViewedAt || incomingFirstViewedAt < existing.firstViewedAt) {
+        existing.firstViewedAt = incomingFirstViewedAt;
+      }
+      existing.isUnread = false;
+    }
+    const incomingLastImportBatchId =
+      typeof sanitizedJob.lastImportBatchId === "string" && sanitizedJob.lastImportBatchId.trim()
+        ? sanitizedJob.lastImportBatchId
+        : null;
+    if (!existing.lastImportBatchId && incomingLastImportBatchId) {
+      existing.lastImportBatchId = incomingLastImportBatchId;
+    }
+    if (currentImportBatchId && incomingLastImportBatchId === currentImportBatchId) {
+      existing.isNew = true;
+    }
   }
 
   const result = [...groups.values()].map((job) => {
@@ -1277,7 +1314,7 @@ function runSyncAndScore() {
       const refreshMeta = buildSourceRefreshMeta(source);
 
       totalCollected += normalizedJobs.length;
-      totalUpserted += upsertJobs(db, normalizedJobs);
+      totalUpserted += upsertJobs(db, normalizedJobs, { lastImportBatchId: runId });
       totalPruned += pruneSourceJobs(
         db,
         source.id,
@@ -1734,9 +1771,11 @@ function buildDashboardData(limit = 200) {
   const nowMs = Date.now();
   const nowIso = new Date(nowMs).toISOString();
   const sourceById = new Map(sources.map((source) => [source.id, source]));
+  const currentImportBatchId = withDatabase((db) => getLatestImportedRunId(db));
   const statsQueue = hydrateQueue(getAllJobsWithStatus(5_000), {
     includeRejected: true,
-    sourceById
+    sourceById,
+    currentImportBatchId
   });
   const jobsStoredCount = statsQueue.length;
   const scoresBySourceIdAndHash = new Map();
@@ -2083,7 +2122,10 @@ function buildDashboardData(limit = 200) {
     queue,
     appliedQueue,
     skippedQueue,
-    rejectedQueue
+    rejectedQueue,
+    queueMeta: {
+      currentImportBatchId
+    }
   };
 }
 
@@ -3836,7 +3878,11 @@ export function renderDashboardPage(dashboard, options = {}) {
         const activeJobs = activeQueueAllSources();
 
         if (selectedJobsView === "new") {
-          return activeJobs.filter((job) => job?.status === "new");
+          return activeJobs.filter((job) => job?.isNew === true);
+        }
+
+        if (selectedJobsView === "unread") {
+          return activeJobs.filter((job) => job?.isUnread === true);
         }
 
         if (selectedJobsView === "best_match") {
@@ -5320,7 +5366,7 @@ export function renderDashboardPage(dashboard, options = {}) {
 
       function setJobsView(viewName) {
         const normalized = String(viewName || "all").toLowerCase();
-        if (!["all", "new", "best_match", "applied", "skipped", "rejected"].includes(normalized)) {
+        if (!["all", "new", "unread", "best_match", "applied", "skipped", "rejected"].includes(normalized)) {
           return;
         }
 
@@ -5469,7 +5515,8 @@ export function renderDashboardPage(dashboard, options = {}) {
         const appliedAll = appliedQueueAllSources();
         const skippedAll = skippedQueueAllSources();
         const rejectedAll = rejectedQueueAllSources();
-        const activeNewCount = activeAll.filter((job) => job?.status === "new").length;
+        const activeNewCount = activeAll.filter((job) => job?.isNew === true).length;
+        const activeUnreadCount = activeAll.filter((job) => job?.isUnread === true).length;
         const bestMatchCount = activeAll.filter((job) => job?.bucket === "high_signal").length;
         const jobsAllInSelectedView = jobsForSelectedViewAllSources();
         const jobsInView = jobsForCurrentView();
@@ -6085,6 +6132,7 @@ export function renderDashboardPage(dashboard, options = {}) {
         ].join("");
         const activeViewLabel =
           selectedJobsView === "new" ? "New (" + escapeHtml(String(activeNewCount)) + ")" :
+          selectedJobsView === "unread" ? "Unread (" + escapeHtml(String(activeUnreadCount)) + ")" :
           selectedJobsView === "best_match" ? "Best Match (" + escapeHtml(String(bestMatchCount)) + ")" :
           "All (" + escapeHtml(String(activeAll.length)) + ")";
 
@@ -6098,6 +6146,7 @@ export function renderDashboardPage(dashboard, options = {}) {
           '  <select class="view-select">',
           '    <option value="all"' + (selectedJobsView === "all" ? " selected" : "") + '>All (' + escapeHtml(String(activeAll.length)) + ')</option>',
           '    <option value="new"' + (selectedJobsView === "new" ? " selected" : "") + (activeNewCount === 0 ? " disabled" : "") + '>New (' + escapeHtml(String(activeNewCount)) + ')</option>',
+          '    <option value="unread"' + (selectedJobsView === "unread" ? " selected" : "") + (activeUnreadCount === 0 ? " disabled" : "") + '>Unread (' + escapeHtml(String(activeUnreadCount)) + ')</option>',
           '    <option value="best_match"' + (selectedJobsView === "best_match" ? " selected" : "") + (bestMatchCount === 0 ? " disabled" : "") + '>Best Match (' + escapeHtml(String(bestMatchCount)) + ')</option>',
           '    <option value="applied"' + (selectedJobsView === "applied" ? " selected" : "") + '>Applied (' + escapeHtml(String(appliedAll.length)) + ')</option>',
           '    <option value="skipped"' + (selectedJobsView === "skipped" ? " selected" : "") + '>Skipped (' + escapeHtml(String(skippedAll.length)) + ')</option>',
@@ -6996,8 +7045,10 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
       }
 
       if (request.method === "GET" && url.pathname === "/api/queue") {
+        const currentImportBatchId = withDatabase((db) => getLatestImportedRunId(db));
         const groupedQueue = hydrateQueue(getReviewQueue(limit), {
-          sourceById: new Map(loadSources().sources.map((source) => [source.id, source]))
+          sourceById: new Map(loadSources().sources.map((source) => [source.id, source])),
+          currentImportBatchId
         });
         const queue = groupedQueue.filter(
           (job) => job.status === "new" || job.status === "viewed"

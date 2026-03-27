@@ -70,6 +70,8 @@ test("criteriaAccountability assigns each provided criterion exactly once across
     "google_search",
     "indeed_search",
     "ziprecruiter_search",
+    "levelsfyi_search",
+    "yc_jobs",
     "remoteok_search"
   ];
 
@@ -127,4 +129,67 @@ test("loadSourcesWithPath clears stale criteriaAccountability when no criteria a
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
+});
+
+test("ziprecruiter criteria accountability marks hard include terms as applied in URL", () => {
+  const result = buildSearchUrlForSourceType("ziprecruiter_search", {
+    title: "Product manager",
+    hardIncludeTerms: ["ai"],
+    location: "San Francisco, CA",
+    datePosted: "3d",
+    minSalary: 200000,
+  });
+
+  assert.equal(result.url.includes("days=3"), true);
+  assert.equal(result.criteriaAccountability.appliedInUrl.includes("hardIncludeTerms"), true);
+  assert.equal(result.criteriaAccountability.unsupported.includes("hardIncludeTerms"), false);
+});
+
+test("indeed criteria accountability marks hard include terms as applied in URL", () => {
+  const result = buildSearchUrlForSourceType("indeed_search", {
+    title: "Product manager",
+    hardIncludeTerms: ["ai"],
+    location: "San Francisco, CA",
+    datePosted: "3d",
+    minSalary: 200000
+  });
+
+  assert.equal(result.url.includes("fromage=3"), true);
+  assert.equal(result.criteriaAccountability.appliedInUrl.includes("hardIncludeTerms"), true);
+  assert.equal(result.criteriaAccountability.unsupported.includes("hardIncludeTerms"), false);
+});
+
+test("levelsfyi builder returns a real URL and truthful accountability", () => {
+  const result = buildSearchUrlForSourceType("levelsfyi_search", {
+    title: "Product manager",
+    hardIncludeTerms: ["ai"],
+    location: "San Francisco, CA",
+    datePosted: "3d",
+    minSalary: 200000,
+    distanceMiles: 25
+  });
+
+  assert.match(result.url, /^https:\/\/www\.levels\.fyi\/jobs\/title\/product-manager\/location\/san-francisco-ca\?/);
+  assert.equal(result.url.includes("postedAfterValue=3"), true);
+  assert.equal(result.criteriaAccountability.appliedInUrl.includes("hardIncludeTerms"), true);
+  assert.equal(result.criteriaAccountability.appliedInUrl.includes("datePosted"), true);
+  assert.equal(result.criteriaAccountability.unsupported.includes("distanceMiles"), true);
+});
+
+test("yc jobs builder returns fixed route and marks dynamic criteria unsupported", () => {
+  const result = buildSearchUrlForSourceType("yc_jobs", {
+    title: "Product manager",
+    hardIncludeTerms: ["ai"],
+    location: "San Francisco, CA",
+    datePosted: "3d"
+  });
+
+  assert.equal(
+    result.url,
+    "https://www.workatastartup.com/jobs/l/product-manager"
+  );
+  assert.deepEqual(
+    result.criteriaAccountability.unsupported.sort(),
+    ["datePosted", "hardIncludeTerms", "location", "title"].sort()
+  );
 });

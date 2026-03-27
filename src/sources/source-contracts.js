@@ -27,6 +27,10 @@ const SUPPORTED_MAPPING_MODES = new Set([
 const CRITERIA_FIELDS = [
   "title",
   "keywords",
+  "keywordMode",
+  "hardIncludeTerms",
+  "includeTerms",
+  "excludeTerms",
   "location",
   "distanceMiles",
   "datePosted",

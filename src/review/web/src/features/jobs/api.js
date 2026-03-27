@@ -206,9 +206,16 @@ export function applyJobStatusToDashboard(dashboard, jobId, status, reason = "")
     return dashboard;
   }
 
+  const nextFirstViewedAt =
+    targetJob.firstViewedAt ||
+    (status === "viewed" || status === "applied" || status === "skip_for_now" || status === "rejected"
+      ? new Date().toISOString()
+      : null);
   const nextJob = {
     ...targetJob,
     status,
+    firstViewedAt: nextFirstViewedAt,
+    isUnread: nextFirstViewedAt ? false : targetJob.isUnread === true,
     notes: status === "rejected" ? String(reason || "").trim() : targetJob.notes,
   };
   groups[targetQueueKey(status)].unshift(nextJob);

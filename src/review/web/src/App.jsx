@@ -75,7 +75,7 @@ const AUTH_FLOW_HELP_TEXT = "Step 1: Open source. Step 2: Sign in. Step 3: Click
 const CONSENT_REQUIRED_MESSAGE =
   "Before continuing, review Terms + Privacy and accept the consent checkboxes in Step 1.";
 const JOBS_PAGE_SIZE = 10;
-const JOBS_VIEW_OPTIONS = ["all", "new", "best_match", "applied", "skipped", "rejected"];
+const JOBS_VIEW_OPTIONS = ["all", "new", "unread", "best_match", "applied", "skipped", "rejected"];
 
 const FIELD_CLASSNAME =
   "mt-2 w-full rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground shadow-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring";
@@ -101,6 +101,12 @@ function sourceKindFromType(value) {
   }
   if (value === "ziprecruiter_search") {
     return "zr";
+  }
+  if (value === "levelsfyi_search") {
+    return "lf";
+  }
+  if (value === "yc_jobs") {
+    return "yc";
   }
   if (value === "remoteok_search") {
     return "ro";
@@ -129,6 +135,12 @@ function sourceKindLabel(kind) {
   }
   if (kind === "zr") {
     return "ZipRecruiter";
+  }
+  if (kind === "lf") {
+    return "Levels.fyi";
+  }
+  if (kind === "yc") {
+    return "YC Jobs";
   }
   if (kind === "ro") {
     return "RemoteOK";
@@ -725,7 +737,8 @@ export default function App() {
   const jobsViewCounts = useMemo(
     () => ({
       all: activeJobs.length,
-      new: activeJobs.filter((job) => job?.status === "new").length,
+      new: activeJobs.filter((job) => job?.isNew === true).length,
+      unread: activeJobs.filter((job) => job?.isUnread === true).length,
       best_match: activeJobs.filter((job) => job?.bucket === "high_signal").length,
       applied: appliedJobs.length,
       skipped: skippedJobs.length,
@@ -737,6 +750,7 @@ export default function App() {
     () => [
       { value: "all", label: "All", count: jobsViewCounts.all },
       { value: "new", label: "New", count: jobsViewCounts.new },
+      { value: "unread", label: "Unread", count: jobsViewCounts.unread },
       { value: "best_match", label: "Best match", count: jobsViewCounts.best_match },
     ],
     [jobsViewCounts],
@@ -774,7 +788,10 @@ export default function App() {
       return rejectedJobs;
     }
     if (jobsView === "new") {
-      return activeJobs.filter((job) => job?.status === "new");
+      return activeJobs.filter((job) => job?.isNew === true);
+    }
+    if (jobsView === "unread") {
+      return activeJobs.filter((job) => job?.isUnread === true);
     }
     if (jobsView === "best_match") {
       return activeJobs.filter((job) => job?.bucket === "high_signal");
@@ -2439,6 +2456,15 @@ export default function App() {
                     onClick={() => setJobsView("new")}
                   >
                     New ({jobsViewCounts.new})
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={jobsView === "unread" ? "default" : "outline"}
+                    data-jobs-view="unread"
+                    disabled={jobsControlsDisabled}
+                    onClick={() => setJobsView("unread")}
+                  >
+                    Unread ({jobsViewCounts.unread})
                   </Button>
                   <Button
                     size="sm"

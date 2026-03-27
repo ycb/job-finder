@@ -65,6 +65,35 @@ function backfillJobNormalization(db) {
   }
 }
 
+function backfillQueueSemantics(db) {
+  addColumnIfMissing(db, "jobs", "last_import_batch_id", "TEXT");
+  addColumnIfMissing(db, "applications", "first_viewed_at", "TEXT");
+
+  const legacyBatchId = "legacy-import-batch";
+  db.prepare(
+    `
+      UPDATE jobs
+      SET last_import_batch_id = ?
+      WHERE last_import_batch_id IS NULL OR TRIM(last_import_batch_id) = '';
+    `
+  ).run(legacyBatchId);
+
+  db.prepare(
+    `
+      UPDATE applications
+      SET first_viewed_at = COALESCE(
+        first_viewed_at,
+        submitted_at,
+        last_action_at,
+        (SELECT updated_at FROM jobs WHERE jobs.id = applications.job_id),
+        (SELECT created_at FROM jobs WHERE jobs.id = applications.job_id)
+      )
+      WHERE status != 'new'
+        AND (first_viewed_at IS NULL OR TRIM(first_viewed_at) = '');
+    `
+  ).run();
+}
+
 export function runMigrations(db) {
   db.exec(
     `
@@ -86,6 +115,7 @@ export function runMigrations(db) {
         structured_meta TEXT,
         metadata_quality_score INTEGER,
         missing_required_fields TEXT,
+        last_import_batch_id TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -114,6 +144,7 @@ export function runMigrations(db) {
         status TEXT NOT NULL,
         notes TEXT NOT NULL DEFAULT '',
         draft_path TEXT,
+        first_viewed_at TEXT,
         last_action_at TEXT NOT NULL,
         submitted_at TEXT,
         FOREIGN KEY (job_id) REFERENCES jobs (id) ON DELETE CASCADE
@@ -153,6 +184,8 @@ export function runMigrations(db) {
   addColumnIfMissing(db, "jobs", "structured_meta", "TEXT");
   addColumnIfMissing(db, "jobs", "metadata_quality_score", "INTEGER");
   addColumnIfMissing(db, "jobs", "missing_required_fields", "TEXT");
+  addColumnIfMissing(db, "jobs", "last_import_batch_id", "TEXT");
+  addColumnIfMissing(db, "applications", "first_viewed_at", "TEXT");
   addColumnIfMissing(db, "source_run_deltas", "refresh_mode", "TEXT");
   addColumnIfMissing(db, "source_run_deltas", "served_from", "TEXT");
   addColumnIfMissing(db, "source_run_deltas", "status_reason", "TEXT");
@@ -162,4 +195,5 @@ export function runMigrations(db) {
   addColumnIfMissing(db, "source_run_deltas", "filtered_count", "INTEGER");
   addColumnIfMissing(db, "source_run_deltas", "deduped_count", "INTEGER");
   backfillJobNormalization(db);
+  backfillQueueSemantics(db);
 }

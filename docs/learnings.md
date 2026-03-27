@@ -174,6 +174,14 @@ As of 2026-03-06.
 - Before concluding a source is "direct fetch only", inspect the live search URL shape and map the full supported filter/metadata surface explicitly.
 - For new source adapters, build out the complete filter/metadata map first so adapter tests can prove which fields are applied in URL, which are preserved for review/import, and which remain unsupported.
 - When a source exposes a canonical detail URL distinct from the search page, keep the canonical detail URL as the review target and treat search URLs as query builders only.
+- Do not stop at the adapter. A source is not integrated until the shared query builder, criteria-accountability output, generic collection dispatch, and source contract all agree on the same truth.
+- If a criterion is folded into generic text search, report it as supported-but-lossy in the contract/audit and mark it applied in runtime accountability. Do not call it unsupported just because the source lacks a dedicated filter chip.
+
+## QA Handoff Discipline
+
+- Prep QA immediately after a feature is built, tested, and delivered. Do not defer the QA handoff state to a later pass.
+- QA prep means more than passing tests: update the active plan, roadmap daily note, docs registry, and any source-of-truth artifacts before asking for validation.
+- If a table or dashboard is meant to be a source of truth, never mix lifetime metrics with latest-run metrics or silently coerce missing history to `0`. Prefer persisted cumulative accounting and render unavailable history explicitly.
 
 ## QA Fresh-State
 
@@ -338,3 +346,5 @@ As of 2026-03-06.
 - `review:qa` must start every runtime dependency required for the approved QA path. For auth-gated source checks, that includes the local browser bridge on `4315`; otherwise the QA flow reports false auth failures even when the user is correctly signed in.
 
 - Before asking for stakeholder QA on auth-gated flows, verify the live QA checkout is actually running the bridge and execute the same endpoint the UI uses at least once (for example `/api/onboarding/check-source`). A healthy page alone is not enough.
+
+- A source contract is not real unless the query builder, criteria accountability output, and live product criteria model all agree. Do not claim per-source mapping is implemented when the contract says a field is supported but the runtime model cannot actually express or account for it.
