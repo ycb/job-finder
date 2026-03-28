@@ -62,6 +62,31 @@ test("indeed normalization keeps job-level identity via jk query parameter", () 
   );
 });
 
+test("indeed normalization does not treat salary pages with fromjk as jobs", () => {
+  const source = {
+    id: "indeed-main",
+    type: "indeed_search",
+    searchUrl: "https://www.indeed.com/jobs?q=product+manager"
+  };
+
+  const normalized = normalizeJobRecord(
+    {
+      title: "Principal Product Manager salaries in San Francisco, CA",
+      company: "Unknown company",
+      location: "San Francisco, CA",
+      description: "Salary Search page",
+      url: "https://www.indeed.com/career/principal-product-manager/salaries/San-Francisco--CA?campaignid=serp-more&fromjk=abc12345def67890&from=serp-more"
+    },
+    source
+  );
+
+  assert.equal(normalized.externalId, null);
+  assert.equal(
+    normalized.sourceUrl,
+    "https://www.indeed.com/career/principal-product-manager/salaries/San-Francisco--CA"
+  );
+});
+
 test("google jobs-search normalization preserves per-job docid identity from hash", () => {
   const source = {
     id: "google-main",

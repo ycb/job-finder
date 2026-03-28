@@ -283,6 +283,57 @@ test("listSourceRunTotals returns cumulative persisted source funnel metrics", (
   }
 });
 
+test("listSourceRunTotals dedupes repeated source runs with the same captured_at", () => {
+  const { db, dir } = createTempDb();
+
+  try {
+    recordSourceRunDeltas(db, [
+      {
+        runId: "run-1",
+        sourceId: "source-a",
+        foundCount: 20,
+        filteredCount: 5,
+        dedupedCount: 2,
+        newCount: 4,
+        updatedCount: 1,
+        unchangedCount: 8,
+        importedCount: 13,
+        capturedAt: "2026-03-27T20:45:37.502Z",
+        recordedAt: "2026-03-27T20:45:38.000Z"
+      },
+      {
+        runId: "run-2",
+        sourceId: "source-a",
+        foundCount: 20,
+        filteredCount: 5,
+        dedupedCount: 2,
+        newCount: 4,
+        updatedCount: 1,
+        unchangedCount: 8,
+        importedCount: 13,
+        capturedAt: "2026-03-27T20:45:37.502Z",
+        recordedAt: "2026-03-27T20:50:38.000Z"
+      }
+    ]);
+
+    const totals = listSourceRunTotals(db).map((row) => ({ ...row }));
+    assert.deepEqual(totals, [
+      {
+        sourceId: "source-a",
+        importedCount: 13,
+        foundCount: 20,
+        filteredCount: 5,
+        dedupedCount: 2,
+        foundSamples: 1,
+        filteredSamples: 1,
+        dedupedSamples: 1
+      }
+    ]);
+  } finally {
+    cleanupTempDb(db, dir);
+  }
+});
+
 test("getLatestImportedRunId returns the latest completed run even when imports are zero", () => {
   const { db, dir } = createTempDb();
 

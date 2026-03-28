@@ -492,7 +492,7 @@ function buildSourceRefreshContext(source, options = {}) {
   };
 }
 
-function buildPersistedSourceRunMetrics(capturePayload, importedCount) {
+function buildPersistedSourceRunMetrics(capturePayload, importedCount, options = {}) {
   const rawFunnel =
     capturePayload?.captureFunnel &&
     typeof capturePayload.captureFunnel === "object" &&
@@ -508,9 +508,18 @@ function buildPersistedSourceRunMetrics(capturePayload, importedCount) {
   };
 
   const imported = normalizeCount(importedCount, 0);
-  const capturedRawCount = normalizeCount(rawFunnel?.capturedRawCount);
-  const postHardFilterCount = normalizeCount(rawFunnel?.postHardFilterCount);
-  const postDedupeCount = normalizeCount(rawFunnel?.postDedupeCount);
+  const capturedRawCount = normalizeCount(
+    rawFunnel?.capturedRawCount,
+    normalizeCount(options.capturedRawCount)
+  );
+  const postHardFilterCount = normalizeCount(
+    rawFunnel?.postHardFilterCount,
+    normalizeCount(options.postHardFilterCount)
+  );
+  const postDedupeCount = normalizeCount(
+    rawFunnel?.postDedupeCount,
+    normalizeCount(options.postDedupeCount)
+  );
 
   const filteredCount =
     capturedRawCount !== null && postHardFilterCount !== null
@@ -662,7 +671,12 @@ function runSync(options = {}) {
     const persistedImportedCount = countSourceJobsInBatch(db, source.id, runId);
     const runMetrics = buildPersistedSourceRunMetrics(
       capturePayload,
-      persistedImportedCount
+      persistedImportedCount,
+      {
+        capturedRawCount: rawJobs.length,
+        postHardFilterCount: rawJobs.length,
+        postDedupeCount: persistedImportedCount
+      }
     );
     totalNew += deltas.newCount;
     totalUpdated += deltas.updatedCount;
