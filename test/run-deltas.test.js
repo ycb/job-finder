@@ -8,6 +8,7 @@ import { openDatabase } from "../src/db/client.js";
 import { runMigrations } from "../src/db/migrations.js";
 import { classifyRunDeltas } from "../src/jobs/run-deltas.js";
 import {
+  countSourceJobsInBatch,
   getLatestImportedRunId,
   listSourceRunTotals,
   listLatestSourceRunDeltas,
@@ -314,6 +315,63 @@ test("getLatestImportedRunId returns the latest completed run even when imports 
     ]);
 
     assert.equal(getLatestImportedRunId(db), "run-empty");
+  } finally {
+    cleanupTempDb(db, dir);
+  }
+});
+
+test("countSourceJobsInBatch reflects actual persisted rows touched in a run", () => {
+  const { db, dir } = createTempDb();
+
+  try {
+    const sourceId = "levelsfyi-ai-pm";
+    const runId = "run-levels";
+    upsertJobs(db, [
+      {
+        id: "job-1",
+        source: "levelsfyi_search",
+        sourceId,
+        sourceUrl: "https://www.levels.fyi/jobs",
+        externalId: "1",
+        title: "Role One",
+        company: "Example",
+        location: "San Francisco, CA",
+        postedAt: "2026-03-27T00:00:00.000Z",
+        employmentType: "full-time",
+        easyApply: false,
+        salaryText: "$200,000",
+        description: "Role one",
+        normalizedHash: "hash-1",
+        structuredMeta: null,
+        metadataQualityScore: 100,
+        missingRequiredFields: [],
+        createdAt: "2026-03-27T00:00:00.000Z",
+        updatedAt: "2026-03-27T00:00:00.000Z"
+      },
+      {
+        id: "job-2",
+        source: "levelsfyi_search",
+        sourceId,
+        sourceUrl: "https://www.levels.fyi/jobs",
+        externalId: "2",
+        title: "Role Two",
+        company: "Example",
+        location: "San Francisco, CA",
+        postedAt: "2026-03-27T00:00:00.000Z",
+        employmentType: "full-time",
+        easyApply: false,
+        salaryText: "$210,000",
+        description: "Role two",
+        normalizedHash: "hash-2",
+        structuredMeta: null,
+        metadataQualityScore: 100,
+        missingRequiredFields: [],
+        createdAt: "2026-03-27T00:00:00.000Z",
+        updatedAt: "2026-03-27T00:00:00.000Z"
+      }
+    ], { lastImportBatchId: runId });
+
+    assert.equal(countSourceJobsInBatch(db, sourceId, runId), 1);
   } finally {
     cleanupTempDb(db, dir);
   }

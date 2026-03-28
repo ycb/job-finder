@@ -45,6 +45,7 @@ import { filterActiveQueueJobs, isActiveQueueJob } from "../jobs/active-queue.js
 import { normalizeJobRecord } from "../jobs/normalize.js";
 import { applyRetentionPolicyCleanup, writeRetentionCleanupAudit } from "../jobs/retention.js";
 import {
+  countSourceJobsInBatch,
   getLatestImportedRunId,
   listAllJobs,
   listAllJobsWithStatus,
@@ -1308,10 +1309,6 @@ function runSyncAndScore() {
         existingRows,
         incomingJobs: normalizedJobs
       });
-      const runMetrics = buildPersistedSourceRunMetrics(
-        capturePayload,
-        normalizedJobs.length
-      );
       const refreshMeta = buildSourceRefreshMeta(source);
 
       totalCollected += normalizedJobs.length;
@@ -1320,6 +1317,11 @@ function runSyncAndScore() {
         db,
         source.id,
         normalizedJobs.map((job) => job.id)
+      );
+      const persistedImportedCount = countSourceJobsInBatch(db, source.id, runId);
+      const runMetrics = buildPersistedSourceRunMetrics(
+        capturePayload,
+        persistedImportedCount
       );
       totalNew += deltas.newCount;
       totalUpdated += deltas.updatedCount;

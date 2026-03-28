@@ -44,6 +44,11 @@ function hostLooksLikeZipRecruiter(hostname) {
   return host === "ziprecruiter.com" || host.endsWith(".ziprecruiter.com");
 }
 
+function hostLooksLikeLevelsFyi(hostname) {
+  const host = String(hostname || "").toLowerCase();
+  return host === "levels.fyi" || host.endsWith(".levels.fyi");
+}
+
 function extractLinkedInJobIdFromUrl(rawUrl) {
   const parsed = parseUrlSafe(rawUrl);
   if (!parsed) {
@@ -119,6 +124,20 @@ function extractGoogleJobsDocIdFromUrl(rawUrl) {
   return extractGoogleJobsDocIdFromHash(parsed.hash);
 }
 
+function extractLevelsFyiJobIdFromUrl(rawUrl) {
+  const parsed = parseUrlSafe(rawUrl);
+  if (!parsed || !hostLooksLikeLevelsFyi(parsed.hostname)) {
+    return "";
+  }
+
+  const directId = normalizeText(parsed.searchParams.get("jobId") || "");
+  if (directId) {
+    return directId;
+  }
+
+  return "";
+}
+
 function canonicalizeSourceUrl(rawUrl) {
   const parsed = parseUrlSafe(rawUrl);
   if (!parsed) {
@@ -148,6 +167,13 @@ function canonicalizeSourceUrl(rawUrl) {
 
   if (hostLooksLikeZipRecruiter(parsed.hostname)) {
     return canonicalizeZipRecruiterSourceUrl(parsed.toString());
+  }
+
+  if (hostLooksLikeLevelsFyi(parsed.hostname) && parsed.pathname === "/jobs") {
+    const levelsJobId = extractLevelsFyiJobIdFromUrl(parsed.toString());
+    if (levelsJobId) {
+      return `https://www.levels.fyi/jobs?jobId=${encodeURIComponent(levelsJobId)}`;
+    }
   }
 
   parsed.hash = "";
@@ -197,6 +223,10 @@ function inferExternalId(externalId, sourceUrl, sourceType) {
 
   if (sourceType === "ziprecruiter_search") {
     return extractZipRecruiterDeepLinkId(sourceUrl) || null;
+  }
+
+  if (sourceType === "levelsfyi_search") {
+    return extractLevelsFyiJobIdFromUrl(sourceUrl) || null;
   }
 
   return null;

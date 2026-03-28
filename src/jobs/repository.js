@@ -263,6 +263,27 @@ export function recordSourceRunDeltas(db, rows = []) {
   return inserted;
 }
 
+export function countSourceJobsInBatch(db, sourceId, batchId) {
+  const normalizedSourceId = String(sourceId || "").trim();
+  const normalizedBatchId = String(batchId || "").trim();
+  if (!normalizedSourceId || !normalizedBatchId) {
+    return 0;
+  }
+
+  const row = db
+    .prepare(
+      `
+      SELECT COUNT(*) AS count
+      FROM jobs
+      WHERE source_id = ?
+        AND last_import_batch_id = ?;
+    `
+    )
+    .get(normalizedSourceId, normalizedBatchId);
+
+  return Math.max(0, Math.round(Number(row?.count) || 0));
+}
+
 export function listLatestSourceRunDeltas(db) {
   return db
     .prepare(
