@@ -322,6 +322,26 @@ export function listSourceRunTotals(db) {
   return db
     .prepare(
       `
+      WITH deduped_runs AS (
+        SELECT
+          latest.source_id AS source_id,
+          latest.found_count AS found_count,
+          latest.filtered_count AS filtered_count,
+          latest.deduped_count AS deduped_count,
+          latest.imported_count AS imported_count,
+          latest.captured_at AS captured_at,
+          latest.recorded_at AS recorded_at
+        FROM source_run_deltas latest
+        WHERE latest.id = (
+          SELECT candidate.id
+          FROM source_run_deltas candidate
+          WHERE candidate.source_id = latest.source_id
+            AND COALESCE(candidate.captured_at, candidate.recorded_at) =
+              COALESCE(latest.captured_at, latest.recorded_at)
+          ORDER BY candidate.id DESC
+          LIMIT 1
+        )
+      )
       SELECT
         source_id AS sourceId,
         SUM(imported_count) AS importedCount,
@@ -331,7 +351,7 @@ export function listSourceRunTotals(db) {
         COUNT(found_count) AS foundSamples,
         COUNT(filtered_count) AS filteredSamples,
         COUNT(deduped_count) AS dedupedSamples
-      FROM source_run_deltas
+      FROM deduped_runs
       GROUP BY source_id
       ORDER BY source_id ASC;
     `

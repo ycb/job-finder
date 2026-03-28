@@ -4,6 +4,7 @@ import fs from "node:fs";
 import { writeAshbyCaptureFile } from "../../sources/ashby-jobs.js";
 import { writeGoogleCaptureFile } from "../../sources/google-jobs.js";
 import {
+  filterIndeedCapturedJobs,
   INDEED_EXPECTED_COUNT_SELECTORS,
   writeIndeedCaptureFile
 } from "../../sources/indeed-jobs.js";
@@ -1957,8 +1958,8 @@ function readIndeedJobsFromChrome(searchUrl, options = {}) {
   const extractionScript = buildGenericBoardExtractionScript({
     siteKey: "indeed",
     hostIncludes: ["indeed.com"],
-    urlIncludes: ["/viewjob", "/rc/clk", "jk="],
-    blockedIncludes: ["/cmp/", "/companies/", "/career-advice/"],
+    urlIncludes: ["/viewjob", "/rc/clk", "/pagead/clk"],
+    blockedIncludes: ["/cmp/", "/companies/", "/career-advice/", "/career/"],
     expectedCountSelectors: INDEED_EXPECTED_COUNT_SELECTORS,
     expectedCountPatternSources: [
       "page\\\\s+\\\\d+\\\\s+of\\\\s+([\\\\d,]+)\\\\s+jobs?\\\\b",
@@ -1967,7 +1968,7 @@ function readIndeedJobsFromChrome(searchUrl, options = {}) {
     allowExpectedCountBodyFallback: false
   });
   const maxPages = Number(options.maxPages) > 0 ? Number(options.maxPages) : 8;
-  return capturePaginatedGenericBoardJobs({
+  const payload = capturePaginatedGenericBoardJobs({
     searchUrl,
     extractionScript,
     maxPages,
@@ -1975,6 +1976,8 @@ function readIndeedJobsFromChrome(searchUrl, options = {}) {
       buildUrlWithSearchParam(searchUrl, "start", String(index * 10)),
     options
   });
+  payload.jobs = filterIndeedCapturedJobs(payload.jobs);
+  return payload;
 }
 
 function readZipRecruiterJobsFromChrome(searchUrl, options = {}) {

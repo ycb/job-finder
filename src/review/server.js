@@ -488,7 +488,7 @@ function isCaptureFunnelReadSafeSource(source) {
   );
 }
 
-function buildPersistedSourceRunMetrics(capturePayload, importedCount) {
+function buildPersistedSourceRunMetrics(capturePayload, importedCount, options = {}) {
   const rawFunnel =
     capturePayload?.captureFunnel &&
     typeof capturePayload.captureFunnel === "object" &&
@@ -499,13 +499,19 @@ function buildPersistedSourceRunMetrics(capturePayload, importedCount) {
   const imported = normalizeCount(importedCount, 0);
   const capturedRawCount = hasCountValue(rawFunnel?.capturedRawCount)
     ? normalizeCount(rawFunnel.capturedRawCount)
-    : null;
+    : hasCountValue(options.capturedRawCount)
+      ? normalizeCount(options.capturedRawCount)
+      : null;
   const postHardFilterCount = hasCountValue(rawFunnel?.postHardFilterCount)
     ? normalizeCount(rawFunnel.postHardFilterCount)
-    : null;
+    : hasCountValue(options.postHardFilterCount)
+      ? normalizeCount(options.postHardFilterCount)
+      : null;
   const postDedupeCount = hasCountValue(rawFunnel?.postDedupeCount)
     ? normalizeCount(rawFunnel.postDedupeCount)
-    : null;
+    : hasCountValue(options.postDedupeCount)
+      ? normalizeCount(options.postDedupeCount)
+      : null;
 
   const filteredCount =
     capturedRawCount !== null && postHardFilterCount !== null
@@ -1321,7 +1327,12 @@ function runSyncAndScore() {
       const persistedImportedCount = countSourceJobsInBatch(db, source.id, runId);
       const runMetrics = buildPersistedSourceRunMetrics(
         capturePayload,
-        persistedImportedCount
+        persistedImportedCount,
+        {
+          capturedRawCount: rawJobs.length,
+          postHardFilterCount: rawJobs.length,
+          postDedupeCount: persistedImportedCount
+        }
       );
       totalNew += deltas.newCount;
       totalUpdated += deltas.updatedCount;
@@ -1952,10 +1963,10 @@ function buildDashboardData(limit = 200) {
           : null;
       const jobCount = counts.totalCount;
       const importedCount =
-        hasCountValue(runTotals.importedCount)
-          ? normalizeCount(runTotals.importedCount)
-          : counts.totalCount > 0
-            ? counts.totalCount
+        counts.totalCount > 0
+          ? counts.totalCount
+          : hasCountValue(runTotals.importedCount)
+            ? normalizeCount(runTotals.importedCount)
             : normalizeCount(captureFunnel.keptAfterDedupeCount, 0);
       const filteredCount = hasCountValue(runTotals.filteredCount)
         ? normalizeCount(runTotals.filteredCount)
@@ -1963,11 +1974,14 @@ function buildDashboardData(limit = 200) {
       const dedupedCount = hasCountValue(runTotals.dedupedCount)
         ? normalizeCount(runTotals.dedupedCount)
         : null;
-      const foundCount = hasCountValue(runTotals.foundCount)
-        ? normalizeCount(runTotals.foundCount)
-        : importedCount +
-          (hasCountValue(filteredCount) ? normalizeCount(filteredCount) : 0) +
-          (hasCountValue(dedupedCount) ? normalizeCount(dedupedCount) : 0);
+      const foundCount =
+        hasCountValue(filteredCount) && hasCountValue(dedupedCount)
+          ? importedCount +
+            normalizeCount(filteredCount) +
+            normalizeCount(dedupedCount)
+          : hasCountValue(runTotals.foundCount)
+            ? Math.max(normalizeCount(runTotals.foundCount), importedCount)
+            : importedCount;
       const captureStatus = isFileBackedCapture ? capture.status : "ready";
       const capturedAt = pickLatestTimestamp(
         typeof latestRunDelta?.capturedAt === "string" ? latestRunDelta.capturedAt : null,

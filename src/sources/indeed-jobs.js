@@ -18,6 +18,19 @@ const INDEED_EXPECTED_COUNT_PATTERNS = Object.freeze([
   /showing\s+\d+\s*[-–]\s*\d+\s+of\s+([\d,]+)\s+jobs?\b/i
 ]);
 
+const INDEED_JOB_URL_PATTERNS = Object.freeze([
+  /\/viewjob(?:[/?#]|$)/i,
+  /\/rc\/clk(?:[/?#]|$)/i,
+  /\/pagead\/clk(?:[/?#]|$)/i
+]);
+
+const INDEED_BLOCKED_URL_PATTERNS = Object.freeze([
+  /\/cmp(?:[/?#]|$)/i,
+  /\/companies(?:[/?#]|$)/i,
+  /\/career-advice(?:[/?#]|$)/i,
+  /\/career(?:[/?#]|$)/i
+]);
+
 function assertIndeedSource(source) {
   if (!source || source.type !== "indeed_search") {
     throw new Error("Indeed capture write requires an indeed_search source.");
@@ -46,6 +59,25 @@ export function parseIndeedExpectedCountText(text) {
   }
 
   return null;
+}
+
+export function isIndeedJobUrl(url) {
+  const normalized = String(url || "").trim();
+  if (!normalized) {
+    return false;
+  }
+
+  for (const pattern of INDEED_BLOCKED_URL_PATTERNS) {
+    if (pattern.test(normalized)) {
+      return false;
+    }
+  }
+
+  return INDEED_JOB_URL_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+export function filterIndeedCapturedJobs(jobs) {
+  return (Array.isArray(jobs) ? jobs : []).filter((job) => isIndeedJobUrl(job?.url));
 }
 
 export function writeIndeedCaptureFile(source, jobs, options = {}) {
