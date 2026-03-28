@@ -86,3 +86,29 @@ test("google jobs-search normalization preserves per-job docid identity from has
     "https://www.google.com/search?docid=doc-abc123%3D%3D"
   );
 });
+
+test("levelsfyi normalization preserves per-job identity via jobId query parameter", () => {
+  const source = {
+    id: "levelsfyi-ai-pm",
+    type: "levelsfyi_search",
+    searchUrl: "https://www.levels.fyi/jobs/title/product-manager/location/san-francisco-usa"
+  };
+
+  const normalized = normalizeJobRecord(
+    {
+      title: "Staff Product Manager, Applied AI",
+      company: "Plaid",
+      location: "San Francisco, CA",
+      description: "Role details",
+      externalId: "143429004190196422",
+      url: "https://www.levels.fyi/jobs?jobId=143429004190196422"
+    },
+    source
+  );
+
+  assert.equal(normalized.externalId, "143429004190196422");
+  assert.equal(
+    normalized.sourceUrl,
+    "https://www.levels.fyi/jobs?jobId=143429004190196422"
+  );
+});

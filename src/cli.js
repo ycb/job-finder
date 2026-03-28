@@ -41,6 +41,7 @@ import { runMigrations } from "./db/migrations.js";
 import { normalizeJobRecord } from "./jobs/normalize.js";
 import { applyRetentionPolicyCleanup, writeRetentionCleanupAudit } from "./jobs/retention.js";
 import {
+  countSourceJobsInBatch,
   listAllJobs,
   listSourceJobsForDelta,
   listReviewQueue,
@@ -649,10 +650,6 @@ function runSync(options = {}) {
       existingRows,
       incomingJobs: normalizedJobs
     });
-    const runMetrics = buildPersistedSourceRunMetrics(
-      capturePayload,
-      normalizedJobs.length
-    );
     const refreshContext = buildSourceRefreshContext(source, options);
 
     totalCollected += normalizedJobs.length;
@@ -661,6 +658,11 @@ function runSync(options = {}) {
       db,
       source.id,
       normalizedJobs.map((job) => job.id)
+    );
+    const persistedImportedCount = countSourceJobsInBatch(db, source.id, runId);
+    const runMetrics = buildPersistedSourceRunMetrics(
+      capturePayload,
+      persistedImportedCount
     );
     totalNew += deltas.newCount;
     totalUpdated += deltas.updatedCount;
