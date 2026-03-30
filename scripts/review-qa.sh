@@ -15,4 +15,5 @@ echo
 # 4) rebuild on file changes
 bash scripts/review-stop.sh
 export REVIEW_FIXED_PORT="${REVIEW_FIXED_PORT:-4311}"
+export JOB_FINDER_SOURCE_QA_MODE="${JOB_FINDER_SOURCE_QA_MODE:-1}"
 exec bash scripts/review-react-watch.sh

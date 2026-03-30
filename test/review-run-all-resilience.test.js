@@ -96,3 +96,64 @@ test("runAllCapturesWithOptions continues after a browser source fails and still
     ]
   );
 });
+
+test("runAllCapturesWithOptions forces live browser capture in source QA mode", async () => {
+  const originalQaMode = process.env.JOB_FINDER_SOURCE_QA_MODE;
+  process.env.JOB_FINDER_SOURCE_QA_MODE = "1";
+
+  const decisionCalls = [];
+  const captureCalls = [];
+
+  try {
+    const result = await reviewServer.runAllCapturesWithOptions(
+      {},
+      {
+        loadSourcesFn: () => ({
+          sources: [
+            {
+              id: "zip-ai-pm",
+              name: "ZipRecruiter",
+              type: "browser_zip",
+              enabled: true
+            }
+          ]
+        }),
+        isBrowserCaptureSourceFn: () => true,
+        sourceWithCadenceCacheTtlFn: (source) => source,
+        getSourceRefreshDecisionFn: (_source, options) => {
+          decisionCalls.push(options);
+          return {
+            allowLive: options.forceRefresh === true && options.profile === "probe",
+            reason: options.forceRefresh === true ? "force_refresh" : "cache_fresh",
+            cacheSummary: { jobCount: 9 }
+          };
+        },
+        ensureBridgeFn: async () => {},
+        captureSourceFn: async (source) => {
+          captureCalls.push(source.id);
+          return {
+            provider: "bridge",
+            status: "completed",
+            capturedAt: "2026-03-30T22:00:00.000Z"
+          };
+        },
+        runSyncAndScoreFn: () => ({ collected: 1 }),
+        recordRefreshEventFn: () => {},
+        classifyRefreshErrorOutcomeFn: () => "transient_error",
+        buildSourceSnapshotPathFn: () => "/tmp/zip.json"
+      }
+    );
+
+    assert.equal(captureCalls.length, 1);
+    assert.equal(result.captures[0].provider, "bridge");
+    assert.equal(result.captures[0].cached, undefined);
+    assert.ok(decisionCalls.every((call) => call.forceRefresh === true));
+    assert.ok(decisionCalls.every((call) => call.profile === "probe"));
+  } finally {
+    if (originalQaMode === undefined) {
+      delete process.env.JOB_FINDER_SOURCE_QA_MODE;
+    } else {
+      process.env.JOB_FINDER_SOURCE_QA_MODE = originalQaMode;
+    }
+  }
+});
