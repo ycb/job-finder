@@ -1,3 +1,5 @@
+export const CURRENT_SOURCE_RUN_SEMANTICS_VERSION = 2;
+
 export function upsertJobs(db, jobs, options = {}) {
   const lastImportBatchId =
     typeof options?.lastImportBatchId === "string" && options.lastImportBatchId.trim()
@@ -215,6 +217,7 @@ export function recordSourceRunDeltas(db, rows = []) {
     INSERT INTO source_run_deltas (
       run_id,
       source_id,
+      semantics_version,
       found_count,
       filtered_count,
       deduped_count,
@@ -232,7 +235,7 @@ export function recordSourceRunDeltas(db, rows = []) {
       status_label,
       captured_at,
       recorded_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
   `);
 
   let inserted = 0;
@@ -247,6 +250,9 @@ export function recordSourceRunDeltas(db, rows = []) {
     statement.run(
       runId,
       sourceId,
+      normalizeOptionalCount(
+        row?.semanticsVersion ?? CURRENT_SOURCE_RUN_SEMANTICS_VERSION
+      ),
       normalizeOptionalCount(row?.foundCount),
       normalizeOptionalCount(row?.filteredCount),
       normalizeOptionalCount(row?.dedupedCount),
@@ -343,6 +349,7 @@ export function listLatestSourceRunDeltas(db) {
       SELECT
         latest.run_id AS runId,
         latest.source_id AS sourceId,
+        latest.semantics_version AS semanticsVersion,
         latest.found_count AS foundCount,
         latest.filtered_count AS filteredCount,
         latest.deduped_count AS dedupedCount,
@@ -381,6 +388,7 @@ export function listSourceRunTotals(db) {
       WITH deduped_runs AS (
         SELECT
           latest.source_id AS source_id,
+          latest.semantics_version AS semantics_version,
           latest.found_count AS found_count,
           latest.filtered_count AS filtered_count,
           latest.deduped_count AS deduped_count,
@@ -392,10 +400,12 @@ export function listSourceRunTotals(db) {
           latest.captured_at AS captured_at,
           latest.recorded_at AS recorded_at
         FROM source_run_deltas latest
-        WHERE latest.id = (
+        WHERE latest.semantics_version = ${CURRENT_SOURCE_RUN_SEMANTICS_VERSION}
+          AND latest.id = (
           SELECT candidate.id
           FROM source_run_deltas candidate
           WHERE candidate.source_id = latest.source_id
+            AND candidate.semantics_version = ${CURRENT_SOURCE_RUN_SEMANTICS_VERSION}
             AND COALESCE(candidate.captured_at, candidate.recorded_at) =
               COALESCE(latest.captured_at, latest.recorded_at)
           ORDER BY candidate.id DESC

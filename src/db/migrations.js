@@ -154,6 +154,7 @@ export function runMigrations(db) {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         run_id TEXT NOT NULL,
         source_id TEXT NOT NULL,
+        semantics_version INTEGER,
         found_count INTEGER,
         filtered_count INTEGER,
         deduped_count INTEGER,
@@ -194,6 +195,7 @@ export function runMigrations(db) {
   addColumnIfMissing(db, "source_run_deltas", "found_count", "INTEGER");
   addColumnIfMissing(db, "source_run_deltas", "filtered_count", "INTEGER");
   addColumnIfMissing(db, "source_run_deltas", "deduped_count", "INTEGER");
+  addColumnIfMissing(db, "source_run_deltas", "semantics_version", "INTEGER");
   addColumnIfMissing(db, "source_run_deltas", "raw_found_count", "INTEGER");
   addColumnIfMissing(db, "source_run_deltas", "hard_filtered_count", "INTEGER");
   addColumnIfMissing(db, "source_run_deltas", "duplicate_collapsed_count", "INTEGER");

@@ -211,6 +211,7 @@ test("recordSourceRunDeltas persists rows and listLatestSourceRunDeltas returns 
       {
         runId: "run-2",
         sourceId: "source-a",
+        semanticsVersion: 2,
         foundCount: 18,
         filteredCount: 4,
         dedupedCount: 2,
@@ -232,6 +233,7 @@ test("recordSourceRunDeltas persists rows and listLatestSourceRunDeltas returns 
       {
         runId: "run-1",
         sourceId: "source-b",
+        semanticsVersion: 2,
         foundCount: 8,
         filteredCount: 2,
         dedupedCount: 1,
@@ -376,6 +378,68 @@ test("listSourceRunTotals dedupes repeated source runs with the same captured_at
         foundSamples: 1,
         filteredSamples: 1,
         dedupedSamples: 1,
+        rawFoundSamples: 1,
+        hardFilteredSamples: 1,
+        duplicateCollapsedSamples: 1,
+        importedKeptSamples: 1
+      }
+    ]);
+  } finally {
+    cleanupTempDb(db, dir);
+  }
+});
+
+test("listSourceRunTotals ignores legacy rows without the current semantics version", () => {
+  const { db, dir } = createTempDb();
+
+  try {
+    db.prepare(`
+      INSERT INTO source_run_deltas (
+        run_id,
+        source_id,
+        found_count,
+        filtered_count,
+        deduped_count,
+        imported_count,
+        recorded_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "run-legacy",
+      "source-a",
+      99,
+      20,
+      10,
+      69,
+      "2026-03-09T05:00:00.000Z"
+    );
+
+    recordSourceRunDeltas(db, [
+      {
+        runId: "run-v2",
+        sourceId: "source-a",
+        rawFoundCount: 8,
+        hardFilteredCount: 3,
+        duplicateCollapsedCount: 1,
+        importedKeptCount: 4,
+        importedCount: 4,
+        recordedAt: "2026-03-09T06:00:00.000Z"
+      }
+    ]);
+
+    assert.deepEqual(listSourceRunTotals(db).map((row) => ({ ...row })), [
+      {
+        sourceId: "source-a",
+        importedCount: 4,
+        foundCount: null,
+        filteredCount: null,
+        dedupedCount: null,
+        rawFoundCount: 8,
+        hardFilteredCount: 3,
+        duplicateCollapsedCount: 1,
+        importedKeptCount: 4,
+        foundSamples: 0,
+        filteredSamples: 0,
+        dedupedSamples: 0,
         rawFoundSamples: 1,
         hardFilteredSamples: 1,
         duplicateCollapsedSamples: 1,
