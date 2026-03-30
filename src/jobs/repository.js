@@ -307,6 +307,35 @@ export function listAllNormalizedHashes(db) {
     .filter(Boolean);
 }
 
+export function listNormalizedHashesOutsideSources(db, excludedSourceIds = []) {
+  const normalizedExcludedIds = Array.from(
+    new Set(
+      (Array.isArray(excludedSourceIds) ? excludedSourceIds : [])
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+    )
+  );
+
+  const exclusionSql =
+    normalizedExcludedIds.length > 0
+      ? `AND source_id NOT IN (${normalizedExcludedIds.map(() => "?").join(", ")})`
+      : "";
+
+  return db
+    .prepare(
+      `
+      SELECT DISTINCT normalized_hash AS normalizedHash
+      FROM jobs
+      WHERE normalized_hash IS NOT NULL
+        AND TRIM(normalized_hash) != ''
+        ${exclusionSql};
+    `
+    )
+    .all(...normalizedExcludedIds)
+    .map((row) => String(row.normalizedHash || "").trim())
+    .filter(Boolean);
+}
+
 export function listLatestSourceRunDeltas(db) {
   return db
     .prepare(

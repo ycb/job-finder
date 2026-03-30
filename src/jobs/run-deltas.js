@@ -173,7 +173,7 @@ export function classifyRunDeltas({ existingRows = [], incomingJobs = [] } = {})
 export function buildSourceRunSemanticMetrics({
   normalizedJobs = [],
   evaluations = [],
-  knownNormalizedHashes = new Set()
+  knownDuplicateHashes = new Set()
 } = {}) {
   const jobs = Array.isArray(normalizedJobs) ? normalizedJobs : [];
   const evaluationMap = new Map(
@@ -201,7 +201,7 @@ export function buildSourceRunSemanticMetrics({
 
     if (
       normalizedHash &&
-      (seenIncomingHashes.has(normalizedHash) || knownNormalizedHashes.has(normalizedHash))
+      (seenIncomingHashes.has(normalizedHash) || knownDuplicateHashes.has(normalizedHash))
     ) {
       duplicateCollapsedCount += 1;
       continue;

@@ -446,7 +446,7 @@ test("buildSourceRunSemanticMetrics counts hard-filter rejects and true duplicat
       { jobId: "job-3", hardFiltered: false },
       { jobId: "job-4", hardFiltered: false }
     ],
-    knownNormalizedHashes: new Set(["hash-4"])
+    knownDuplicateHashes: new Set(["hash-4"])
   });
 
   assert.deepEqual(
@@ -463,6 +463,41 @@ test("buildSourceRunSemanticMetrics counts hard-filter rejects and true duplicat
       duplicateCollapsedCount: 2,
       importedKeptCount: 1,
       keptNormalizedHashes: ["hash-1"]
+    }
+  );
+});
+
+test("buildSourceRunSemanticMetrics ignores same-source reruns and only counts cross-source dupes", () => {
+  const metrics = buildSourceRunSemanticMetrics({
+    normalizedJobs: [
+      { id: "job-1", normalizedHash: "hash-1" },
+      { id: "job-2", normalizedHash: "hash-2" },
+      { id: "job-3", normalizedHash: "hash-2" },
+      { id: "job-4", normalizedHash: "hash-4" }
+    ],
+    evaluations: [
+      { jobId: "job-1", hardFiltered: false },
+      { jobId: "job-2", hardFiltered: false },
+      { jobId: "job-3", hardFiltered: false },
+      { jobId: "job-4", hardFiltered: false }
+    ],
+    knownDuplicateHashes: new Set(["hash-4"])
+  });
+
+  assert.deepEqual(
+    {
+      rawFoundCount: metrics.rawFoundCount,
+      hardFilteredCount: metrics.hardFilteredCount,
+      duplicateCollapsedCount: metrics.duplicateCollapsedCount,
+      importedKeptCount: metrics.importedKeptCount,
+      keptNormalizedHashes: Array.from(metrics.keptNormalizedHashes)
+    },
+    {
+      rawFoundCount: 4,
+      hardFilteredCount: 0,
+      duplicateCollapsedCount: 2,
+      importedKeptCount: 2,
+      keptNormalizedHashes: ["hash-1", "hash-2"]
     }
   );
 });
