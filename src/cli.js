@@ -77,6 +77,44 @@ import {
   applySourceQaOverrides,
   isSourceQaModeEnabled
 } from "./sources/qa-mode.js";
+
+function timestampsClose(left, right, toleranceMs = 15_000) {
+  const leftMs = Date.parse(String(left || ""));
+  const rightMs = Date.parse(String(right || ""));
+  if (!Number.isFinite(leftMs) || !Number.isFinite(rightMs)) {
+    return false;
+  }
+
+  return Math.abs(leftMs - rightMs) <= toleranceMs;
+}
+
+function isCurrentRunLiveCapture(sourceState, options = {}) {
+  const currentCapturedAt = options.currentCapturedAt || null;
+  const recordedAt = options.recordedAt || null;
+  if (!currentCapturedAt || !recordedAt) {
+    return false;
+  }
+
+  const recordedMs = Date.parse(String(recordedAt || ""));
+  const capturedMs = Date.parse(String(currentCapturedAt || ""));
+  if (!Number.isFinite(recordedMs) || !Number.isFinite(capturedMs)) {
+    return false;
+  }
+
+  if (Math.abs(recordedMs - capturedMs) > 10 * 60_000) {
+    return false;
+  }
+
+  const lastAttemptOutcome = String(sourceState?.lastAttemptOutcome || "").trim().toLowerCase();
+  if (lastAttemptOutcome !== "success") {
+    return false;
+  }
+
+  return (
+    timestampsClose(sourceState?.lastAttemptedAt, currentCapturedAt) ||
+    timestampsClose(sourceState?.lastLiveAt, currentCapturedAt)
+  );
+}
 import {
   computeSourceHealthStatus,
   recordSourceHealthFromCaptureEvaluation
@@ -499,6 +537,15 @@ function buildSourceRefreshContext(source, options = {}) {
     mock_profile: "cache_only"
   };
 
+  if (isCurrentRunLiveCapture(decision.sourceState || {}, options)) {
+    return {
+      refreshMode: refreshProfile,
+      servedFrom: "live",
+      statusReason: "fetched_during_sync",
+      statusLabel: "ready_live"
+    };
+  }
+
   return {
     refreshMode: refreshProfile,
     servedFrom: decision.servedFrom || "cache",
@@ -633,7 +680,11 @@ function runSync(options = {}) {
       evaluations: sourceEvaluations,
       knownDuplicateHashes
     });
-    const refreshContext = buildSourceRefreshContext(source, options);
+    const refreshContext = buildSourceRefreshContext(source, {
+      ...options,
+      currentCapturedAt: capturePayload.capturedAt,
+      recordedAt: runRecordedAt
+    });
 
     totalCollected += normalizedJobs.length;
     totalUpserted += upsertJobs(db, normalizedJobs, { lastImportBatchId: runId });

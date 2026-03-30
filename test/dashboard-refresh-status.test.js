@@ -191,6 +191,46 @@ test("buildSourceRefreshMeta reports a later transient error over an older succe
   }
 });
 
+test("buildSourceRefreshMeta preserves live status for the current run capture", () => {
+  const { tempDir, capturePath, statePath } = createTempPaths();
+  const source = {
+    id: "zip-ai-pm",
+    name: "ZipRecruiter",
+    type: "ziprecruiter_search",
+    searchUrl: "https://www.ziprecruiter.com/jobs-search?search=product+manager",
+    capturePath,
+    cacheTtlHours: 12
+  };
+
+  try {
+    const capturedAt = "2026-03-30T23:27:15.609Z";
+    writeSourceCapturePayload(source, [{ title: "PM" }], {
+      capturedAt,
+      pageUrl: source.searchUrl
+    });
+    recordRefreshEvent({
+      statePath,
+      sourceId: source.id,
+      outcome: "success",
+      at: capturedAt
+    });
+
+    const meta = buildSourceRefreshMeta(source, {
+      refreshProfile: "probe",
+      refreshStatePath: statePath,
+      nowMs: Date.parse("2026-03-30T23:27:18.655Z"),
+      currentCapturedAt: capturedAt,
+      recordedAt: "2026-03-30T23:27:18.655Z"
+    });
+
+    assert.equal(meta.servedFrom, "live");
+    assert.equal(meta.statusLabel, "ready_live");
+    assert.equal(meta.statusReason, "fetched_during_sync");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("renderDashboardPage includes run delta and refresh context status copy", async () => {
   const { renderDashboardPage } = await import("../src/review/server.js");
   const html = renderDashboardPage({});

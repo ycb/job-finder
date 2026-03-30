@@ -1023,6 +1023,44 @@ function buildSourceSnapshotPath(source) {
   return path.resolve("output/playwright", `${source.id}-snapshot.md`);
 }
 
+function timestampsClose(left, right, toleranceMs = 15_000) {
+  const leftMs = Date.parse(String(left || ""));
+  const rightMs = Date.parse(String(right || ""));
+  if (!Number.isFinite(leftMs) || !Number.isFinite(rightMs)) {
+    return false;
+  }
+
+  return Math.abs(leftMs - rightMs) <= toleranceMs;
+}
+
+function isCurrentRunLiveCapture(sourceState, options = {}) {
+  const currentCapturedAt = options.currentCapturedAt || null;
+  const recordedAt = options.recordedAt || null;
+  if (!currentCapturedAt || !recordedAt) {
+    return false;
+  }
+
+  const recordedMs = Date.parse(String(recordedAt || ""));
+  const capturedMs = Date.parse(String(currentCapturedAt || ""));
+  if (!Number.isFinite(recordedMs) || !Number.isFinite(capturedMs)) {
+    return false;
+  }
+
+  if (Math.abs(recordedMs - capturedMs) > 10 * 60_000) {
+    return false;
+  }
+
+  const lastAttemptOutcome = String(sourceState?.lastAttemptOutcome || "").trim().toLowerCase();
+  if (lastAttemptOutcome !== "success") {
+    return false;
+  }
+
+  return (
+    timestampsClose(sourceState?.lastAttemptedAt, currentCapturedAt) ||
+    timestampsClose(sourceState?.lastLiveAt, currentCapturedAt)
+  );
+}
+
 function isBrowserCaptureSource(source) {
   return (
     source?.type === "linkedin_capture_file" ||
@@ -1089,6 +1127,21 @@ export function buildSourceRefreshMeta(source, options = {}) {
     challenge: "challenge",
     attempt_failed: "attempt_failed"
   };
+
+  if (isCurrentRunLiveCapture(sourceState, options)) {
+    return {
+      refreshMode: refreshProfile,
+      servedFrom: "live",
+      lastLiveAt: sourceState.lastLiveAt || lastAttemptedAt || options.currentCapturedAt || null,
+      lastAttemptedAt,
+      lastAttemptOutcome,
+      lastAttemptError,
+      nextEligibleAt: decision.nextEligibleAt || null,
+      cooldownUntil: sourceState.cooldownUntil || null,
+      statusLabel: "ready_live",
+      statusReason: "fetched_during_sync"
+    };
+  }
 
   return {
     refreshMode: refreshProfile,
@@ -1275,7 +1328,10 @@ function runSyncAndScore() {
         evaluations: sourceEvaluations,
         knownDuplicateHashes
       });
-      const refreshMeta = buildSourceRefreshMeta(source);
+      const refreshMeta = buildSourceRefreshMeta(source, {
+        currentCapturedAt: capturePayload.capturedAt,
+        recordedAt: runRecordedAt
+      });
 
       totalCollected += normalizedJobs.length;
       totalUpserted += upsertJobs(db, normalizedJobs, { lastImportBatchId: runId });
