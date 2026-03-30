@@ -74,6 +74,10 @@ import {
   writeCaptureQuarantineArtifact
 } from "./sources/capture-validation.js";
 import {
+  applySourceQaOverrides,
+  isSourceQaModeEnabled
+} from "./sources/qa-mode.js";
+import {
   computeSourceHealthStatus,
   recordSourceHealthFromCaptureEvaluation
 } from "./sources/source-health.js";
@@ -417,6 +421,10 @@ function resolveAllowQuarantinedIngest(options = {}) {
     return true;
   }
 
+  if (isSourceQaModeEnabled()) {
+    return true;
+  }
+
   const envValue = String(
     process.env.JOB_FINDER_ALLOW_QUARANTINED_CAPTURE || ""
   ).trim().toLowerCase();
@@ -460,6 +468,7 @@ function buildRejectedEvaluation(reason) {
 }
 
 function buildSourceRefreshContext(source, options = {}) {
+  options = applySourceQaOverrides(options);
   const refreshProfile = normalizeRefreshProfile(
     options.refreshProfile || process.env.JOB_FINDER_REFRESH_PROFILE || "safe"
   );

@@ -77,6 +77,10 @@ import {
   writeCaptureQuarantineArtifact
 } from "../sources/capture-validation.js";
 import {
+  applySourceQaOverrides,
+  isSourceQaModeEnabled
+} from "../sources/qa-mode.js";
+import {
   classifyRefreshErrorOutcome,
   countSourceEventsForUtcDay,
   readRefreshState,
@@ -1105,6 +1109,10 @@ function resolveAllowQuarantinedIngest(options = {}) {
     return true;
   }
 
+  if (isSourceQaModeEnabled()) {
+    return true;
+  }
+
   const envValue = String(
     process.env.JOB_FINDER_ALLOW_QUARANTINED_CAPTURE || ""
   ).trim().toLowerCase();
@@ -1369,6 +1377,7 @@ function sourceWithCadenceCacheTtl(source, options = {}) {
 }
 
 async function runSourceCaptureWithOptions(sourceId, options = {}) {
+  options = applySourceQaOverrides(options);
   const source = loadSources().sources.find((item) => item.id === sourceId);
 
   if (!source) {
@@ -1546,6 +1555,7 @@ async function runAllCaptures() {
 }
 
 export async function runAllCapturesWithOptions(options = {}, overrides = {}) {
+  options = applySourceQaOverrides(options);
   const loadSourcesFn = overrides.loadSourcesFn || loadSources;
   const isBrowserCaptureSourceFn = overrides.isBrowserCaptureSourceFn || isBrowserCaptureSource;
   const sourceWithCadenceCacheTtlFn =
@@ -7615,16 +7625,27 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
       if (request.method === "POST" && url.pathname === "/api/sources/run-all") {
         const rawBody = await readRequestBody(request);
         const parsedBody = rawBody ? JSON.parse(rawBody) : {};
+        const qaRunOptions = applySourceQaOverrides({
+          refreshProfile:
+            typeof parsedBody.refreshProfile === "string"
+              ? parsedBody.refreshProfile
+              : undefined,
+          cacheTtlHours:
+            Number.isFinite(Number(parsedBody.cacheTtlHours)) && Number(parsedBody.cacheTtlHours) > 0
+              ? Math.round(Number(parsedBody.cacheTtlHours))
+              : undefined,
+          forceRefresh: parsedBody.forceRefresh === true
+        });
         const refreshProfile =
-          typeof parsedBody.refreshProfile === "string"
-            ? parsedBody.refreshProfile
+          typeof qaRunOptions.refreshProfile === "string"
+            ? qaRunOptions.refreshProfile
             : undefined;
         const normalizedRefreshProfile = normalizeRefreshProfile(refreshProfile || "safe");
         const cacheTtlHours =
-          Number.isFinite(Number(parsedBody.cacheTtlHours)) && Number(parsedBody.cacheTtlHours) > 0
-            ? Math.round(Number(parsedBody.cacheTtlHours))
+          Number.isFinite(Number(qaRunOptions.cacheTtlHours)) && Number(qaRunOptions.cacheTtlHours) > 0
+            ? Math.round(Number(qaRunOptions.cacheTtlHours))
             : undefined;
-        const forceRefresh = parsedBody.forceRefresh === true;
+        const forceRefresh = qaRunOptions.forceRefresh === true;
         const skipAuthPreflight =
           parsedBody.skipAuthPreflight === true || normalizedRefreshProfile === "mock";
         if (!skipAuthPreflight) {
@@ -7748,7 +7769,10 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
           }
 
           const decision = getSourceRefreshDecision(source, {
-            profile: "safe"
+            profile: normalizeRefreshProfile(
+              applySourceQaOverrides({ refreshProfile: "safe" }).refreshProfile || "safe"
+            ),
+            forceRefresh: applySourceQaOverrides({}).forceRefresh === true
           });
           if (!decision.allowLive) {
             response.writeHead(409, { "Content-Type": "application/json; charset=utf-8" });
@@ -7780,19 +7804,22 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
 
         const rawBody = await readRequestBody(request);
         const parsedBody = rawBody ? JSON.parse(rawBody) : {};
-        const result = await runSourceCaptureWithOptions(decodeURIComponent(match[1]), {
-          refreshProfile:
-            typeof parsedBody.refreshProfile === "string"
-              ? parsedBody.refreshProfile
-              : undefined,
-          cacheTtlHours:
-            Number.isFinite(Number(parsedBody.cacheTtlHours)) &&
-            Number(parsedBody.cacheTtlHours) > 0
-              ? Math.round(Number(parsedBody.cacheTtlHours))
-              : undefined,
-          forceRefresh: parsedBody.forceRefresh === true,
-          skipSync: parsedBody.skipSync === true
-        });
+        const result = await runSourceCaptureWithOptions(
+          decodeURIComponent(match[1]),
+          applySourceQaOverrides({
+            refreshProfile:
+              typeof parsedBody.refreshProfile === "string"
+                ? parsedBody.refreshProfile
+                : undefined,
+            cacheTtlHours:
+              Number.isFinite(Number(parsedBody.cacheTtlHours)) &&
+              Number(parsedBody.cacheTtlHours) > 0
+                ? Math.round(Number(parsedBody.cacheTtlHours))
+                : undefined,
+            forceRefresh: parsedBody.forceRefresh === true,
+            skipSync: parsedBody.skipSync === true
+          })
+        );
         trackDashboardEvent("source_run_completed", {
           source_id: decodeURIComponent(match[1]),
           capture_status: result?.capture?.status || "unknown",
