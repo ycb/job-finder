@@ -47,9 +47,9 @@ import { applyRetentionPolicyCleanup, writeRetentionCleanupAudit } from "../jobs
 import {
   getLatestImportedRunId,
   listAllJobs,
-  listAllNormalizedHashes,
   listAllJobsWithStatus,
   listLatestSourceRunDeltas,
+  listNormalizedHashesOutsideSources,
   listSourceRunTotals,
   listSourceJobsForDelta,
   listReviewQueue,
@@ -1165,8 +1165,6 @@ function runSyncAndScore() {
     let skippedByQuality = 0;
     const qualityMessages = [];
     const sourceDeltaRows = [];
-    const knownNormalizedHashes = new Set(listAllNormalizedHashes(db));
-
     for (const source of sources) {
       const captureSummary = readSourceCaptureSummary(source);
       let rawJobs;
@@ -1261,14 +1259,14 @@ function runSyncAndScore() {
         incomingJobs: normalizedJobs
       });
       const sourceEvaluations = evaluateJobsFromSearchCriteria(criteria, normalizedJobs);
+      const knownDuplicateHashes = new Set(
+        listNormalizedHashesOutsideSources(db, getSourceAggregationIds(source))
+      );
       const semanticMetrics = buildSourceRunSemanticMetrics({
         normalizedJobs,
         evaluations: sourceEvaluations,
-        knownNormalizedHashes
+        knownDuplicateHashes
       });
-      for (const normalizedHash of semanticMetrics.keptNormalizedHashes) {
-        knownNormalizedHashes.add(normalizedHash);
-      }
       const refreshMeta = buildSourceRefreshMeta(source);
 
       totalCollected += normalizedJobs.length;

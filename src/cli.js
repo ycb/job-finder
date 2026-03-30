@@ -12,6 +12,9 @@ import {
 } from "./browser-bridge/client.js";
 import { startBrowserBridgeServer } from "./browser-bridge/server.js";
 import {
+  getSourceAggregationIds,
+} from "./config/source-library.js";
+import {
   addAshbySearchSource,
   addBuiltinSearchSource,
   addGoogleSearchSource,
@@ -42,7 +45,7 @@ import { normalizeJobRecord } from "./jobs/normalize.js";
 import { applyRetentionPolicyCleanup, writeRetentionCleanupAudit } from "./jobs/retention.js";
 import {
   listAllJobs,
-  listAllNormalizedHashes,
+  listNormalizedHashesOutsideSources,
   listSourceJobsForDelta,
   listReviewQueue,
   listTopJobs,
@@ -512,8 +515,6 @@ function runSync(options = {}) {
   let skippedByQuality = 0;
   const qualityMessages = [];
   const sourceDeltaRows = [];
-  const knownNormalizedHashes = new Set(listAllNormalizedHashes(db));
-
   for (const source of sources.sources.filter((item) => item.enabled)) {
     const captureSummary = readSourceCaptureSummary(source);
     let rawJobs;
@@ -615,14 +616,14 @@ function runSync(options = {}) {
       sources.criteria,
       normalizedJobs
     );
+    const knownDuplicateHashes = new Set(
+      listNormalizedHashesOutsideSources(db, getSourceAggregationIds(source))
+    );
     const semanticMetrics = buildSourceRunSemanticMetrics({
       normalizedJobs,
       evaluations: sourceEvaluations,
-      knownNormalizedHashes
+      knownDuplicateHashes
     });
-    for (const normalizedHash of semanticMetrics.keptNormalizedHashes) {
-      knownNormalizedHashes.add(normalizedHash);
-    }
     const refreshContext = buildSourceRefreshContext(source, options);
 
     totalCollected += normalizedJobs.length;
