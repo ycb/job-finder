@@ -17,7 +17,7 @@ This plan also fixes `YC Jobs` identity so duplicate counts stop being polluted 
 - [x] Fix `YC Jobs` canonical URL and stable identity so duplicate counts reflect job-level opportunities instead of company pages.
 - [x] Rebuild source-row aggregation and UI presentation so legacy-only runs show `—` and v2 runs add up as `Found = Filtered + Dupes + Imported`.
 - [x] Add regression coverage for migrations, aggregation, YC identity, and v2 source-row behavior.
-- [ ] Re-run affected sources in the QA checkout so the table displays trustworthy v2 counts.
+- [x] Re-run affected sources in the QA checkout so the table displays trustworthy v2 counts.
 
 ## Surprises & Discoveries
 
@@ -26,6 +26,12 @@ This plan also fixes `YC Jobs` identity so duplicate counts stop being polluted 
 
 - Observation: `YC Jobs` duplicate counts are inflated by identity collisions, not healthy cross-source dedupe.
   Evidence: the current adapter canonicalizes to company pages like `https://www.workatastartup.com/companies/<slug>`, so multiple distinct jobs from the same company collapse to one identity.
+
+- Observation: the first pass at v2 duplicate accounting still miscounted same-source reruns as dupes because it compared against all previously known normalized hashes rather than hashes from other sources only.
+  Evidence: after the initial v2 rollout, fresh reruns produced rows like `levelsfyi-ai-pm|26|0|26|0` and `zip-ai-pm|13|0|13|0`, which made `Imported` collapse to zero even though those sources still had valid queue candidates.
+
+- Observation: once duplicate accounting was fixed, the live table still showed inflated counts because old broken v2 rows were being summed with corrected rows.
+  Evidence: `/api/dashboard` still showed `YC Jobs|90|0|14|76` and `Levels.fyi|78|0|26|52` until a semantics-version column was added and the public aggregation was gated to the corrected version only.
 
 ## Decision Log
 
@@ -41,13 +47,33 @@ This plan also fixes `YC Jobs` identity so duplicate counts stop being polluted 
   Rationale: the Sources table must prefer unknown over misleading. Sources only become trustworthy again after one fresh run under the corrected model.
   Date/Author: 2026-03-30 / Codex
 
+- Decision: same-source reruns do not count as user-facing dupes.
+  Rationale: the Sources table should explain duplicate opportunities polluting the queue, not the fact that a source returned its own previously known jobs on a later refresh.
+  Date/Author: 2026-03-30 / Codex
+
+- Decision: public source metrics are versioned, and the Sources table only reads the current semantics version.
+  Rationale: once the metric meaning changed, continuing to sum older broken rows with corrected rows would have kept the UI misleading even after the code fix.
+  Date/Author: 2026-03-30 / Codex
+
 ## Outcomes & Retrospective
 
-Implementation complete in the controller worktree. The remaining work is operational: fold the branch into `qa/current`, re-run the affected sources, and verify that the live source table reflects the new v2 semantics.
+Implementation complete in the controller worktree and verified in the QA checkout at `http://127.0.0.1:4311`.
 
-The target outcome is a Sources table whose numbers are additive and user-meaningful, plus a `YC Jobs` identity model that no longer turns company-page collisions into false dedupe.
+Final implementation notes (2026-03-30):
+- `YC Jobs` now uses job-level URLs for canonical review/identity.
+- v2 public source metrics are persisted separately from legacy pre-import diagnostics.
+- duplicate accounting now compares against other sources and same-run repeats only, not the source’s own historical rows.
+- public aggregation is gated by `semantics_version = 2`, so stale broken rows no longer pollute the table.
 
-Implementation note (2026-03-30): the controller branch now persists v2 source metrics from the shared evaluation + identity funnel in both sync paths, and `YC Jobs` uses job-level URLs for canonical review/identity. Tests and compile checks are green. Live QA still requires one fresh run per source because legacy run rows intentionally remain unknown.
+Live QA verification after a fresh `node src/cli.js sync` in `/Users/admin/job-finder`:
+- `LinkedIn|18|0|2|16`
+- `Built In|0|0|0|0`
+- `Indeed|4|0|0|4`
+- `ZipRecruiter|13|0|0|13`
+- `YC Jobs|30|0|0|30`
+- `Levels.fyi|26|0|0|26`
+
+These rows now reflect only the corrected semantics-versioned runs instead of mixed legacy/broken totals.
 
 ## Context and Orientation
 
