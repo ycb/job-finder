@@ -15,6 +15,7 @@ import {
   recordSourceRunDeltas,
   upsertJobs
 } from "../src/jobs/repository.js";
+import { buildSourceRunSemanticMetrics } from "../src/jobs/run-deltas.js";
 
 function createTempDb() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "job-finder-run-deltas-"));
@@ -143,6 +144,10 @@ test("recordSourceRunDeltas persists rows and listLatestSourceRunDeltas returns 
         foundCount: 20,
         filteredCount: 5,
         dedupedCount: 2,
+        rawFoundCount: 20,
+        hardFilteredCount: 5,
+        duplicateCollapsedCount: 2,
+        importedKeptCount: 13,
         newCount: 4,
         updatedCount: 1,
         unchangedCount: 8,
@@ -160,6 +165,10 @@ test("recordSourceRunDeltas persists rows and listLatestSourceRunDeltas returns 
         foundCount: 8,
         filteredCount: 2,
         dedupedCount: 1,
+        rawFoundCount: 8,
+        hardFilteredCount: 2,
+        duplicateCollapsedCount: 1,
+        importedKeptCount: 5,
         newCount: 2,
         updatedCount: 0,
         unchangedCount: 3,
@@ -180,6 +189,10 @@ test("recordSourceRunDeltas persists rows and listLatestSourceRunDeltas returns 
         foundCount: 18,
         filteredCount: 4,
         dedupedCount: 2,
+        rawFoundCount: 18,
+        hardFilteredCount: 4,
+        duplicateCollapsedCount: 2,
+        importedKeptCount: 12,
         newCount: 1,
         updatedCount: 2,
         unchangedCount: 9,
@@ -201,6 +214,10 @@ test("recordSourceRunDeltas persists rows and listLatestSourceRunDeltas returns 
         foundCount: 18,
         filteredCount: 4,
         dedupedCount: 2,
+        rawFoundCount: 18,
+        hardFilteredCount: 4,
+        duplicateCollapsedCount: 2,
+        importedKeptCount: 12,
         newCount: 1,
         updatedCount: 2,
         unchangedCount: 9,
@@ -218,6 +235,10 @@ test("recordSourceRunDeltas persists rows and listLatestSourceRunDeltas returns 
         foundCount: 8,
         filteredCount: 2,
         dedupedCount: 1,
+        rawFoundCount: 8,
+        hardFilteredCount: 2,
+        duplicateCollapsedCount: 1,
+        importedKeptCount: 5,
         newCount: 2,
         updatedCount: 0,
         unchangedCount: 3,
@@ -246,6 +267,10 @@ test("listSourceRunTotals returns cumulative persisted source funnel metrics", (
         foundCount: 20,
         filteredCount: 5,
         dedupedCount: 2,
+        rawFoundCount: 20,
+        hardFilteredCount: 5,
+        duplicateCollapsedCount: 2,
+        importedKeptCount: 13,
         newCount: 4,
         updatedCount: 1,
         unchangedCount: 8,
@@ -258,6 +283,10 @@ test("listSourceRunTotals returns cumulative persisted source funnel metrics", (
         foundCount: 18,
         filteredCount: 4,
         dedupedCount: 2,
+        rawFoundCount: 18,
+        hardFilteredCount: 4,
+        duplicateCollapsedCount: 2,
+        importedKeptCount: 12,
         newCount: 1,
         updatedCount: 2,
         unchangedCount: 9,
@@ -273,9 +302,17 @@ test("listSourceRunTotals returns cumulative persisted source funnel metrics", (
         foundCount: 38,
         filteredCount: 9,
         dedupedCount: 4,
+        rawFoundCount: 38,
+        hardFilteredCount: 9,
+        duplicateCollapsedCount: 4,
+        importedKeptCount: 25,
         foundSamples: 2,
         filteredSamples: 2,
-        dedupedSamples: 2
+        dedupedSamples: 2,
+        rawFoundSamples: 2,
+        hardFilteredSamples: 2,
+        duplicateCollapsedSamples: 2,
+        importedKeptSamples: 2
       }
     ]);
   } finally {
@@ -294,6 +331,10 @@ test("listSourceRunTotals dedupes repeated source runs with the same captured_at
         foundCount: 20,
         filteredCount: 5,
         dedupedCount: 2,
+        rawFoundCount: 20,
+        hardFilteredCount: 5,
+        duplicateCollapsedCount: 2,
+        importedKeptCount: 13,
         newCount: 4,
         updatedCount: 1,
         unchangedCount: 8,
@@ -307,6 +348,10 @@ test("listSourceRunTotals dedupes repeated source runs with the same captured_at
         foundCount: 20,
         filteredCount: 5,
         dedupedCount: 2,
+        rawFoundCount: 20,
+        hardFilteredCount: 5,
+        duplicateCollapsedCount: 2,
+        importedKeptCount: 13,
         newCount: 4,
         updatedCount: 1,
         unchangedCount: 8,
@@ -324,9 +369,17 @@ test("listSourceRunTotals dedupes repeated source runs with the same captured_at
         foundCount: 20,
         filteredCount: 5,
         dedupedCount: 2,
+        rawFoundCount: 20,
+        hardFilteredCount: 5,
+        duplicateCollapsedCount: 2,
+        importedKeptCount: 13,
         foundSamples: 1,
         filteredSamples: 1,
-        dedupedSamples: 1
+        dedupedSamples: 1,
+        rawFoundSamples: 1,
+        hardFilteredSamples: 1,
+        duplicateCollapsedSamples: 1,
+        importedKeptSamples: 1
       }
     ]);
   } finally {
@@ -345,6 +398,10 @@ test("getLatestImportedRunId returns the latest completed run even when imports 
         foundCount: 10,
         filteredCount: 5,
         dedupedCount: 5,
+        rawFoundCount: 10,
+        hardFilteredCount: 5,
+        duplicateCollapsedCount: 5,
+        importedKeptCount: 0,
         newCount: 0,
         updatedCount: 0,
         unchangedCount: 0,
@@ -357,6 +414,10 @@ test("getLatestImportedRunId returns the latest completed run even when imports 
         foundCount: 12,
         filteredCount: 3,
         dedupedCount: 1,
+        rawFoundCount: 12,
+        hardFilteredCount: 3,
+        duplicateCollapsedCount: 1,
+        importedKeptCount: 8,
         newCount: 2,
         updatedCount: 0,
         unchangedCount: 6,
@@ -369,6 +430,41 @@ test("getLatestImportedRunId returns the latest completed run even when imports 
   } finally {
     cleanupTempDb(db, dir);
   }
+});
+
+test("buildSourceRunSemanticMetrics counts hard-filter rejects and true duplicates", () => {
+  const metrics = buildSourceRunSemanticMetrics({
+    normalizedJobs: [
+      { id: "job-1", normalizedHash: "hash-1" },
+      { id: "job-2", normalizedHash: "hash-2" },
+      { id: "job-3", normalizedHash: "hash-1" },
+      { id: "job-4", normalizedHash: "hash-4" }
+    ],
+    evaluations: [
+      { jobId: "job-1", hardFiltered: false },
+      { jobId: "job-2", hardFiltered: true },
+      { jobId: "job-3", hardFiltered: false },
+      { jobId: "job-4", hardFiltered: false }
+    ],
+    knownNormalizedHashes: new Set(["hash-4"])
+  });
+
+  assert.deepEqual(
+    {
+      rawFoundCount: metrics.rawFoundCount,
+      hardFilteredCount: metrics.hardFilteredCount,
+      duplicateCollapsedCount: metrics.duplicateCollapsedCount,
+      importedKeptCount: metrics.importedKeptCount,
+      keptNormalizedHashes: Array.from(metrics.keptNormalizedHashes)
+    },
+    {
+      rawFoundCount: 4,
+      hardFilteredCount: 1,
+      duplicateCollapsedCount: 2,
+      importedKeptCount: 1,
+      keptNormalizedHashes: ["hash-1"]
+    }
+  );
 });
 
 test("countSourceJobsInBatch reflects actual persisted rows touched in a run", () => {

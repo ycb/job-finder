@@ -114,6 +114,37 @@ function companyUrlForSlug(companySlug) {
   return toAbsoluteUrl(`/companies/${slug}`, "https://www.workatastartup.com");
 }
 
+function extractJobId(rawJob) {
+  const directId =
+    rawJob?.id === null || rawJob?.id === undefined
+      ? ""
+      : normalizeText(String(rawJob.id));
+  if (directId) {
+    return directId;
+  }
+
+  const applyUrl = toAbsoluteUrl(rawJob?.applyUrl || "");
+  if (!applyUrl) {
+    return "";
+  }
+
+  try {
+    const parsed = new URL(applyUrl);
+    return normalizeText(parsed.searchParams.get("signup_job_id") || "");
+  } catch {
+    return "";
+  }
+}
+
+function jobUrlForId(jobId) {
+  const normalizedId = normalizeText(jobId);
+  if (!normalizedId) {
+    return "";
+  }
+
+  return toAbsoluteUrl(`/jobs/${encodeURIComponent(normalizedId)}`);
+}
+
 function isProductManagerRoute(searchUrl) {
   return /\/jobs\/l\/product-manager\/?$/i.test(String(searchUrl || "").trim());
 }
@@ -163,7 +194,11 @@ function toJobRecord(rawJob, searchUrl) {
   const title = normalizeText(rawJob?.title);
   const company = normalizeText(rawJob?.companyName);
   const companySlug = normalizeText(rawJob?.companySlug);
-  const url = companyUrlForSlug(companySlug);
+  const jobId = extractJobId(rawJob);
+  const url =
+    jobUrlForId(jobId) ||
+    toAbsoluteUrl(rawJob?.url || "") ||
+    companyUrlForSlug(companySlug);
 
   if (!title || !company || !url) {
     return null;
@@ -179,10 +214,7 @@ function toJobRecord(rawJob, searchUrl) {
     .join("\n\n");
 
   return {
-    externalId:
-      rawJob?.id === null || rawJob?.id === undefined
-        ? null
-        : String(rawJob.id),
+    externalId: jobId || null,
     title,
     company,
     location: normalizeText(rawJob?.location) || null,

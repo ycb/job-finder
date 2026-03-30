@@ -25,7 +25,7 @@ test("parseYcJobsHtml extracts YC jobs and drops off-target roles from the produ
   assert.equal(jobs[0].company, "Metriport");
   assert.equal(
     jobs[0].url,
-    "https://www.workatastartup.com/companies/metriport"
+    "https://www.workatastartup.com/jobs/101"
   );
   assert.match(jobs[0].summary, /Healthcare infrastructure APIs/i);
   assert.equal(jobs[0].employmentType, "Full-time");

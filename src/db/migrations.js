@@ -194,6 +194,10 @@ export function runMigrations(db) {
   addColumnIfMissing(db, "source_run_deltas", "found_count", "INTEGER");
   addColumnIfMissing(db, "source_run_deltas", "filtered_count", "INTEGER");
   addColumnIfMissing(db, "source_run_deltas", "deduped_count", "INTEGER");
+  addColumnIfMissing(db, "source_run_deltas", "raw_found_count", "INTEGER");
+  addColumnIfMissing(db, "source_run_deltas", "hard_filtered_count", "INTEGER");
+  addColumnIfMissing(db, "source_run_deltas", "duplicate_collapsed_count", "INTEGER");
+  addColumnIfMissing(db, "source_run_deltas", "imported_kept_count", "INTEGER");
   backfillJobNormalization(db);
   backfillQueueSemantics(db);
 }
