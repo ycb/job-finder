@@ -18,7 +18,7 @@ function createTempCapturePath(prefix) {
   };
 }
 
-test("writeYcCaptureFile persists expectedCount and company-page review targets", () => {
+test("writeYcCaptureFile persists expectedCount and job-page review targets", () => {
   const { tempDir, capturePath } = createTempCapturePath("job-finder-yc-expected-");
   const source = {
     id: "yc-product-jobs",
@@ -42,7 +42,7 @@ test("writeYcCaptureFile persists expectedCount and company-page review targets"
           salaryText: null,
           summary: "Healthcare infrastructure APIs",
           description: "Healthcare infrastructure APIs",
-          url: "https://www.workatastartup.com/companies/metriport"
+          url: "https://www.workatastartup.com/jobs/101"
         }
       ],
       {
@@ -55,7 +55,7 @@ test("writeYcCaptureFile persists expectedCount and company-page review targets"
     assert.equal(summary.status, "ready");
     assert.equal(summary.expectedCount, 1);
     assert.equal(summary.payload?.expectedCount, 1);
-    assert.equal(summary.payload?.jobs[0]?.url, "https://www.workatastartup.com/companies/metriport");
+    assert.equal(summary.payload?.jobs[0]?.url, "https://www.workatastartup.com/jobs/101");
     assert.equal(writeResult.expectedCount, 1);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });

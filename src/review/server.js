@@ -45,9 +45,9 @@ import { filterActiveQueueJobs, isActiveQueueJob } from "../jobs/active-queue.js
 import { normalizeJobRecord } from "../jobs/normalize.js";
 import { applyRetentionPolicyCleanup, writeRetentionCleanupAudit } from "../jobs/retention.js";
 import {
-  countSourceJobsInBatch,
   getLatestImportedRunId,
   listAllJobs,
+  listAllNormalizedHashes,
   listAllJobsWithStatus,
   listLatestSourceRunDeltas,
   listSourceRunTotals,
@@ -60,7 +60,10 @@ import {
   upsertJobs
 } from "../jobs/repository.js";
 import { computeSourceNoveltyBySourceId } from "../jobs/source-novelty.js";
-import { classifyRunDeltas } from "../jobs/run-deltas.js";
+import {
+  buildSourceRunSemanticMetrics,
+  classifyRunDeltas
+} from "../jobs/run-deltas.js";
 import { evaluateJobsFromSearchCriteria } from "../jobs/score.js";
 import {
   getSourceRefreshDecision,
@@ -409,9 +412,7 @@ function aggregateSourceRunTotals(source, sourceRunTotalsBySourceId) {
     foundCount: null,
     filteredCount: null,
     dedupedCount: null,
-    foundSamples: 0,
-    filteredSamples: 0,
-    dedupedSamples: 0
+    v2Samples: 0
   };
 
   let importedTotal = 0;
@@ -426,29 +427,20 @@ function aggregateSourceRunTotals(source, sourceRunTotalsBySourceId) {
       continue;
     }
 
-    if (hasCountValue(totals.importedCount)) {
-      importedTotal += normalizeCount(totals.importedCount);
+    if (normalizeCount(totals.rawFoundSamples) > 0) {
+      importedTotal += normalizeCount(totals.importedKeptCount);
+      foundTotal += normalizeCount(totals.rawFoundCount);
+      filteredTotal += normalizeCount(totals.hardFilteredCount);
+      dedupedTotal += normalizeCount(totals.duplicateCollapsedCount);
       importedSeen = true;
     }
-    if (hasCountValue(totals.foundCount)) {
-      foundTotal += normalizeCount(totals.foundCount);
-    }
-    if (hasCountValue(totals.filteredCount)) {
-      filteredTotal += normalizeCount(totals.filteredCount);
-    }
-    if (hasCountValue(totals.dedupedCount)) {
-      dedupedTotal += normalizeCount(totals.dedupedCount);
-    }
-
-    aggregate.foundSamples += normalizeCount(totals.foundSamples);
-    aggregate.filteredSamples += normalizeCount(totals.filteredSamples);
-    aggregate.dedupedSamples += normalizeCount(totals.dedupedSamples);
+    aggregate.v2Samples += normalizeCount(totals.rawFoundSamples);
   }
 
   aggregate.importedCount = importedSeen ? importedTotal : null;
-  aggregate.foundCount = aggregate.foundSamples > 0 ? foundTotal : null;
-  aggregate.filteredCount = aggregate.filteredSamples > 0 ? filteredTotal : null;
-  aggregate.dedupedCount = aggregate.dedupedSamples > 0 ? dedupedTotal : null;
+  aggregate.foundCount = aggregate.v2Samples > 0 ? foundTotal : null;
+  aggregate.filteredCount = aggregate.v2Samples > 0 ? filteredTotal : null;
+  aggregate.dedupedCount = aggregate.v2Samples > 0 ? dedupedTotal : null;
 
   return aggregate;
 }
@@ -486,54 +478,6 @@ function isCaptureFunnelReadSafeSource(source) {
     source?.type === "ziprecruiter_search" ||
     source?.type === "remoteok_search"
   );
-}
-
-function buildPersistedSourceRunMetrics(capturePayload, importedCount, options = {}) {
-  const rawFunnel =
-    capturePayload?.captureFunnel &&
-    typeof capturePayload.captureFunnel === "object" &&
-    !Array.isArray(capturePayload.captureFunnel)
-      ? capturePayload.captureFunnel
-      : null;
-
-  const imported = normalizeCount(importedCount, 0);
-  const capturedRawCount = hasCountValue(rawFunnel?.capturedRawCount)
-    ? normalizeCount(rawFunnel.capturedRawCount)
-    : hasCountValue(options.capturedRawCount)
-      ? normalizeCount(options.capturedRawCount)
-      : null;
-  const postHardFilterCount = hasCountValue(rawFunnel?.postHardFilterCount)
-    ? normalizeCount(rawFunnel.postHardFilterCount)
-    : hasCountValue(options.postHardFilterCount)
-      ? normalizeCount(options.postHardFilterCount)
-      : null;
-  const postDedupeCount = hasCountValue(rawFunnel?.postDedupeCount)
-    ? normalizeCount(rawFunnel.postDedupeCount)
-    : hasCountValue(options.postDedupeCount)
-      ? normalizeCount(options.postDedupeCount)
-      : null;
-
-  const filteredCount =
-    capturedRawCount !== null && postHardFilterCount !== null
-      ? Math.max(0, capturedRawCount - postHardFilterCount)
-      : null;
-  const dedupedCount =
-    postHardFilterCount !== null && postDedupeCount !== null
-      ? Math.max(0, postHardFilterCount - postDedupeCount)
-      : null;
-  const foundCount =
-    capturedRawCount !== null
-      ? capturedRawCount
-      : imported +
-        (filteredCount !== null ? filteredCount : 0) +
-        (dedupedCount !== null ? dedupedCount : 0);
-
-  return {
-    foundCount,
-    filteredCount,
-    dedupedCount,
-    importedCount: imported
-  };
 }
 
 export function computeImportedAverageScore(
@@ -1221,6 +1165,7 @@ function runSyncAndScore() {
     let skippedByQuality = 0;
     const qualityMessages = [];
     const sourceDeltaRows = [];
+    const knownNormalizedHashes = new Set(listAllNormalizedHashes(db));
 
     for (const source of sources) {
       const captureSummary = readSourceCaptureSummary(source);
@@ -1315,6 +1260,15 @@ function runSyncAndScore() {
         existingRows,
         incomingJobs: normalizedJobs
       });
+      const sourceEvaluations = evaluateJobsFromSearchCriteria(criteria, normalizedJobs);
+      const semanticMetrics = buildSourceRunSemanticMetrics({
+        normalizedJobs,
+        evaluations: sourceEvaluations,
+        knownNormalizedHashes
+      });
+      for (const normalizedHash of semanticMetrics.keptNormalizedHashes) {
+        knownNormalizedHashes.add(normalizedHash);
+      }
       const refreshMeta = buildSourceRefreshMeta(source);
 
       totalCollected += normalizedJobs.length;
@@ -1324,29 +1278,23 @@ function runSyncAndScore() {
         source.id,
         normalizedJobs.map((job) => job.id)
       );
-      const persistedImportedCount = countSourceJobsInBatch(db, source.id, runId);
-      const runMetrics = buildPersistedSourceRunMetrics(
-        capturePayload,
-        persistedImportedCount,
-        {
-          capturedRawCount: rawJobs.length,
-          postHardFilterCount: rawJobs.length,
-          postDedupeCount: persistedImportedCount
-        }
-      );
       totalNew += deltas.newCount;
       totalUpdated += deltas.updatedCount;
       totalUnchanged += deltas.unchangedCount;
       sourceDeltaRows.push({
         runId,
         sourceId: source.id,
-        foundCount: runMetrics.foundCount,
-        filteredCount: runMetrics.filteredCount,
-        dedupedCount: runMetrics.dedupedCount,
+        foundCount: null,
+        filteredCount: null,
+        dedupedCount: null,
+        rawFoundCount: semanticMetrics.rawFoundCount,
+        hardFilteredCount: semanticMetrics.hardFilteredCount,
+        duplicateCollapsedCount: semanticMetrics.duplicateCollapsedCount,
+        importedKeptCount: semanticMetrics.importedKeptCount,
         newCount: deltas.newCount,
         updatedCount: deltas.updatedCount,
         unchangedCount: deltas.unchangedCount,
-        importedCount: runMetrics.importedCount,
+        importedCount: semanticMetrics.importedKeptCount,
         refreshMode: refreshMeta.refreshMode,
         servedFrom: refreshMeta.servedFrom,
         statusReason: refreshMeta.statusReason,
@@ -1962,26 +1910,18 @@ function buildDashboardData(limit = 200) {
           ? normalizeExpectedCount(capture.expectedCount)
           : null;
       const jobCount = counts.totalCount;
-      const importedCount =
-        counts.totalCount > 0
-          ? counts.totalCount
-          : hasCountValue(runTotals.importedCount)
-            ? normalizeCount(runTotals.importedCount)
-            : normalizeCount(captureFunnel.keptAfterDedupeCount, 0);
+      const importedCount = hasCountValue(runTotals.importedCount)
+        ? normalizeCount(runTotals.importedCount)
+        : null;
       const filteredCount = hasCountValue(runTotals.filteredCount)
         ? normalizeCount(runTotals.filteredCount)
         : null;
       const dedupedCount = hasCountValue(runTotals.dedupedCount)
         ? normalizeCount(runTotals.dedupedCount)
         : null;
-      const foundCount =
-        hasCountValue(filteredCount) && hasCountValue(dedupedCount)
-          ? importedCount +
-            normalizeCount(filteredCount) +
-            normalizeCount(dedupedCount)
-          : hasCountValue(runTotals.foundCount)
-            ? Math.max(normalizeCount(runTotals.foundCount), importedCount)
-            : importedCount;
+      const foundCount = hasCountValue(runTotals.foundCount)
+        ? normalizeCount(runTotals.foundCount)
+        : null;
       const captureStatus = isFileBackedCapture ? capture.status : "ready";
       const capturedAt = pickLatestTimestamp(
         typeof latestRunDelta?.capturedAt === "string" ? latestRunDelta.capturedAt : null,
@@ -2001,10 +1941,10 @@ function buildDashboardData(limit = 200) {
               importedNormalizedHashes,
               scoresBySourceIdAndHash
             );
-      const importVerification = buildSourceImportVerification(
-        foundCount,
-        importedCount
-      );
+      const importVerification =
+        hasCountValue(foundCount) && hasCountValue(importedCount)
+          ? buildSourceImportVerification(foundCount, importedCount)
+          : null;
       const manualRefreshesToday = countSourceEventsForUtcDay(
         refreshState,
         source.id,
@@ -5691,17 +5631,7 @@ export function renderDashboardPage(dashboard, options = {}) {
               capturedAt: source.capturedAt || null,
               foundCount: hasCountValue(source.foundCount)
                 ? Math.max(0, Math.round(Number(source.foundCount)))
-                : hasCountValue(source.droppedByHardFilterCount) &&
-                    hasCountValue(source.droppedByDedupeCount)
-                  ? Math.max(
-                      0,
-                      Math.round(
-                        Number(source.droppedByHardFilterCount) +
-                          Number(source.droppedByDedupeCount) +
-                          Number(source.importedCount || 0)
-                      )
-                    )
-                  : null,
+                : null,
               capturedCount: Number(source.captureJobCount || 0),
               filteredCount: hasCountValue(source.droppedByHardFilterCount)
                 ? Math.max(0, Math.round(Number(source.droppedByHardFilterCount)))
@@ -5709,7 +5639,9 @@ export function renderDashboardPage(dashboard, options = {}) {
               dedupedCount: hasCountValue(source.droppedByDedupeCount)
                 ? Math.max(0, Math.round(Number(source.droppedByDedupeCount)))
                 : null,
-              importedCount: Number(source.importedCount || 0),
+              importedCount: hasCountValue(source.importedCount)
+                ? Math.max(0, Math.round(Number(source.importedCount)))
+                : null,
               hasUnknownExpectedCount: normalizeExpectedCount(source.captureExpectedCount) === null,
               expectedFoundCount: normalizeExpectedCount(source.captureExpectedCount),
               formatterUnsupported: Array.isArray(source.formatterDiagnostics?.unsupported)

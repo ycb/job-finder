@@ -49,6 +49,11 @@ function hostLooksLikeLevelsFyi(hostname) {
   return host === "levels.fyi" || host.endsWith(".levels.fyi");
 }
 
+function hostLooksLikeWorkAtAStartup(hostname) {
+  const host = String(hostname || "").toLowerCase();
+  return host === "workatastartup.com" || host.endsWith(".workatastartup.com");
+}
+
 function extractLinkedInJobIdFromUrl(rawUrl) {
   const parsed = parseUrlSafe(rawUrl);
   if (!parsed) {
@@ -138,6 +143,25 @@ function extractLevelsFyiJobIdFromUrl(rawUrl) {
   return "";
 }
 
+function extractYcJobIdFromUrl(rawUrl) {
+  const parsed = parseUrlSafe(rawUrl);
+  if (!parsed || !hostLooksLikeWorkAtAStartup(parsed.hostname)) {
+    return "";
+  }
+
+  const pathMatch = parsed.pathname.match(/^\/jobs\/([^/?#]+)/i);
+  if (pathMatch?.[1]) {
+    return normalizeText(pathMatch[1]);
+  }
+
+  const signupId = normalizeText(parsed.searchParams.get("signup_job_id") || "");
+  if (signupId) {
+    return signupId;
+  }
+
+  return "";
+}
+
 function canonicalizeSourceUrl(rawUrl) {
   const parsed = parseUrlSafe(rawUrl);
   if (!parsed) {
@@ -173,6 +197,13 @@ function canonicalizeSourceUrl(rawUrl) {
     const levelsJobId = extractLevelsFyiJobIdFromUrl(parsed.toString());
     if (levelsJobId) {
       return `https://www.levels.fyi/jobs?jobId=${encodeURIComponent(levelsJobId)}`;
+    }
+  }
+
+  if (hostLooksLikeWorkAtAStartup(parsed.hostname)) {
+    const ycJobId = extractYcJobIdFromUrl(parsed.toString());
+    if (ycJobId) {
+      return `https://www.workatastartup.com/jobs/${encodeURIComponent(ycJobId)}`;
     }
   }
 
@@ -227,6 +258,10 @@ function inferExternalId(externalId, sourceUrl, sourceType) {
 
   if (sourceType === "levelsfyi_search") {
     return extractLevelsFyiJobIdFromUrl(sourceUrl) || null;
+  }
+
+  if (sourceType === "yc_jobs") {
+    return extractYcJobIdFromUrl(sourceUrl) || null;
   }
 
   return null;

@@ -173,6 +173,7 @@ test("computeSearchTotals rolls up counts and weighted avg score", () => {
     [
       {
         capturedCount: 10,
+        foundCount: 10,
         filteredCount: 3,
         dedupedCount: 2,
         importedCount: 5,
@@ -182,6 +183,7 @@ test("computeSearchTotals rolls up counts and weighted avg score", () => {
       },
       {
         capturedCount: 12,
+        foundCount: 6,
         filteredCount: 2,
         dedupedCount: 1,
         importedCount: 3,
@@ -201,7 +203,7 @@ test("computeSearchTotals rolls up counts and weighted avg score", () => {
   assert.equal(totals.avgScore, 73);
 });
 
-test("buildSearchRows derives additive found counts from filtered, deduped, and imported totals", () => {
+test("buildSearchRows preserves explicit found counts", () => {
   const rows = buildSearchRows([
     {
       id: "builtin",
@@ -210,8 +212,9 @@ test("buildSearchRows derives additive found counts from filtered, deduped, and 
       searchUrl: "https://builtin.example",
       enabled: true,
       authRequired: false,
-      droppedByHardFilterCount: 3,
-      droppedByDedupeCount: 2,
+      filteredCount: 3,
+      dedupedCount: 2,
+      foundCount: 10,
       importedCount: 5,
     },
   ]);
@@ -305,6 +308,30 @@ test("computeSearchTotals preserves unknown filtered and deduped totals", () => 
   assert.equal(totals.filtered, null);
   assert.equal(totals.deduped, null);
   assert.equal(totals.imported, 8);
+});
+
+test("computeSearchTotals preserves unknown imported totals when any row lacks v2 data", () => {
+  const totals = computeSearchTotals(
+    [
+      {
+        importedCount: null,
+        filteredCount: null,
+        dedupedCount: null,
+        foundCount: null,
+        avgScore: null,
+      },
+      {
+        importedCount: 3,
+        filteredCount: 1,
+        dedupedCount: 1,
+        foundCount: 5,
+        avgScore: 60,
+      },
+    ],
+    "enabled",
+  );
+
+  assert.equal(totals.imported, null);
 });
 
 test("presentSearchStatus only exposes actionable auth-required details", () => {

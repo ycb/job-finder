@@ -137,3 +137,29 @@ test("levelsfyi normalization preserves per-job identity via jobId query paramet
     "https://www.levels.fyi/jobs?jobId=143429004190196422"
   );
 });
+
+test("yc normalization preserves job-level identity via job page url", () => {
+  const source = {
+    id: "yc-product-jobs",
+    type: "yc_jobs",
+    searchUrl: "https://www.workatastartup.com/jobs/l/product-manager"
+  };
+
+  const normalized = normalizeJobRecord(
+    {
+      title: "Founding Product Manager",
+      company: "Metriport",
+      location: "San Francisco, CA",
+      description: "Role details",
+      externalId: "101",
+      url: "https://www.workatastartup.com/jobs/101"
+    },
+    source
+  );
+
+  assert.equal(normalized.externalId, "101");
+  assert.equal(
+    normalized.sourceUrl,
+    "https://www.workatastartup.com/jobs/101"
+  );
+});

@@ -41,8 +41,8 @@ import { runMigrations } from "./db/migrations.js";
 import { normalizeJobRecord } from "./jobs/normalize.js";
 import { applyRetentionPolicyCleanup, writeRetentionCleanupAudit } from "./jobs/retention.js";
 import {
-  countSourceJobsInBatch,
   listAllJobs,
+  listAllNormalizedHashes,
   listSourceJobsForDelta,
   listReviewQueue,
   listTopJobs,
@@ -52,7 +52,10 @@ import {
   upsertJobs,
   pruneSourceJobs
 } from "./jobs/repository.js";
-import { classifyRunDeltas } from "./jobs/run-deltas.js";
+import {
+  buildSourceRunSemanticMetrics,
+  classifyRunDeltas
+} from "./jobs/run-deltas.js";
 import { evaluateJobsFromSearchCriteria } from "./jobs/score.js";
 import { writeShortlistFile } from "./shortlist/render.js";
 import { startReviewServer } from "./review/server.js";
@@ -492,58 +495,6 @@ function buildSourceRefreshContext(source, options = {}) {
   };
 }
 
-function buildPersistedSourceRunMetrics(capturePayload, importedCount, options = {}) {
-  const rawFunnel =
-    capturePayload?.captureFunnel &&
-    typeof capturePayload.captureFunnel === "object" &&
-    !Array.isArray(capturePayload.captureFunnel)
-      ? capturePayload.captureFunnel
-      : null;
-
-  const normalizeCount = (value, fallback = null) => {
-    if (value === null || value === undefined || value === "" || !Number.isFinite(Number(value))) {
-      return fallback;
-    }
-    return Math.max(0, Math.round(Number(value)));
-  };
-
-  const imported = normalizeCount(importedCount, 0);
-  const capturedRawCount = normalizeCount(
-    rawFunnel?.capturedRawCount,
-    normalizeCount(options.capturedRawCount)
-  );
-  const postHardFilterCount = normalizeCount(
-    rawFunnel?.postHardFilterCount,
-    normalizeCount(options.postHardFilterCount)
-  );
-  const postDedupeCount = normalizeCount(
-    rawFunnel?.postDedupeCount,
-    normalizeCount(options.postDedupeCount)
-  );
-
-  const filteredCount =
-    capturedRawCount !== null && postHardFilterCount !== null
-      ? Math.max(0, capturedRawCount - postHardFilterCount)
-      : null;
-  const dedupedCount =
-    postHardFilterCount !== null && postDedupeCount !== null
-      ? Math.max(0, postHardFilterCount - postDedupeCount)
-      : null;
-  const foundCount =
-    capturedRawCount !== null
-      ? capturedRawCount
-      : imported +
-        (filteredCount !== null ? filteredCount : 0) +
-        (dedupedCount !== null ? dedupedCount : 0);
-
-  return {
-    foundCount,
-    filteredCount,
-    dedupedCount,
-    importedCount: imported
-  };
-}
-
 function runSync(options = {}) {
   const sources = loadSources();
   const { db } = withDatabase();
@@ -561,6 +512,7 @@ function runSync(options = {}) {
   let skippedByQuality = 0;
   const qualityMessages = [];
   const sourceDeltaRows = [];
+  const knownNormalizedHashes = new Set(listAllNormalizedHashes(db));
 
   for (const source of sources.sources.filter((item) => item.enabled)) {
     const captureSummary = readSourceCaptureSummary(source);
@@ -659,6 +611,18 @@ function runSync(options = {}) {
       existingRows,
       incomingJobs: normalizedJobs
     });
+    const sourceEvaluations = evaluateJobsFromSearchCriteria(
+      sources.criteria,
+      normalizedJobs
+    );
+    const semanticMetrics = buildSourceRunSemanticMetrics({
+      normalizedJobs,
+      evaluations: sourceEvaluations,
+      knownNormalizedHashes
+    });
+    for (const normalizedHash of semanticMetrics.keptNormalizedHashes) {
+      knownNormalizedHashes.add(normalizedHash);
+    }
     const refreshContext = buildSourceRefreshContext(source, options);
 
     totalCollected += normalizedJobs.length;
@@ -668,29 +632,23 @@ function runSync(options = {}) {
       source.id,
       normalizedJobs.map((job) => job.id)
     );
-    const persistedImportedCount = countSourceJobsInBatch(db, source.id, runId);
-    const runMetrics = buildPersistedSourceRunMetrics(
-      capturePayload,
-      persistedImportedCount,
-      {
-        capturedRawCount: rawJobs.length,
-        postHardFilterCount: rawJobs.length,
-        postDedupeCount: persistedImportedCount
-      }
-    );
     totalNew += deltas.newCount;
     totalUpdated += deltas.updatedCount;
     totalUnchanged += deltas.unchangedCount;
     sourceDeltaRows.push({
       runId,
       sourceId: source.id,
-      foundCount: runMetrics.foundCount,
-      filteredCount: runMetrics.filteredCount,
-      dedupedCount: runMetrics.dedupedCount,
+      foundCount: null,
+      filteredCount: null,
+      dedupedCount: null,
+      rawFoundCount: semanticMetrics.rawFoundCount,
+      hardFilteredCount: semanticMetrics.hardFilteredCount,
+      duplicateCollapsedCount: semanticMetrics.duplicateCollapsedCount,
+      importedKeptCount: semanticMetrics.importedKeptCount,
       newCount: deltas.newCount,
       updatedCount: deltas.updatedCount,
       unchangedCount: deltas.unchangedCount,
-      importedCount: runMetrics.importedCount,
+      importedCount: semanticMetrics.importedKeptCount,
       refreshMode: refreshContext.refreshMode,
       servedFrom: refreshContext.servedFrom,
       statusReason: refreshContext.statusReason,

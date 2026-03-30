@@ -146,12 +146,10 @@ export function buildSearchRows(sources = [], checksBySourceId = {}) {
       const readiness = onboardingReadinessState(source, checksBySourceId);
       const filteredCount = normalizeOptionalCount(source.droppedByHardFilterCount);
       const dedupedCount = normalizeOptionalCount(source.droppedByDedupeCount);
-      const importedCount = Math.max(0, Math.round(Number(source.importedCount || 0)));
+      const importedCount = normalizeOptionalCount(source.importedCount);
       const foundCount = hasFiniteMetric(source.foundCount)
         ? Math.max(0, Math.round(Number(source.foundCount)))
-        : filteredCount !== null && dedupedCount !== null
-          ? importedCount + filteredCount + dedupedCount
-          : null;
+        : null;
       return {
         id: String(source.id || "").trim(),
         kind,
@@ -284,20 +282,19 @@ export function computeSearchTotals(searchRows = [], searchState = "enabled") {
       } else {
         accumulator.dedupedKnown = false;
       }
-      accumulator.imported += Number(source.importedCount || 0);
+      if (hasFiniteMetric(source.importedCount)) {
+        accumulator.imported += Number(source.importedCount);
+      } else {
+        accumulator.importedKnown = false;
+      }
       if (hasFiniteMetric(source.foundCount)) {
         accumulator.found += Number(source.foundCount);
-      } else if (hasFiniteMetric(source.filteredCount) && hasFiniteMetric(source.dedupedCount)) {
-        accumulator.found +=
-          Number(source.importedCount || 0) +
-          Number(source.filteredCount) +
-          Number(source.dedupedCount);
       } else {
         accumulator.foundKnown = false;
       }
-      if (hasFiniteMetric(source.avgScore) && Number(source.importedCount || 0) > 0) {
-        accumulator.avgScoreTotal += Number(source.avgScore) * Number(source.importedCount || 0);
-        accumulator.avgScoreCount += Number(source.importedCount || 0);
+      if (hasFiniteMetric(source.avgScore) && hasFiniteMetric(source.importedCount) && Number(source.importedCount) > 0) {
+        accumulator.avgScoreTotal += Number(source.avgScore) * Number(source.importedCount);
+        accumulator.avgScoreCount += Number(source.importedCount);
       }
       return accumulator;
     },
@@ -308,6 +305,7 @@ export function computeSearchTotals(searchRows = [], searchState = "enabled") {
       deduped: 0,
       dedupedKnown: true,
       imported: 0,
+      importedKnown: true,
       found: 0,
       foundKnown: true,
       avgScoreTotal: 0,
@@ -320,7 +318,7 @@ export function computeSearchTotals(searchRows = [], searchState = "enabled") {
     foundLabel: totals.foundKnown ? String(Math.max(0, Math.round(totals.found))) : "—",
     filtered: totals.filteredKnown ? totals.filtered : null,
     deduped: totals.dedupedKnown ? totals.deduped : null,
-    imported: totals.imported,
+    imported: totals.importedKnown ? totals.imported : null,
     avgScore:
       totals.avgScoreCount > 0
         ? Math.round(totals.avgScoreTotal / totals.avgScoreCount)

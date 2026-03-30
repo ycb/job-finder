@@ -218,6 +218,10 @@ export function recordSourceRunDeltas(db, rows = []) {
       found_count,
       filtered_count,
       deduped_count,
+      raw_found_count,
+      hard_filtered_count,
+      duplicate_collapsed_count,
+      imported_kept_count,
       new_count,
       updated_count,
       unchanged_count,
@@ -228,7 +232,7 @@ export function recordSourceRunDeltas(db, rows = []) {
       status_label,
       captured_at,
       recorded_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
   `);
 
   let inserted = 0;
@@ -246,6 +250,10 @@ export function recordSourceRunDeltas(db, rows = []) {
       normalizeOptionalCount(row?.foundCount),
       normalizeOptionalCount(row?.filteredCount),
       normalizeOptionalCount(row?.dedupedCount),
+      normalizeOptionalCount(row?.rawFoundCount),
+      normalizeOptionalCount(row?.hardFilteredCount),
+      normalizeOptionalCount(row?.duplicateCollapsedCount),
+      normalizeOptionalCount(row?.importedKeptCount),
       Math.max(0, Math.round(Number(row?.newCount) || 0)),
       Math.max(0, Math.round(Number(row?.updatedCount) || 0)),
       Math.max(0, Math.round(Number(row?.unchangedCount) || 0)),
@@ -284,6 +292,21 @@ export function countSourceJobsInBatch(db, sourceId, batchId) {
   return Math.max(0, Math.round(Number(row?.count) || 0));
 }
 
+export function listAllNormalizedHashes(db) {
+  return db
+    .prepare(
+      `
+      SELECT DISTINCT normalized_hash AS normalizedHash
+      FROM jobs
+      WHERE normalized_hash IS NOT NULL
+        AND TRIM(normalized_hash) != '';
+    `
+    )
+    .all()
+    .map((row) => String(row.normalizedHash || "").trim())
+    .filter(Boolean);
+}
+
 export function listLatestSourceRunDeltas(db) {
   return db
     .prepare(
@@ -294,6 +317,10 @@ export function listLatestSourceRunDeltas(db) {
         latest.found_count AS foundCount,
         latest.filtered_count AS filteredCount,
         latest.deduped_count AS dedupedCount,
+        latest.raw_found_count AS rawFoundCount,
+        latest.hard_filtered_count AS hardFilteredCount,
+        latest.duplicate_collapsed_count AS duplicateCollapsedCount,
+        latest.imported_kept_count AS importedKeptCount,
         latest.new_count AS newCount,
         latest.updated_count AS updatedCount,
         latest.unchanged_count AS unchangedCount,
@@ -328,6 +355,10 @@ export function listSourceRunTotals(db) {
           latest.found_count AS found_count,
           latest.filtered_count AS filtered_count,
           latest.deduped_count AS deduped_count,
+          latest.raw_found_count AS raw_found_count,
+          latest.hard_filtered_count AS hard_filtered_count,
+          latest.duplicate_collapsed_count AS duplicate_collapsed_count,
+          latest.imported_kept_count AS imported_kept_count,
           latest.imported_count AS imported_count,
           latest.captured_at AS captured_at,
           latest.recorded_at AS recorded_at
@@ -348,9 +379,17 @@ export function listSourceRunTotals(db) {
         SUM(found_count) AS foundCount,
         SUM(filtered_count) AS filteredCount,
         SUM(deduped_count) AS dedupedCount,
+        SUM(raw_found_count) AS rawFoundCount,
+        SUM(hard_filtered_count) AS hardFilteredCount,
+        SUM(duplicate_collapsed_count) AS duplicateCollapsedCount,
+        SUM(imported_kept_count) AS importedKeptCount,
         COUNT(found_count) AS foundSamples,
         COUNT(filtered_count) AS filteredSamples,
-        COUNT(deduped_count) AS dedupedSamples
+        COUNT(deduped_count) AS dedupedSamples,
+        COUNT(raw_found_count) AS rawFoundSamples,
+        COUNT(hard_filtered_count) AS hardFilteredSamples,
+        COUNT(duplicate_collapsed_count) AS duplicateCollapsedSamples,
+        COUNT(imported_kept_count) AS importedKeptSamples
       FROM deduped_runs
       GROUP BY source_id
       ORDER BY source_id ASC;

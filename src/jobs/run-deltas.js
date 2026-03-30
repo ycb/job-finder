@@ -169,3 +169,57 @@ export function classifyRunDeltas({ existingRows = [], incomingJobs = [] } = {})
     unchangedCount
   };
 }
+
+export function buildSourceRunSemanticMetrics({
+  normalizedJobs = [],
+  evaluations = [],
+  knownNormalizedHashes = new Set()
+} = {}) {
+  const jobs = Array.isArray(normalizedJobs) ? normalizedJobs : [];
+  const evaluationMap = new Map(
+    (Array.isArray(evaluations) ? evaluations : [])
+      .filter((evaluation) => evaluation?.jobId)
+      .map((evaluation) => [String(evaluation.jobId), evaluation])
+  );
+
+  const seenIncomingHashes = new Set();
+  const keptNormalizedHashes = new Set();
+  let rawFoundCount = 0;
+  let hardFilteredCount = 0;
+  let duplicateCollapsedCount = 0;
+  let importedKeptCount = 0;
+
+  for (const job of jobs) {
+    const normalizedHash = normalizeText(job?.normalizedHash);
+    const evaluation = evaluationMap.get(String(job?.id || ""));
+    rawFoundCount += 1;
+
+    if (evaluation?.hardFiltered) {
+      hardFilteredCount += 1;
+      continue;
+    }
+
+    if (
+      normalizedHash &&
+      (seenIncomingHashes.has(normalizedHash) || knownNormalizedHashes.has(normalizedHash))
+    ) {
+      duplicateCollapsedCount += 1;
+      continue;
+    }
+
+    importedKeptCount += 1;
+
+    if (normalizedHash) {
+      seenIncomingHashes.add(normalizedHash);
+      keptNormalizedHashes.add(normalizedHash);
+    }
+  }
+
+  return {
+    rawFoundCount,
+    hardFilteredCount,
+    duplicateCollapsedCount,
+    importedKeptCount,
+    keptNormalizedHashes
+  };
+}
