@@ -148,6 +148,21 @@ Problem:
   - bad page-state handling or pagination assumptions
   - later evaluation over-rejecting an already weak capture
 
+Additional direct regression proof:
+
+- live direct capture against the broad manual-equivalent URL `https://www.ziprecruiter.com/jobs-search?search=Product+manager+ai&location=San+Francisco%2C+CA&page=1` captured `57` jobs in one run
+- the top captured roles from that broad URL included:
+  - `Senior Growth Marketing Manager, AI Marketplace`
+  - `Principal Product Manager, GPUs and AI Accelerators`
+  - `Product Manager - Conversational AI`
+  - `Senior Product Manager, AI`
+  - `Product Manager - AI`
+
+Conclusion:
+
+- the current primary Zip regression is URL-side overconstraint
+- for MVP parity, Zip should use broad query text plus location in URL and rely on post-capture evaluation for salary/date/distance/experience rather than trying to force those constraints into the native URL
+
 Priority:
 
 - P0 regression fix

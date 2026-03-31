@@ -367,6 +367,8 @@ As of 2026-03-06.
 - Do not ask for stakeholder QA on source search quality until manual-parity checks have been run for each active source and the acceptance criteria are actually met. “Builder passes tests” is not enough; live query parity must be demonstrated first.
 - If stakeholder QA is supposed to measure current source quality, the QA path must force live capture and allow the current capture to reach sync even when internal safety heuristics would normally quarantine it. Hidden cache reuse or silent quarantine makes the run look healthy while masking the thing under test.
 - Source-row refresh metadata must come from the current capture attempt, not a post-sync cache-policy recomputation. If sync recomputes refresh state after a fresh capture, it can relabel the current live run as `cache_fresh` and destroy trust in the run table.
+- For source regressions, compare the generated URL against a direct live capture of the manual-equivalent broad query before changing extraction code. If the broad URL captures a healthy page and the configured URL does not, the regression is query-state overconstraint, not extractor incapacity.
+- Do not force every structured criterion into a source-native URL just because the product model has the field. If a source's native URL semantics are lossy or brittle, keep only the high-signal constraints in the URL and move the rest to honest post-capture evaluation.
 
 ## Source Regression Baseline Discipline
 
