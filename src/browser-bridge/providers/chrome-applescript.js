@@ -175,7 +175,7 @@ function closeAutomationWindow() {
   }
 }
 
-function navigateAutomationTab(url, message) {
+function navigateAutomationTab(url, message, timeoutMs) {
   const windowId = ensureAutomationWindow(message);
   showAutomationMessage(message);
   runAppleScript(
@@ -184,11 +184,12 @@ function navigateAutomationTab(url, message) {
       `set _window to window id ${windowId}`,
       `set URL of active tab of _window to "${escapeAppleScriptString(url)}"`,
       "end tell"
-    ].join("\n")
+    ].join("\n"),
+    timeoutMs
   );
 }
 
-function executeInAutomationTab(javaScript) {
+function executeInAutomationTab(javaScript, timeoutMs) {
   const windowId = ensureAutomationWindow("Refreshing sources...");
   return runAppleScript(
     [
@@ -199,7 +200,8 @@ function executeInAutomationTab(javaScript) {
       "end tell",
       "return resultText",
       "end tell"
-    ].join("\n")
+    ].join("\n"),
+    timeoutMs
   );
 }
 
@@ -1088,10 +1090,16 @@ function harvestLinkedInPageJobs({
   maxIdleScrollSteps,
   scrollDelayMs,
   maxAttempts,
-  attemptDelayMs
+  attemptDelayMs,
+  timeoutMs
 }) {
   const collected = [];
-  let lastPayload = runExtractionAttempts(extractionScript, maxAttempts, attemptDelayMs);
+  let lastPayload = runExtractionAttempts(
+    extractionScript,
+    maxAttempts,
+    attemptDelayMs,
+    timeoutMs
+  );
   let expectedCount = null;
   let sawValidPayload = Boolean(lastPayload && Array.isArray(lastPayload.jobs));
 
@@ -1109,10 +1117,15 @@ function harvestLinkedInPageJobs({
   let idleSteps = 0;
 
   for (let step = 0; step < maxScrollSteps; step += 1) {
-    executeInAutomationTab(scrollScript);
+    executeInAutomationTab(scrollScript, timeoutMs);
     sleepSync(scrollDelayMs);
 
-    const payload = runExtractionAttempts(extractionScript, maxAttempts, attemptDelayMs);
+    const payload = runExtractionAttempts(
+      extractionScript,
+      maxAttempts,
+      attemptDelayMs,
+      timeoutMs
+    );
     if (payload) {
       lastPayload = payload;
       sawValidPayload = true;
@@ -1158,6 +1171,7 @@ export function buildLinkedInPageUrl(searchUrl, pageIndex = 0) {
 }
 
 function readLinkedInJobsFromChrome(searchUrl, options = {}) {
+  const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 30_000;
   const settleMs = Number(options.settleMs) > 0 ? Number(options.settleMs) : 2500;
   const maxAttempts = Number(options.maxAttempts) > 0 ? Number(options.maxAttempts) : 5;
   const attemptDelayMs =
@@ -1181,7 +1195,7 @@ function readLinkedInJobsFromChrome(searchUrl, options = {}) {
 
   for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
     const pageUrl = buildLinkedInPageUrl(searchUrl, pageIndex);
-    navigateAutomationTab(pageUrl, "Refreshing LinkedIn source...");
+    navigateAutomationTab(pageUrl, "Refreshing LinkedIn source...", timeoutMs);
     sleepSync(settleMs);
 
     const pagePayload = harvestLinkedInPageJobs({
@@ -1191,7 +1205,8 @@ function readLinkedInJobsFromChrome(searchUrl, options = {}) {
       maxIdleScrollSteps,
       scrollDelayMs,
       maxAttempts,
-      attemptDelayMs
+      attemptDelayMs,
+      timeoutMs
     });
 
     if (pagePayload?.sawValidPayload === true) {
@@ -3178,11 +3193,16 @@ function applySearchFilterInferences(source, jobs) {
   });
 }
 
-function runExtractionAttempts(extractionScript, maxAttempts, attemptDelayMs) {
+function runExtractionAttempts(
+  extractionScript,
+  maxAttempts,
+  attemptDelayMs,
+  timeoutMs
+) {
   let lastPayload = null;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const raw = executeInAutomationTab(extractionScript);
+    const raw = executeInAutomationTab(extractionScript, timeoutMs);
     const payload = parseBridgeJsonPayload(raw);
 
     if (payload && Array.isArray(payload.jobs)) {
@@ -3310,6 +3330,12 @@ export function captureLinkedInSourceWithChromeAppleScript(
 
   const payload = readLinkedInJobsFromChrome(source.searchUrl, {
     ...options,
+    timeoutMs:
+      Number(source.timeoutMs) > 0
+        ? Number(source.timeoutMs)
+        : Number(options.timeoutMs) > 0
+          ? Number(options.timeoutMs)
+          : 30_000,
     maxPages: Number(source.maxPages) > 0 ? Number(source.maxPages) : options.maxPages,
     maxScrollSteps:
       Number(source.maxScrollSteps) > 0

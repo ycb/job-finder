@@ -20,6 +20,7 @@ Job Finder's product promise is simple: take a search the user could do manually
 - [x] (2026-03-31 19:11Z) Traced LinkedIn's `34 captured -> 11 found -> 2 imported` mismatch to the generic source collection path. `collectJobsFromSource()` was applying `applySourceHardFilters()` before sync, so source rows were counting the post-filtered subset instead of the raw capture. Added `collectRawJobsFromSource()` and switched sync/CLI accounting to use it.
 - [x] (2026-03-31 19:11Z) Confirmed a second regression vector for LinkedIn/Indeed/Zip: canonical source-library base URLs had been reduced to generic endpoints, discarding richer SF-native location/radius state that older working searches carried. Restored richer canonical defaults and builder logic that preserves the richer existing location when criteria only specifies the city name.
 - [x] (2026-03-31 20:07Z) Reproduced the remaining `0 filtered` bug directly against fresh LinkedIn/Indeed/Zip captures. `buildSourceRunSemanticMetrics()` was faithfully using `evaluation.hardFiltered`, but the scorer only sets that flag for required-term and exclude-term failures. Title/location/salary/date-based rejects stay in `bucket='reject'`, so source rows were undercounting filtered jobs. Updated the semantic metric builder so user-facing `Filtered` counts all criteria-based rejects.
+- [x] (2026-03-31 21:18Z) Fixed the stale capture-summary bug in `runSyncAndScore()`. The server path was still evaluating fresh raw jobs against the pre-collection summary, while `src/cli.js sync` already reread the refreshed summary after collection. Added a focused regression test for the capture-payload builder.
 - [ ] Validate the live QA batch after the controller fixes land on `qa/current`, and compare the new `LinkedIn` / `ZipRecruiter` rows against their raw capture artifacts and manual-equivalent native searches.
 - [ ] Add regression tests that fail if a source is declared parity-ready without matching a manual-equivalent baseline for at least the first-page count and representative top matches.
 
@@ -48,6 +49,9 @@ Job Finder's product promise is simple: take a search the user could do manually
 
 - Observation: the current `Filtered` column was still semantically wrong even after raw-capture accounting was restored.
   Evidence: direct evaluation of fresh raw captures showed `LinkedIn 34 -> 19 reject`, `Indeed 24 -> 11 reject`, and `Zip 4 -> 1 reject`, but `buildSourceRunSemanticMetrics()` only counted `evaluation.hardFiltered`. Because the scorer reserves `hardFiltered=true` for required-term and exclude-term failures, normal title/location/salary/date rejects were being shown as unfiltered in the Sources table.
+
+- Observation: `src/review/server.js` was still using stale capture metadata after fresh collection.
+  Evidence: `runSyncAndScore()` read `readSourceCaptureSummary(source)` before `collectRawJobsFromSource(source)` and used that stale summary to populate `capturedAt`, `expectedCount`, and `captureFunnel`. `src/cli.js sync` had already been corrected to reread the refreshed summary after collection, so the server and CLI paths had diverged.
 
 ## Decision Log
 
