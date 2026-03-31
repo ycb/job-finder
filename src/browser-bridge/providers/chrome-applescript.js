@@ -1827,6 +1827,24 @@ function buildUrlWithSearchParam(urlText, key, value) {
   }
 }
 
+export function buildZipRecruiterPageUrl(urlText, pageNumber) {
+  try {
+    const parsed = new URL(String(urlText || "").trim());
+    const page = Number(pageNumber);
+    if (!Number.isInteger(page) || page <= 1) {
+      parsed.searchParams.delete("page");
+      parsed.pathname = parsed.pathname.replace(/\/jobs-search\/\d+$/, "/jobs-search");
+      return parsed.toString();
+    }
+
+    parsed.searchParams.delete("page");
+    parsed.pathname = "/jobs-search/" + String(page);
+    return parsed.toString();
+  } catch {
+    return buildUrlWithSearchParam(urlText, "page", String(pageNumber || 1));
+  }
+}
+
 function capturePaginatedGenericBoardJobs({
   searchUrl,
   extractionScript,
@@ -2014,6 +2032,69 @@ function readZipRecruiterJobsFromChrome(searchUrl, options = {}) {
     }
   };
 
+  const CARD_SELECTOR = [
+    'div[class*="job_result_two_pane"]',
+    'article[class*="job_result"]',
+    'li[class*="job_result"]',
+    'div[data-testid*="jobCard"]',
+    'div[data-testid*="job_card"]'
+  ].join(", ");
+
+  const getCards = () => Array.from(document.querySelectorAll(CARD_SELECTOR));
+
+  const uniqueElements = (elements) => {
+    const output = [];
+    const seen = new Set();
+    for (const element of elements) {
+      if (!element || seen.has(element)) {
+        continue;
+      }
+      seen.add(element);
+      output.push(element);
+    }
+    return output;
+  };
+
+  const scoreScrollCandidate = (element) => {
+    if (!element || typeof element.querySelectorAll !== "function") {
+      return 0;
+    }
+    const style = window.getComputedStyle(element);
+    const overflowY = String(style?.overflowY || "").toLowerCase();
+    const scrollable =
+      element.scrollHeight > element.clientHeight + 40 &&
+      /(auto|scroll|overlay)/.test(overflowY) &&
+      element.clientHeight >= 200;
+    if (!scrollable) {
+      return 0;
+    }
+    const cardCount = element.querySelectorAll(CARD_SELECTOR).length;
+    return cardCount * 1000 + element.clientHeight;
+  };
+
+  const findScrollContainers = () => {
+    const candidates = [];
+    for (const card of getCards()) {
+      let node = card?.parentElement;
+      let depth = 0;
+      while (node && depth < 8) {
+        candidates.push(node);
+        node = node.parentElement;
+        depth += 1;
+      }
+    }
+
+    const ordered = uniqueElements(candidates)
+      .map((element) => ({ element, score: scoreScrollCandidate(element) }))
+      .filter((entry) => entry.score > 0)
+      .sort((left, right) => right.score - left.score)
+      .map((entry) => entry.element);
+
+    const scrollingElement =
+      document.scrollingElement || document.documentElement || document.body || null;
+    return uniqueElements([...ordered, scrollingElement].filter(Boolean));
+  };
+
   const parseDetailHints = (text) => {
     const normalizedText = normalize(text);
     if (!normalizedText) {
@@ -2080,78 +2161,125 @@ function readZipRecruiterJobsFromChrome(searchUrl, options = {}) {
 
   const jobs = [];
   const seen = new Set();
-  const cards = Array.from(
-    document.querySelectorAll('div[class*="job_result_two_pane"], article[class*="job_result"]')
-  );
+  const collectVisibleJobs = () => {
+    const cards = getCards();
+    for (const card of cards) {
+      const titleNode = card.querySelector("h2");
+      const title = normalize(titleNode?.innerText || titleNode?.textContent || "");
+      if (!title || title.length < 4 || title.length > 180) {
+        continue;
+      }
 
-  for (const card of cards) {
-    const titleNode = card.querySelector("h2");
-    const title = normalize(titleNode?.innerText || titleNode?.textContent || "");
-    if (!title || title.length < 4 || title.length > 180) {
-      continue;
-    }
+      const jobLink =
+        card.querySelector('a[href*="/jobs/"]') ||
+        card.querySelector('a[href*="/job/"]') ||
+        card.querySelector("a[href]");
+      const companyLink = card.querySelector('a[href*="/co/"]');
+      const companyNode =
+        card.querySelector('[data-testid*="company"]') ||
+        card.querySelector('[class*="company"]');
+      const company = normalize(
+        companyNode?.innerText ||
+        companyNode?.textContent ||
+        companyLink?.innerText ||
+        companyLink?.textContent ||
+        ""
+      ) || "Unknown company";
+      const url = toAbsoluteUrl(jobLink?.getAttribute("href") || location.href);
 
-    const jobLink =
-      card.querySelector('a[href*="/jobs/"]') ||
-      card.querySelector('a[href*="/job/"]') ||
-      card.querySelector("a[href]");
-    const companyLink = card.querySelector('a[href*="/co/"]');
-    const companyNode =
-      card.querySelector('[data-testid*="company"]') ||
-      card.querySelector('[class*="company"]');
-    const company = normalize(
-      companyNode?.innerText ||
-      companyNode?.textContent ||
-      companyLink?.innerText ||
-      companyLink?.textContent ||
-      ""
-    ) || "Unknown company";
-    const url = toAbsoluteUrl(jobLink?.getAttribute("href") || location.href);
-
-    const locationNode = card.querySelector('a[href*="jobs-search?location="]');
-    const location = normalize(
-      locationNode?.innerText || locationNode?.textContent || ""
-    ) || null;
-    const detailHints = readDetailHints(jobLink || titleNode || companyLink || card);
-
-    const cardText = normalize(card.innerText || card.textContent || "");
-    const cardSalaryText =
-      normalize(
-        cardText.match(/\\$\\d[\\d,]*(?:K)?\\s*-\\s*\\$\\d[\\d,]*(?:K)?\\/?(?:yr|year|hr|hour)?/i)?.[0]
+      const locationNode = card.querySelector('a[href*="jobs-search?location="]');
+      const location = normalize(
+        locationNode?.innerText || locationNode?.textContent || ""
       ) || null;
-    const cardPostedAt =
-      normalize(cardText.match(/\\b(new|\\d+\\s*[dhm])\\b/i)?.[0]) || null;
-    const salaryText = cardSalaryText || detailHints.salaryText || null;
-    const postedAt = cardPostedAt || detailHints.postedAt || null;
-    const employmentType = detailHints.employmentType || null;
-    const resolvedLocation = location || detailHints.location || null;
+      const detailHints = readDetailHints(jobLink || titleNode || companyLink || card);
 
-    const externalId = normalize([company, title, location || ""].join("|"));
-    if (seen.has(externalId)) {
-      continue;
+      const cardText = normalize(card.innerText || card.textContent || "");
+      const cardSalaryText =
+        normalize(
+          cardText.match(/\\$\\d[\\d,]*(?:K)?\\s*-\\s*\\$\\d[\\d,]*(?:K)?\\/?(?:yr|year|hr|hour)?/i)?.[0]
+        ) || null;
+      const cardPostedAt =
+        normalize(cardText.match(/\\b(new|\\d+\\s*[dhm])\\b/i)?.[0]) || null;
+      const salaryText = cardSalaryText || detailHints.salaryText || null;
+      const postedAt = cardPostedAt || detailHints.postedAt || null;
+      const employmentType = detailHints.employmentType || null;
+      const resolvedLocation = location || detailHints.location || null;
+
+      const externalId = normalize([company, title, location || "", url].join("|"));
+      if (seen.has(externalId)) {
+        continue;
+      }
+      seen.add(externalId);
+
+      jobs.push({
+        externalId: externalId || null,
+        title,
+        company,
+        location: resolvedLocation,
+        postedAt,
+        employmentType,
+        easyApply: false,
+        salaryText,
+        summary: cardText.slice(0, 500),
+        description: cardText.slice(0, 1000),
+        extractorProvenance: {
+          postedAt: cardPostedAt ? "card" : detailHints.postedAt ? "detail" : "fallback_unknown",
+          salaryText: cardSalaryText ? "card" : detailHints.salaryText ? "detail" : "fallback_unknown",
+          employmentType: detailHints.employmentType ? "detail" : "fallback_unknown",
+          location: location ? "card" : detailHints.location ? "detail" : "fallback_unknown",
+          description: "card"
+        },
+        url
+      });
     }
-    seen.add(externalId);
+  };
 
-    jobs.push({
-      externalId: externalId || null,
-      title,
-      company,
-      location: resolvedLocation,
-      postedAt,
-      employmentType,
-      easyApply: false,
-      salaryText,
-      summary: cardText.slice(0, 500),
-      description: cardText.slice(0, 1000),
-      extractorProvenance: {
-        postedAt: cardPostedAt ? "card" : detailHints.postedAt ? "detail" : "fallback_unknown",
-        salaryText: cardSalaryText ? "card" : detailHints.salaryText ? "detail" : "fallback_unknown",
-        employmentType: detailHints.employmentType ? "detail" : "fallback_unknown",
-        location: location ? "card" : detailHints.location ? "detail" : "fallback_unknown",
-        description: "card"
-      },
-      url
-    });
+  collectVisibleJobs();
+
+  for (const container of findScrollContainers()) {
+    let stagnantPasses = 0;
+    let lastCount = jobs.length;
+    let previousScrollTop = -1;
+
+    for (let pass = 0; pass < 18 && stagnantPasses < 3; pass += 1) {
+      const scrollTopBefore =
+        container === document.scrollingElement || container === document.documentElement || container === document.body
+          ? window.scrollY
+          : container.scrollTop;
+      const scrollDelta =
+        container === document.scrollingElement || container === document.documentElement || container === document.body
+          ? Math.max(window.innerHeight * 0.85, 500)
+          : Math.max(container.clientHeight * 0.85, 300);
+
+      if (container === document.scrollingElement || container === document.documentElement || container === document.body) {
+        window.scrollTo(0, scrollTopBefore + scrollDelta);
+      } else {
+        container.scrollTop = scrollTopBefore + scrollDelta;
+      }
+
+      const start = Date.now();
+      while (Date.now() - start < 220) {
+        // allow virtualization/rendering to catch up
+      }
+
+      collectVisibleJobs();
+
+      const scrollTopAfter =
+        container === document.scrollingElement || container === document.documentElement || container === document.body
+          ? window.scrollY
+          : container.scrollTop;
+
+      if (jobs.length === lastCount && scrollTopAfter === previousScrollTop) {
+        stagnantPasses += 1;
+      } else if (jobs.length === lastCount && scrollTopAfter === scrollTopBefore) {
+        stagnantPasses += 1;
+      } else {
+        stagnantPasses = 0;
+      }
+
+      lastCount = jobs.length;
+      previousScrollTop = scrollTopAfter;
+    }
   }
 
   return JSON.stringify({
@@ -2176,7 +2304,7 @@ function readZipRecruiterJobsFromChrome(searchUrl, options = {}) {
     extractionScript,
     maxPages,
     pageUrlForIndex: (index) =>
-      buildUrlWithSearchParam(searchUrl, "page", String(index + 1)),
+      buildZipRecruiterPageUrl(searchUrl, index + 1),
     options
   });
 }
