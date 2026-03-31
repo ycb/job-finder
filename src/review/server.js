@@ -2070,6 +2070,24 @@ function buildDashboardData(limit = 200) {
       const foundCount = hasCountValue(runTotals.foundCount)
         ? normalizeCount(runTotals.foundCount)
         : null;
+      const latestTrustedRunFoundCount =
+        latestRunDelta?.servedFrom === "live" && hasCountValue(latestRunDelta?.foundCount)
+          ? normalizeCount(latestRunDelta.foundCount)
+          : null;
+      const latestTrustedRunFilteredCount =
+        latestRunDelta?.servedFrom === "live" && hasCountValue(latestRunDelta?.filteredCount)
+          ? normalizeCount(latestRunDelta.filteredCount)
+          : null;
+      const latestTrustedRunDedupedCount =
+        latestRunDelta?.servedFrom === "live" &&
+        hasCountValue(latestRunDelta?.dedupedCount)
+          ? normalizeCount(latestRunDelta.dedupedCount)
+          : null;
+      const latestTrustedRunImportedCount =
+        latestRunDelta?.servedFrom === "live" &&
+        hasCountValue(latestRunDelta?.importedCount)
+          ? normalizeCount(latestRunDelta.importedCount)
+          : null;
       const captureStatus = isFileBackedCapture ? capture.status : "ready";
       const capturedAt = pickLatestTimestamp(
         typeof latestRunDelta?.capturedAt === "string" ? latestRunDelta.capturedAt : null,
@@ -2136,12 +2154,16 @@ function buildDashboardData(limit = 200) {
         capturedAt,
         jobCount,
         foundCount,
+        latestTrustedRunFoundCount,
         importedCount,
+        latestTrustedRunImportedCount,
         captureJobCount,
         keptAfterHardFilterCount: captureFunnel.keptAfterHardFilterCount,
         keptAfterDedupeCount: captureFunnel.keptAfterDedupeCount,
         droppedByHardFilterCount: filteredCount,
+        latestTrustedRunFilteredCount,
         droppedByDedupeCount: dedupedCount,
+        latestTrustedRunDedupedCount,
         captureFunnelError: captureFunnel.captureFunnelError,
         captureExpectedCount: foundCount,
         importVerification,

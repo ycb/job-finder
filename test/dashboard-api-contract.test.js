@@ -172,10 +172,26 @@ test(
         assertStringOrNull(source.lastAttemptOutcome, `${sourcePath}.lastAttemptOutcome`);
         assertStringOrNull(source.lastAttemptError, `${sourcePath}.lastAttemptError`);
         assertNumberOrNull(source.foundCount, `${sourcePath}.foundCount`);
+        assertNumberOrNull(
+          source.latestTrustedRunFoundCount,
+          `${sourcePath}.latestTrustedRunFoundCount`
+        );
         assertNumberOrNull(source.captureJobCount, `${sourcePath}.captureJobCount`);
         assertNumberOrNull(source.droppedByHardFilterCount, `${sourcePath}.droppedByHardFilterCount`);
+        assertNumberOrNull(
+          source.latestTrustedRunFilteredCount,
+          `${sourcePath}.latestTrustedRunFilteredCount`
+        );
         assertNumberOrNull(source.droppedByDedupeCount, `${sourcePath}.droppedByDedupeCount`);
+        assertNumberOrNull(
+          source.latestTrustedRunDedupedCount,
+          `${sourcePath}.latestTrustedRunDedupedCount`
+        );
         assertNumberOrNull(source.importedCount, `${sourcePath}.importedCount`);
+        assertNumberOrNull(
+          source.latestTrustedRunImportedCount,
+          `${sourcePath}.latestTrustedRunImportedCount`
+        );
         assertNumberOrNull(source.captureExpectedCount, `${sourcePath}.captureExpectedCount`);
 
         assertString(source.statusReason, `${sourcePath}.statusReason`);

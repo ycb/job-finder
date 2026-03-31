@@ -1,5 +1,16 @@
 export const CURRENT_SOURCE_RUN_SEMANTICS_VERSION = 2;
 
+function sourceRunPreferenceSql(alias) {
+  return `
+    CASE
+      WHEN ${alias}.served_from = 'live' THEN 3
+      WHEN ${alias}.status_reason = 'fetched_during_sync' THEN 2
+      WHEN ${alias}.served_from = 'cache' THEN 1
+      ELSE 0
+    END
+  `;
+}
+
 export function upsertJobs(db, jobs, options = {}) {
   const lastImportBatchId =
     typeof options?.lastImportBatchId === "string" && options.lastImportBatchId.trim()
@@ -346,36 +357,43 @@ export function listLatestSourceRunDeltas(db) {
   return db
     .prepare(
       `
-      SELECT
-        latest.run_id AS runId,
-        latest.source_id AS sourceId,
-        latest.semantics_version AS semanticsVersion,
-        latest.found_count AS foundCount,
-        latest.filtered_count AS filteredCount,
-        latest.deduped_count AS dedupedCount,
-        latest.raw_found_count AS rawFoundCount,
-        latest.hard_filtered_count AS hardFilteredCount,
-        latest.duplicate_collapsed_count AS duplicateCollapsedCount,
-        latest.imported_kept_count AS importedKeptCount,
-        latest.new_count AS newCount,
-        latest.updated_count AS updatedCount,
-        latest.unchanged_count AS unchangedCount,
-        latest.imported_count AS importedCount,
-        latest.refresh_mode AS refreshMode,
-        latest.served_from AS servedFrom,
-        latest.status_reason AS statusReason,
-        latest.status_label AS statusLabel,
-        latest.captured_at AS capturedAt,
-        latest.recorded_at AS recordedAt
-      FROM source_run_deltas latest
-      WHERE latest.id = (
-        SELECT candidate.id
-        FROM source_run_deltas candidate
-        WHERE candidate.source_id = latest.source_id
-        ORDER BY candidate.recorded_at DESC, candidate.id DESC
-        LIMIT 1
+      WITH preferred_runs AS (
+        SELECT
+          latest.*,
+          ROW_NUMBER() OVER (
+            PARTITION BY latest.source_id
+            ORDER BY
+              COALESCE(latest.captured_at, latest.recorded_at) DESC,
+              ${sourceRunPreferenceSql("latest")} DESC,
+              latest.recorded_at DESC,
+              latest.id DESC
+          ) AS source_rank
+        FROM source_run_deltas latest
       )
-      ORDER BY latest.source_id ASC;
+      SELECT
+        preferred.run_id AS runId,
+        preferred.source_id AS sourceId,
+        preferred.semantics_version AS semanticsVersion,
+        preferred.found_count AS foundCount,
+        preferred.filtered_count AS filteredCount,
+        preferred.deduped_count AS dedupedCount,
+        preferred.raw_found_count AS rawFoundCount,
+        preferred.hard_filtered_count AS hardFilteredCount,
+        preferred.duplicate_collapsed_count AS duplicateCollapsedCount,
+        preferred.imported_kept_count AS importedKeptCount,
+        preferred.new_count AS newCount,
+        preferred.updated_count AS updatedCount,
+        preferred.unchanged_count AS unchangedCount,
+        preferred.imported_count AS importedCount,
+        preferred.refresh_mode AS refreshMode,
+        preferred.served_from AS servedFrom,
+        preferred.status_reason AS statusReason,
+        preferred.status_label AS statusLabel,
+        preferred.captured_at AS capturedAt,
+        preferred.recorded_at AS recordedAt
+      FROM preferred_runs preferred
+      WHERE preferred.source_rank = 1
+      ORDER BY preferred.source_id ASC;
     `
     )
     .all();
@@ -408,7 +426,10 @@ export function listSourceRunTotals(db) {
             AND candidate.semantics_version = ${CURRENT_SOURCE_RUN_SEMANTICS_VERSION}
             AND COALESCE(candidate.captured_at, candidate.recorded_at) =
               COALESCE(latest.captured_at, latest.recorded_at)
-          ORDER BY candidate.id DESC
+          ORDER BY
+            ${sourceRunPreferenceSql("candidate")} DESC,
+            candidate.recorded_at DESC,
+            candidate.id DESC
           LIMIT 1
         )
       )
