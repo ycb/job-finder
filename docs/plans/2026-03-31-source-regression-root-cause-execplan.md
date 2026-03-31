@@ -19,6 +19,7 @@ Job Finder's product promise is simple: take a search the user could do manually
 - [x] (2026-03-31 18:44Z) Produced a written per-source live baseline report in `docs/analysis/2026-03-31-mvp-source-regression-baseline.md`, covering generated URLs, latest live semantic rows, and current capture artifacts for all MVP sources.
 - [x] (2026-03-31 19:11Z) Traced LinkedIn's `34 captured -> 11 found -> 2 imported` mismatch to the generic source collection path. `collectJobsFromSource()` was applying `applySourceHardFilters()` before sync, so source rows were counting the post-filtered subset instead of the raw capture. Added `collectRawJobsFromSource()` and switched sync/CLI accounting to use it.
 - [x] (2026-03-31 19:11Z) Confirmed a second regression vector for LinkedIn/Indeed/Zip: canonical source-library base URLs had been reduced to generic endpoints, discarding richer SF-native location/radius state that older working searches carried. Restored richer canonical defaults and builder logic that preserves the richer existing location when criteria only specifies the city name.
+- [x] (2026-03-31 20:07Z) Reproduced the remaining `0 filtered` bug directly against fresh LinkedIn/Indeed/Zip captures. `buildSourceRunSemanticMetrics()` was faithfully using `evaluation.hardFiltered`, but the scorer only sets that flag for required-term and exclude-term failures. Title/location/salary/date-based rejects stay in `bucket='reject'`, so source rows were undercounting filtered jobs. Updated the semantic metric builder so user-facing `Filtered` counts all criteria-based rejects.
 - [ ] Validate the live QA batch after the controller fixes land on `qa/current`, and compare the new `LinkedIn` / `ZipRecruiter` rows against their raw capture artifacts and manual-equivalent native searches.
 - [ ] Add regression tests that fail if a source is declared parity-ready without matching a manual-equivalent baseline for at least the first-page count and representative top matches.
 
@@ -44,6 +45,9 @@ Job Finder's product promise is simple: take a search the user could do manually
 
 - Observation: the QA-path honesty fixes did their job; the remaining issues are true source-quality regressions, not cache/quarantine lies.
   Evidence: latest `source_run_deltas` rows for run `61de70cf-e340-490d-9520-025c7ceeba8d` all show `served_from=live` and `status_reason=fetched_during_sync`, proving the current bad outcomes are coming from real live attempts.
+
+- Observation: the current `Filtered` column was still semantically wrong even after raw-capture accounting was restored.
+  Evidence: direct evaluation of fresh raw captures showed `LinkedIn 34 -> 19 reject`, `Indeed 24 -> 11 reject`, and `Zip 4 -> 1 reject`, but `buildSourceRunSemanticMetrics()` only counted `evaluation.hardFiltered`. Because the scorer reserves `hardFiltered=true` for required-term and exclude-term failures, normal title/location/salary/date rejects were being shown as unfiltered in the Sources table.
 
 ## Decision Log
 
