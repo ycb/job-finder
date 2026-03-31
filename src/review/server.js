@@ -1160,6 +1160,58 @@ export function buildSourceRefreshMeta(source, options = {}) {
   };
 }
 
+export function resolveDashboardSourceRefreshMeta(refreshMeta = {}, latestRunDelta = null) {
+  const runRecordedMs = Date.parse(
+    String(latestRunDelta?.recordedAt || latestRunDelta?.capturedAt || "")
+  );
+  const lastAttemptMs = Date.parse(String(refreshMeta?.lastAttemptedAt || ""));
+  const latestAttemptFailed =
+    typeof refreshMeta?.lastAttemptOutcome === "string" &&
+    refreshMeta.lastAttemptOutcome !== "success" &&
+    Number.isFinite(lastAttemptMs) &&
+    (!Number.isFinite(runRecordedMs) || lastAttemptMs > runRecordedMs);
+
+  if (
+    !latestRunDelta ||
+    latestAttemptFailed ||
+    (!latestRunDelta.statusLabel && !latestRunDelta.statusReason && !latestRunDelta.servedFrom)
+  ) {
+    return refreshMeta;
+  }
+
+  const runCapturedAt =
+    typeof latestRunDelta.capturedAt === "string" && latestRunDelta.capturedAt.trim()
+      ? latestRunDelta.capturedAt
+      : typeof latestRunDelta.recordedAt === "string" && latestRunDelta.recordedAt.trim()
+        ? latestRunDelta.recordedAt
+        : null;
+
+  return {
+    ...refreshMeta,
+    servedFrom:
+      typeof latestRunDelta.servedFrom === "string" && latestRunDelta.servedFrom.trim()
+        ? latestRunDelta.servedFrom
+        : refreshMeta?.servedFrom || null,
+    statusReason:
+      typeof latestRunDelta.statusReason === "string" && latestRunDelta.statusReason.trim()
+        ? latestRunDelta.statusReason
+        : refreshMeta?.statusReason || null,
+    statusLabel:
+      typeof latestRunDelta.statusLabel === "string" && latestRunDelta.statusLabel.trim()
+        ? latestRunDelta.statusLabel
+        : refreshMeta?.statusLabel || null,
+    lastLiveAt:
+      latestRunDelta?.servedFrom === "live"
+        ? runCapturedAt || refreshMeta?.lastLiveAt || null
+        : refreshMeta?.lastLiveAt || null,
+    lastAttemptedAt: runCapturedAt || refreshMeta?.lastAttemptedAt || null,
+    lastAttemptOutcome:
+      latestRunDelta?.servedFrom === "live" ? "success" : refreshMeta?.lastAttemptOutcome || null,
+    lastAttemptError:
+      latestRunDelta?.servedFrom === "live" ? null : refreshMeta?.lastAttemptError || null
+  };
+}
+
 function resolveAllowQuarantinedIngest(options = {}) {
   if (options.allowQuarantined === true) {
     return true;
@@ -1966,6 +2018,10 @@ function buildDashboardData(limit = 200) {
         source,
         latestSourceRunDeltaBySourceId
       );
+      const displayRefreshMeta = resolveDashboardSourceRefreshMeta(
+        refreshMeta,
+        latestRunDelta
+      );
       const runTotals = aggregateSourceRunTotals(source, sourceRunTotalsBySourceId);
       const counts = aggregateSourceCounts(source, countsBySourceId);
       const isFileBackedCapture = Boolean(source.capturePath);
@@ -2022,15 +2078,15 @@ function buildDashboardData(limit = 200) {
       const manualCapNextEligibleAt =
         manualRemaining <= 0 ? nextUtcDayStartIso(nowMs) : null;
       const manualPolicyNextEligibleAt =
-        typeof refreshMeta.nextEligibleAt === "string" && refreshMeta.nextEligibleAt.trim()
-          ? refreshMeta.nextEligibleAt
+        typeof displayRefreshMeta.nextEligibleAt === "string" && displayRefreshMeta.nextEligibleAt.trim()
+          ? displayRefreshMeta.nextEligibleAt
           : null;
       const manualNextEligibleAt = manualCapNextEligibleAt || manualPolicyNextEligibleAt;
       const manualBlockedReason =
         manualCapNextEligibleAt
           ? "manual_daily_cap"
           : manualPolicyNextEligibleAt
-            ? String(refreshMeta.statusReason || "min_interval")
+            ? String(displayRefreshMeta.statusReason || "min_interval")
             : null;
       const manualAllowed = source.enabled === true && !manualNextEligibleAt;
       const noveltyDiagnostics = sourceNoveltyBySourceId[source.id] || null;
@@ -2115,7 +2171,7 @@ function buildDashboardData(limit = 200) {
         manualRefreshNextEligibleAt: manualNextEligibleAt,
         manualRefreshAllowed: manualAllowed,
         manualRefreshBlockedReason: manualBlockedReason,
-        ...refreshMeta
+        ...displayRefreshMeta
       };
     }),
     sourceHealthSummary: sourceHealthRows.reduce(

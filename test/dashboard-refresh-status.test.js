@@ -6,7 +6,10 @@ import path from "node:path";
 
 import { writeSourceCapturePayload } from "../src/sources/cache-policy.js";
 import { recordRefreshEvent } from "../src/sources/refresh-state.js";
-import { buildSourceRefreshMeta } from "../src/review/server.js";
+import {
+  buildSourceRefreshMeta,
+  resolveDashboardSourceRefreshMeta
+} from "../src/review/server.js";
 
 function createTempPaths() {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-finder-dashboard-refresh-"));
@@ -229,6 +232,67 @@ test("buildSourceRefreshMeta preserves live status for the current run capture",
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
+});
+
+test("resolveDashboardSourceRefreshMeta prefers latest live run status over stale cache state", () => {
+  const refreshMeta = {
+    refreshMode: "safe",
+    servedFrom: "cache",
+    statusReason: "cache_fresh",
+    statusLabel: "cache_fresh",
+    lastLiveAt: "2026-03-30T22:00:00.000Z",
+    lastAttemptedAt: "2026-03-30T22:00:00.000Z",
+    lastAttemptOutcome: "success",
+    lastAttemptError: null,
+    nextEligibleAt: null,
+    cooldownUntil: null
+  };
+  const latestRunDelta = {
+    servedFrom: "live",
+    statusReason: "fetched_during_sync",
+    statusLabel: "ready_live",
+    capturedAt: "2026-03-30T23:36:34.427Z",
+    recordedAt: "2026-03-30T23:37:47.270Z"
+  };
+
+  const resolved = resolveDashboardSourceRefreshMeta(refreshMeta, latestRunDelta);
+
+  assert.equal(resolved.servedFrom, "live");
+  assert.equal(resolved.statusReason, "fetched_during_sync");
+  assert.equal(resolved.statusLabel, "ready_live");
+  assert.equal(resolved.lastAttemptOutcome, "success");
+  assert.equal(resolved.lastAttemptError, null);
+  assert.equal(resolved.lastAttemptedAt, "2026-03-30T23:36:34.427Z");
+});
+
+test("resolveDashboardSourceRefreshMeta keeps later failed attempt status over older live run", () => {
+  const refreshMeta = {
+    refreshMode: "safe",
+    servedFrom: "cache",
+    statusReason: "challenge",
+    statusLabel: "challenge",
+    lastLiveAt: "2026-03-30T22:00:00.000Z",
+    lastAttemptedAt: "2026-03-31T00:10:00.000Z",
+    lastAttemptOutcome: "challenge",
+    lastAttemptError: "verification required",
+    nextEligibleAt: "2026-03-31T03:10:00.000Z",
+    cooldownUntil: "2026-03-31T03:10:00.000Z"
+  };
+  const latestRunDelta = {
+    servedFrom: "live",
+    statusReason: "fetched_during_sync",
+    statusLabel: "ready_live",
+    capturedAt: "2026-03-30T23:36:34.427Z",
+    recordedAt: "2026-03-30T23:37:47.270Z"
+  };
+
+  const resolved = resolveDashboardSourceRefreshMeta(refreshMeta, latestRunDelta);
+
+  assert.equal(resolved.servedFrom, "cache");
+  assert.equal(resolved.statusReason, "challenge");
+  assert.equal(resolved.statusLabel, "challenge");
+  assert.equal(resolved.lastAttemptOutcome, "challenge");
+  assert.equal(resolved.lastAttemptError, "verification required");
 });
 
 test("renderDashboardPage includes run delta and refresh context status copy", async () => {

@@ -375,3 +375,5 @@ As of 2026-03-06.
 - If a source row disagrees with the raw capture artifact, treat that as a separate accounting bug. Do not rationalize low source counts as search quality until capture count, evaluation count, and imported count reconcile.
 - Do not let the generic sync path count from a source-level prefilter. User-facing source metrics must start from raw captured rows and only then apply shared evaluation and dedupe.
 - When canonicalizing source definitions into the library, preserve source-specific native search state that materially affects quality. Replacing richer working base URLs with generic endpoints is a regression unless proven harmless.
+
+- Do not mix source-run accounting with refresh-state status in stakeholder surfaces. If counts come from latest/cumulative run deltas, displayed servedFrom/status must prefer the latest run row unless there was a later failed attempt.
