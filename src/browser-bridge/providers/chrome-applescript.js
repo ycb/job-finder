@@ -958,6 +958,7 @@ function buildExtractionScript() {
 
     jobs.push({
       externalId: resolvedExternalId,
+      detailExternalId: detailHints.externalId || null,
       title,
       company,
       location: resolvedLocation || null,

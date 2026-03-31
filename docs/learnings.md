@@ -380,5 +380,6 @@ As of 2026-03-06.
 - When a live source page advertises far more results than the capture file contains, treat it as an extraction shortfall first. Query construction may still be lossy, but `expectedCount >> captured jobs` on the same live page means the extractor is missing visible cards.
 - If the server and CLI both ingest captures, compare their capture-payload construction paths directly. `src/cli.js sync` had already been corrected to reread the refreshed capture summary after collection, while `src/review/server.js runSyncAndScore()` still used the stale pre-collection summary and wrote contradictory source rows.
 - Do not leave a browser-source timeout unchanged after making the extraction script materially heavier. If detail probing or cleanup gets more expensive, raise the source-specific timeout on the real live-run path before asking for QA.
+- For LinkedIn card capture, do not trust detail-pane text unless the detail pane proves it belongs to the same LinkedIn job id as the card. Otherwise one stale open detail pane can contaminate many jobs with the same description and trigger false excludes.
 
 - Do not mix source-run accounting with refresh-state status in stakeholder surfaces. If counts come from latest/cumulative run deltas, displayed servedFrom/status must prefer the latest run row unless there was a later failed attempt.
