@@ -21,6 +21,8 @@ Job Finder's product promise is simple: take a search the user could do manually
 - [x] (2026-03-31 19:11Z) Confirmed a second regression vector for LinkedIn/Indeed/Zip: canonical source-library base URLs had been reduced to generic endpoints, discarding richer SF-native location/radius state that older working searches carried. Restored richer canonical defaults and builder logic that preserves the richer existing location when criteria only specifies the city name.
 - [x] (2026-03-31 20:07Z) Reproduced the remaining `0 filtered` bug directly against fresh LinkedIn/Indeed/Zip captures. `buildSourceRunSemanticMetrics()` was faithfully using `evaluation.hardFiltered`, but the scorer only sets that flag for required-term and exclude-term failures. Title/location/salary/date-based rejects stay in `bucket='reject'`, so source rows were undercounting filtered jobs. Updated the semantic metric builder so user-facing `Filtered` counts all criteria-based rejects.
 - [x] (2026-03-31 21:18Z) Fixed the stale capture-summary bug in `runSyncAndScore()`. The server path was still evaluating fresh raw jobs against the pre-collection summary, while `src/cli.js sync` already reread the refreshed summary after collection. Added a focused regression test for the capture-payload builder.
+- [x] (2026-03-31 22:14Z) Proved the current Zip regression is primarily query-construction overconstraint, not extractor incapacity. A direct live Zip capture using the broad manual-equivalent URL `https://www.ziprecruiter.com/jobs-search?search=Product+manager+ai&location=San+Francisco%2C+CA&page=1` captured `57` jobs, while the configured run-all URL with URL-side `days`, salary, radius, and employment constraints was returning `4`.
+- [x] (2026-03-31 22:22Z) Simplified the Zip source contract to manual-equivalent parity: keep query text and location in URL; move salary/date/distance/experience constraints to post-capture evaluation; remove hidden passthrough employment/apply filters from the canonical Zip source URL and builder.
 - [ ] Validate the live QA batch after the controller fixes land on `qa/current`, and compare the new `LinkedIn` / `ZipRecruiter` rows against their raw capture artifacts and manual-equivalent native searches.
 - [ ] Add regression tests that fail if a source is declared parity-ready without matching a manual-equivalent baseline for at least the first-page count and representative top matches.
 
@@ -53,6 +55,9 @@ Job Finder's product promise is simple: take a search the user could do manually
 - Observation: `src/review/server.js` was still using stale capture metadata after fresh collection.
   Evidence: `runSyncAndScore()` read `readSourceCaptureSummary(source)` before `collectRawJobsFromSource(source)` and used that stale summary to populate `capturedAt`, `expectedCount`, and `captureFunnel`. `src/cli.js sync` had already been corrected to reread the refreshed summary after collection, so the server and CLI paths had diverged.
 
+- Observation: Zip's live extractor can collect a healthy first page when the query state matches the manual-native search more closely.
+  Evidence: `node src/cli.js capture-source-live zip-ai-pm /tmp/zip-live-postfix.json --force-refresh` against the simplified URL `...?search=Product+manager+ai&location=San+Francisco%2C+CA&page=1` live-captured `57` jobs. The configured URL with `days=3`, `refine_by_salary=200000`, `radius=25`, and `refine_by_employment=employment_type:all` had been yielding only `4`. That isolates the current Zip regression to URL-side overconstraint rather than a dead extractor.
+
 ## Decision Log
 
 - Decision: treat this as a regression-root-cause investigation, not a generic source-quality tweak pass.
@@ -65,6 +70,10 @@ Job Finder's product promise is simple: take a search the user could do manually
 
 - Decision: ZipRecruiter and LinkedIn are the first fix priorities.
   Rationale: Zip shows a clear manual-vs-generated mismatch and LinkedIn has a proven capture-vs-accounting mismatch. These are more urgent than broad source-map cleanup because they directly violate the product promise.
+  Date/Author: 2026-03-31 / Codex
+
+- Decision: for ZipRecruiter MVP, only title/keywords/location remain URL-side constraints; salary/date/distance/experience move to post-capture evaluation.
+  Rationale: the live direct-capture comparison proved that URL-side Zip constraints were overconstraining the native search state and suppressing relevant results. The product promise is better served by broad native capture plus honest shared filtering than by pretending Zip reliably honors the full structured criteria model in its URL.
   Date/Author: 2026-03-31 / Codex
 
 ## Outcomes & Retrospective

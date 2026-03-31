@@ -178,8 +178,8 @@
     },
     {
       "sourceType": "ziprecruiter_search",
-      "contractVersion": "1.1.0",
-      "lastVerified": "2026-03-27",
+      "contractVersion": "1.2.0",
+      "lastVerified": "2026-03-31",
       "criteriaMapping": {
         "title": "url",
         "keywords": "url",
@@ -188,10 +188,10 @@
         "includeTerms": "url",
         "excludeTerms": "post_capture",
         "location": "url",
-        "distanceMiles": "url",
-        "datePosted": "url",
-        "experienceLevel": "url",
-        "minSalary": "url"
+        "distanceMiles": "post_capture",
+        "datePosted": "post_capture",
+        "experienceLevel": "post_capture",
+        "minSalary": "post_capture"
       },
       "extraction": {
         "requiredFields": [

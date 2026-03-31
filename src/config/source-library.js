@@ -35,7 +35,7 @@ const SOURCE_LIBRARY = Object.freeze([
     legacySourceIds: ["ziprecruiter-main", "ziprecruiter-ai-pm-sf"],
     enabled: false,
     searchUrl:
-      "https://www.ziprecruiter.com/jobs-search?location=San+Francisco%2C+CA&radius=25&refine_by_employment=employment_type%3Aall&page=1",
+      "https://www.ziprecruiter.com/jobs-search?location=San+Francisco%2C+CA&page=1",
     cacheTtlHours: 24
   },
   {

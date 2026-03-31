@@ -38,16 +38,6 @@ const LINKEDIN_SALARY_BUCKETS = [
   { min: 200000, code: "9" }
 ];
 
-const ZIP_EXPERIENCE_LEVELS = new Map([
-  ["intern", "entry"],
-  ["entry", "entry"],
-  ["associate", "mid"],
-  ["mid", "mid"],
-  ["senior", "senior"],
-  ["director", "senior"],
-  ["executive", "senior"]
-]);
-
 const DATE_POSTED_TO_DAYS = new Map([
   ["1d", 1],
   ["3d", 3],
@@ -862,7 +852,6 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
 
   if (sourceType === "ziprecruiter_search") {
     const nextParams = new URLSearchParams();
-    if (criteria.keywordMode) criteriaAccountability.markAppliedInUrl("keywordMode");
     const titleKeywords = combineTitleAndKeywords(criteria);
 
     if (titleKeywords) {
@@ -895,61 +884,30 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
     }
 
     if (criteria.distanceMiles) {
-      nextParams.set("radius", String(criteria.distanceMiles));
-      criteriaAccountability.markAppliedInUrl("distanceMiles");
+      criteriaAccountability.markAppliedPostCapture("distanceMiles");
     } else {
-      const existingRadius = normalizePositiveInt(parsed.searchParams.get("radius"));
-      if (existingRadius) {
-        nextParams.set("radius", String(existingRadius));
-      }
+      nextParams.delete("radius");
     }
 
     if (criteria.datePosted) {
-      if (criteria.datePosted === "any") {
-        criteriaAccountability.markAppliedInUrl("datePosted");
-      } else {
-        const days = DATE_POSTED_TO_DAYS.get(criteria.datePosted);
-        if (days) {
-          nextParams.set("days", String(days));
-          criteriaAccountability.markAppliedInUrl("datePosted");
-        } else {
-          criteriaAccountability.markUnsupported("datePosted");
-        }
-      }
+      criteriaAccountability.markAppliedPostCapture("datePosted");
     }
+    nextParams.delete("days");
 
     if (criteria.minSalary) {
-      nextParams.set("refine_by_salary", String(criteria.minSalary));
-      criteriaAccountability.markAppliedInUrl("minSalary");
+      criteriaAccountability.markAppliedPostCapture("minSalary");
     } else {
-      const existingMinSalary = normalizeText(parsed.searchParams.get("refine_by_salary"));
-      if (existingMinSalary) {
-        nextParams.set("refine_by_salary", existingMinSalary);
-      }
+      nextParams.delete("refine_by_salary");
     }
 
     if (criteria.experienceLevel) {
-      const mapped = ZIP_EXPERIENCE_LEVELS.get(criteria.experienceLevel);
-      if (mapped) {
-        nextParams.set("refine_by_experience_level", mapped);
-        criteriaAccountability.markAppliedInUrl("experienceLevel");
-      } else {
-        criteriaAccountability.markUnsupported("experienceLevel");
-      }
+      criteriaAccountability.markAppliedPostCapture("experienceLevel");
     } else {
-      const existingExperience = normalizeText(
-        parsed.searchParams.get("refine_by_experience_level")
-      );
-      if (existingExperience) {
-        nextParams.set("refine_by_experience_level", existingExperience);
-      }
+      nextParams.delete("refine_by_experience_level");
     }
 
     for (const passthroughKey of ["refine_by_employment", "refine_by_apply_type"]) {
-      const existingValue = normalizeText(parsed.searchParams.get(passthroughKey));
-      if (existingValue) {
-        nextParams.set(passthroughKey, existingValue);
-      }
+      nextParams.delete(passthroughKey);
     }
 
     nextParams.set("page", "1");
