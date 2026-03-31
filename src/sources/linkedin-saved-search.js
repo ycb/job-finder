@@ -305,7 +305,7 @@ export function collectLinkedInCaptureFile(source) {
   );
 }
 
-export function collectJobsFromSource(source) {
+export function collectRawJobsFromSource(source) {
   let jobs = null;
 
   if (source.type === "mock_linkedin_saved_search") {
@@ -338,5 +338,9 @@ export function collectJobsFromSource(source) {
     throw new Error(`Unsupported source type: ${source.type}`);
   }
 
-  return applySourceHardFilters(source, jobs).jobs;
+  return jobs;
+}
+
+export function collectJobsFromSource(source) {
+  return applySourceHardFilters(source, collectRawJobsFromSource(source)).jobs;
 }

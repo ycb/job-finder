@@ -11,7 +11,9 @@ import {
   sanitizeLinkedInTitle
 } from "../src/sources/linkedin-cleanup.js";
 import {
+  collectRawJobsFromSource,
   collectLinkedInCaptureFile,
+  collectJobsFromSource,
   parseLinkedInSnapshot,
   writeLinkedInCaptureFile
 } from "../src/sources/linkedin-saved-search.js";
@@ -220,6 +222,49 @@ test("collectLinkedInCaptureFile repairs polluted persisted LinkedIn rows on rea
   assert.equal(jobs[0].company, "Replicant");
   assert.equal(jobs[0].url, "https://www.linkedin.com/jobs/view/4388130875/");
   assert.equal(jobs[0].externalId, "4388130875");
+});
+
+test("collectRawJobsFromSource preserves raw LinkedIn capture rows while collectJobsFromSource applies source hard filters", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-finder-linkedin-raw-"));
+  const source = {
+    id: "linkedin-live-capture",
+    name: "LinkedIn",
+    type: "linkedin_capture_file",
+    searchUrl: "https://www.linkedin.com/jobs/search/?keywords=product+manager+ai",
+    capturePath: path.join(tempDir, "linkedin.json")
+  };
+
+  fs.writeFileSync(
+    source.capturePath,
+    `${JSON.stringify(
+      {
+        capturedAt: "2026-03-31T00:00:00.000Z",
+        pageUrl: source.searchUrl,
+        jobs: [
+          {
+            title: "Senior Product Manager",
+            company: "Example",
+            location: "San Francisco, CA",
+            description: "Thin snippet without explicit AI mention",
+            url: "https://www.linkedin.com/jobs/view/1/"
+          },
+          {
+            title: "Engineering Manager",
+            company: "Example",
+            location: "San Francisco, CA",
+            description: "AI infrastructure role",
+            url: "https://www.linkedin.com/jobs/view/2/"
+          }
+        ]
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+
+  assert.equal(collectRawJobsFromSource(source).length, 2);
+  assert.equal(collectJobsFromSource(source).length, 1);
 });
 
 test("parseLinkedInSnapshot cleans duplicated LinkedIn titles in parsed jobs", () => {

@@ -233,6 +233,27 @@ function formatUsdAmount(value) {
   return `$${amount.toLocaleString("en-US")}`;
 }
 
+function resolvePreferredLocation(criteriaLocation, existingLocation = "") {
+  const requested = normalizeText(criteriaLocation);
+  const existing = normalizeText(existingLocation);
+
+  if (!requested) {
+    return existing;
+  }
+
+  if (!existing || requested.includes(",")) {
+    return requested;
+  }
+
+  const requestedLower = requested.toLowerCase();
+  const existingLower = existing.toLowerCase();
+  if (existingLower === requestedLower || existingLower.startsWith(`${requestedLower},`)) {
+    return existing;
+  }
+
+  return requested;
+}
+
 function slugifyKeywords(value) {
   return normalizeText(value)
     .toLowerCase()
@@ -515,7 +536,10 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
 
     if (criteria.location) {
       nextParams.delete("geoId");
-      nextParams.set("location", criteria.location);
+      nextParams.set(
+        "location",
+        resolvePreferredLocation(criteria.location, parsed.searchParams.get("location"))
+      );
       criteriaAccountability.markAppliedInUrl("location");
     }
 
@@ -768,7 +792,14 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
     }
 
     if (criteria.location) {
-      nextParams.set("l", criteria.location);
+      nextParams.set(
+        "l",
+        resolvePreferredLocation(
+          criteria.location,
+          normalizeText(parsed.searchParams.get("l")) ||
+            normalizeText(parsed.searchParams.get("locString"))
+        )
+      );
       criteriaAccountability.markAppliedInUrl("location");
     } else {
       const existingLocation =
@@ -851,7 +882,10 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
     }
 
     if (criteria.location) {
-      nextParams.set("location", criteria.location);
+      nextParams.set(
+        "location",
+        resolvePreferredLocation(criteria.location, parsed.searchParams.get("location"))
+      );
       criteriaAccountability.markAppliedInUrl("location");
     } else {
       const existingLocation = normalizeText(parsed.searchParams.get("location"));
@@ -887,6 +921,11 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
     if (criteria.minSalary) {
       nextParams.set("refine_by_salary", String(criteria.minSalary));
       criteriaAccountability.markAppliedInUrl("minSalary");
+    } else {
+      const existingMinSalary = normalizeText(parsed.searchParams.get("refine_by_salary"));
+      if (existingMinSalary) {
+        nextParams.set("refine_by_salary", existingMinSalary);
+      }
     }
 
     if (criteria.experienceLevel) {
@@ -896,6 +935,20 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
         criteriaAccountability.markAppliedInUrl("experienceLevel");
       } else {
         criteriaAccountability.markUnsupported("experienceLevel");
+      }
+    } else {
+      const existingExperience = normalizeText(
+        parsed.searchParams.get("refine_by_experience_level")
+      );
+      if (existingExperience) {
+        nextParams.set("refine_by_experience_level", existingExperience);
+      }
+    }
+
+    for (const passthroughKey of ["refine_by_employment", "refine_by_apply_type"]) {
+      const existingValue = normalizeText(parsed.searchParams.get(passthroughKey));
+      if (existingValue) {
+        nextParams.set(passthroughKey, existingValue);
       }
     }
 

@@ -5,7 +5,7 @@ const SOURCE_LIBRARY = Object.freeze([
     type: "linkedin_capture_file",
     legacySourceIds: ["linkedin-main", "growth-pm", "founding-pm", "ai-pm", "pm-remote-linkedin"],
     enabled: false,
-    searchUrl: "https://www.linkedin.com/jobs/search/",
+    searchUrl: "https://www.linkedin.com/jobs/search/?location=San+Francisco%2C+CA&distance=25",
     capturePath: "data/captures/linkedin-live-capture.json",
     cacheTtlHours: 24
   },
@@ -25,7 +25,7 @@ const SOURCE_LIBRARY = Object.freeze([
     type: "indeed_search",
     legacySourceIds: ["indeed-main", "indeed-ai-pm-sf"],
     enabled: false,
-    searchUrl: "https://www.indeed.com/jobs",
+    searchUrl: "https://www.indeed.com/jobs?l=San+Francisco%2C+CA&radius=25",
     cacheTtlHours: 24
   },
   {
@@ -34,7 +34,8 @@ const SOURCE_LIBRARY = Object.freeze([
     type: "ziprecruiter_search",
     legacySourceIds: ["ziprecruiter-main", "ziprecruiter-ai-pm-sf"],
     enabled: false,
-    searchUrl: "https://www.ziprecruiter.com/jobs-search",
+    searchUrl:
+      "https://www.ziprecruiter.com/jobs-search?location=San+Francisco%2C+CA&radius=25&refine_by_employment=employment_type%3Aall&page=1",
     cacheTtlHours: 24
   },
   {

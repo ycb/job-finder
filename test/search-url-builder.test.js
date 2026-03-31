@@ -65,14 +65,13 @@ test("buildSearchUrlForSourceType formats ZipRecruiter criteria", () => {
     {
       title: "principal product manager",
       keywords: "b2b saas fintech payments",
-      location: "San Francisco, CA",
-      distanceMiles: 25,
+      location: "San Francisco",
       minSalary: 200000,
       datePosted: "1w",
-      experienceLevel: "senior"
     },
     {
-      baseUrl: "https://www.ziprecruiter.com/jobs-search?lk=stale&page=9"
+      baseUrl:
+        "https://www.ziprecruiter.com/jobs-search?location=San+Francisco%2C+CA&radius=25&refine_by_employment=employment_type%3Aall&refine_by_experience_level=mid%2Csenior&lk=stale&page=9"
     }
   );
 
@@ -87,10 +86,33 @@ test("buildSearchUrlForSourceType formats ZipRecruiter criteria", () => {
   assert.equal(parsed.searchParams.get("radius"), "25");
   assert.equal(parsed.searchParams.get("refine_by_salary"), "200000");
   assert.equal(parsed.searchParams.get("days"), "7");
-  assert.equal(parsed.searchParams.get("refine_by_experience_level"), "senior");
+  assert.equal(parsed.searchParams.get("refine_by_experience_level"), "mid,senior");
+  assert.equal(parsed.searchParams.get("refine_by_employment"), "employment_type:all");
   assert.equal(parsed.searchParams.get("page"), "1");
   assert.equal(parsed.searchParams.get("lk"), null);
   assert.deepEqual(result.unsupported, []);
+});
+
+test("buildSearchUrlForSourceType preserves richer LinkedIn location when criteria only specifies city", () => {
+  const result = buildSearchUrlForSourceType(
+    "linkedin_capture_file",
+    {
+      title: "product manager",
+      hardIncludeTerms: ["ai"],
+      location: "San Francisco",
+      datePosted: "3d",
+      minSalary: 200000
+    },
+    {
+      baseUrl:
+        "https://www.linkedin.com/jobs/search/?location=San+Francisco%2C+CA&distance=25"
+    }
+  );
+
+  const parsed = new URL(result.url);
+  assert.equal(parsed.searchParams.get("location"), "San Francisco, CA");
+  assert.equal(parsed.searchParams.get("distance"), "25");
+  assert.equal(parsed.searchParams.get("keywords"), "product manager ai");
 });
 
 test("buildSearchUrlForSourceType formats Indeed criteria", () => {
