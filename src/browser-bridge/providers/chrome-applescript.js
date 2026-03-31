@@ -370,6 +370,19 @@ function buildExtractionScript() {
     }
   };
 
+  const isSearchResultsUrl = (href) => {
+    try {
+      const parsed = new URL(String(href || ""), location.origin);
+      return (
+        parsed.host.toLowerCase() === "www.linkedin.com" &&
+        (/^\\/jobs\\/search\\/?$/i.test(parsed.pathname) ||
+          /^\\/jobs\\/search-results\\/?$/i.test(parsed.pathname))
+      );
+    } catch {
+      return false;
+    }
+  };
+
   const extractLinkedInExternalId = (url) => {
     const raw = String(url || "");
     const match = raw.match(/\\/jobs\\/view\\/(\\d+)/i);
@@ -726,11 +739,8 @@ function buildExtractionScript() {
   };
 
   const readDetailHints = (cardRoot, dismissButton, titleAnchor) => {
-    const clickTarget =
-      (cardRoot || dismissButton)?.querySelector('a[href*="/jobs/view/"]') ||
-      titleAnchor ||
-      cardRoot ||
-      dismissButton;
+    const searchHrefBeforeClick = String(location.href || "");
+    const clickTarget = cardRoot || titleAnchor || dismissButton;
     if (clickTarget && typeof clickTarget.click === "function") {
       clickTarget.click();
     }
@@ -752,6 +762,30 @@ function buildExtractionScript() {
     let resolvedExternalId = extractLinkedInExternalId(location.href);
     const startedAt = Date.now();
     while (Date.now() - startedAt < 350) {
+      if (!isSearchResultsUrl(location.href)) {
+        try {
+          history.back();
+        } catch {
+          // no-op
+        }
+
+        const recoverStartedAt = Date.now();
+        while (Date.now() - recoverStartedAt < 600) {
+          if (isSearchResultsUrl(location.href)) {
+            break;
+          }
+          spinWait(35);
+        }
+
+        if (!isSearchResultsUrl(location.href)) {
+          return {
+            ...parseDetailHints(""),
+            externalId: extractLinkedInExternalId(searchHrefBeforeClick),
+            descriptionText: ""
+          };
+        }
+      }
+
       for (const selector of metadataSelectors) {
         const node = document.querySelector(selector);
         const text = normalize(node?.innerText || node?.textContent || "");
@@ -1169,6 +1203,19 @@ export function buildLinkedInPageUrl(searchUrl, pageIndex = 0) {
     Number.isInteger(pageIndex) && pageIndex > 0 ? pageIndex : 0;
   const startOffset = normalizedPageIndex * 25;
   return buildUrlWithSearchParam(searchUrl, "start", String(startOffset));
+}
+
+export function isLinkedInSearchResultsUrl(url) {
+  try {
+    const parsed = new URL(String(url || ""), "https://www.linkedin.com");
+    return (
+      parsed.host.toLowerCase() === "www.linkedin.com" &&
+      (/^\/jobs\/search\/?$/i.test(parsed.pathname) ||
+        /^\/jobs\/search-results\/?$/i.test(parsed.pathname))
+    );
+  } catch {
+    return false;
+  }
 }
 
 function readLinkedInJobsFromChrome(searchUrl, options = {}) {
