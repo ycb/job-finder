@@ -1307,20 +1307,13 @@ function runSyncAndScore() {
         continue;
       }
 
-      const capturePayload = {
-        capturedAt: captureSummary.capturedAt || new Date().toISOString(),
-        expectedCount: captureSummary.expectedCount,
-        pageUrl: captureSummary.pageUrl,
-        captureFunnel:
-          captureSummary?.payload?.captureFunnel &&
-          typeof captureSummary.payload.captureFunnel === "object" &&
-          !Array.isArray(captureSummary.payload.captureFunnel)
-            ? captureSummary.payload.captureFunnel
-            : null,
-        jobs: rawJobs
-      };
+      const capturePayload = buildCapturePayloadFromRawJobs(
+        source,
+        captureSummary,
+        rawJobs
+      );
       const evaluation = evaluateCaptureRun(source, capturePayload, {
-        baselineCount: captureSummary.expectedCount
+        baselineCount: capturePayload.expectedCount
       });
       recordSourceHealthFromCaptureEvaluation(source, capturePayload, evaluation);
       const shouldIngest = shouldIngestCaptureEvaluation(evaluation, {
@@ -1449,6 +1442,38 @@ function runSyncAndScore() {
       buckets: summarizeBuckets(evaluations)
     };
   });
+}
+
+export function buildCapturePayloadFromRawJobs(
+  source,
+  captureSummaryBeforeCollection,
+  rawJobs
+) {
+  const captureSummaryAfterCollection = readSourceCaptureSummary(source);
+
+  return {
+    capturedAt:
+      captureSummaryAfterCollection.capturedAt ||
+      captureSummaryBeforeCollection?.capturedAt ||
+      new Date().toISOString(),
+    expectedCount:
+      captureSummaryAfterCollection.expectedCount ??
+      captureSummaryBeforeCollection?.expectedCount,
+    pageUrl:
+      captureSummaryAfterCollection.pageUrl ||
+      captureSummaryBeforeCollection?.pageUrl,
+    captureFunnel:
+      captureSummaryAfterCollection?.payload?.captureFunnel &&
+      typeof captureSummaryAfterCollection.payload.captureFunnel === "object" &&
+      !Array.isArray(captureSummaryAfterCollection.payload.captureFunnel)
+        ? captureSummaryAfterCollection.payload.captureFunnel
+        : captureSummaryBeforeCollection?.payload?.captureFunnel &&
+            typeof captureSummaryBeforeCollection.payload.captureFunnel === "object" &&
+            !Array.isArray(captureSummaryBeforeCollection.payload.captureFunnel)
+          ? captureSummaryBeforeCollection.payload.captureFunnel
+          : null,
+    jobs: rawJobs
+  };
 }
 
 async function runSourceCapture(sourceId) {
