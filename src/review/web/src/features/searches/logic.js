@@ -150,6 +150,16 @@ export function buildSearchRows(sources = [], checksBySourceId = {}) {
       const foundCount = hasFiniteMetric(source.foundCount)
         ? Math.max(0, Math.round(Number(source.foundCount)))
         : null;
+      const latestTrustedRunFoundCount = normalizeOptionalCount(source.latestTrustedRunFoundCount);
+      const latestTrustedRunFilteredCount = normalizeOptionalCount(
+        source.latestTrustedRunFilteredCount,
+      );
+      const latestTrustedRunDedupedCount = normalizeOptionalCount(
+        source.latestTrustedRunDedupedCount,
+      );
+      const latestTrustedRunImportedCount = normalizeOptionalCount(
+        source.latestTrustedRunImportedCount,
+      );
       return {
         id: String(source.id || "").trim(),
         kind,
@@ -163,10 +173,14 @@ export function buildSearchRows(sources = [], checksBySourceId = {}) {
             ? source.lastAttemptedAt
             : source.capturedAt || null,
         foundCount,
+        latestTrustedRunFoundCount,
         capturedCount: Number(source.captureJobCount || 0),
         filteredCount,
+        latestTrustedRunFilteredCount,
         dedupedCount,
+        latestTrustedRunDedupedCount,
         importedCount,
+        latestTrustedRunImportedCount,
         hasUnknownExpectedCount: normalizeExpectedFoundCount(source.captureExpectedCount) === null,
         expectedFoundCount: normalizeExpectedFoundCount(source.captureExpectedCount),
         formatterUnsupported: Array.isArray(source?.formatterDiagnostics?.unsupported)
@@ -292,6 +306,26 @@ export function computeSearchTotals(searchRows = [], searchState = "enabled") {
       } else {
         accumulator.foundKnown = false;
       }
+      if (hasFiniteMetric(source.latestTrustedRunFoundCount)) {
+        accumulator.latestTrustedRunFound += Number(source.latestTrustedRunFoundCount);
+      } else {
+        accumulator.latestTrustedRunFoundKnown = false;
+      }
+      if (hasFiniteMetric(source.latestTrustedRunFilteredCount)) {
+        accumulator.latestTrustedRunFiltered += Number(source.latestTrustedRunFilteredCount);
+      } else {
+        accumulator.latestTrustedRunFilteredKnown = false;
+      }
+      if (hasFiniteMetric(source.latestTrustedRunDedupedCount)) {
+        accumulator.latestTrustedRunDeduped += Number(source.latestTrustedRunDedupedCount);
+      } else {
+        accumulator.latestTrustedRunDedupedKnown = false;
+      }
+      if (hasFiniteMetric(source.latestTrustedRunImportedCount)) {
+        accumulator.latestTrustedRunImported += Number(source.latestTrustedRunImportedCount);
+      } else {
+        accumulator.latestTrustedRunImportedKnown = false;
+      }
       if (hasFiniteMetric(source.avgScore) && hasFiniteMetric(source.importedCount) && Number(source.importedCount) > 0) {
         accumulator.avgScoreTotal += Number(source.avgScore) * Number(source.importedCount);
         accumulator.avgScoreCount += Number(source.importedCount);
@@ -308,6 +342,14 @@ export function computeSearchTotals(searchRows = [], searchState = "enabled") {
       importedKnown: true,
       found: 0,
       foundKnown: true,
+      latestTrustedRunFound: 0,
+      latestTrustedRunFoundKnown: true,
+      latestTrustedRunFiltered: 0,
+      latestTrustedRunFilteredKnown: true,
+      latestTrustedRunDeduped: 0,
+      latestTrustedRunDedupedKnown: true,
+      latestTrustedRunImported: 0,
+      latestTrustedRunImportedKnown: true,
       avgScoreTotal: 0,
       avgScoreCount: 0,
     },
@@ -315,10 +357,23 @@ export function computeSearchTotals(searchRows = [], searchState = "enabled") {
 
   return {
     stateLabel: normalizeSearchState(searchState) === "enabled" ? "Enabled Total" : "Disabled Total",
+    foundCount: totals.foundKnown ? totals.found : null,
     foundLabel: totals.foundKnown ? String(Math.max(0, Math.round(totals.found))) : "—",
     filtered: totals.filteredKnown ? totals.filtered : null,
     deduped: totals.dedupedKnown ? totals.deduped : null,
     imported: totals.importedKnown ? totals.imported : null,
+    latestTrustedRunFoundCount: totals.latestTrustedRunFoundKnown
+      ? totals.latestTrustedRunFound
+      : null,
+    latestTrustedRunFilteredCount: totals.latestTrustedRunFilteredKnown
+      ? totals.latestTrustedRunFiltered
+      : null,
+    latestTrustedRunDedupedCount: totals.latestTrustedRunDedupedKnown
+      ? totals.latestTrustedRunDeduped
+      : null,
+    latestTrustedRunImportedCount: totals.latestTrustedRunImportedKnown
+      ? totals.latestTrustedRunImported
+      : null,
     avgScore:
       totals.avgScoreCount > 0
         ? Math.round(totals.avgScoreTotal / totals.avgScoreCount)

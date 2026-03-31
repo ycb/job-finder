@@ -203,6 +203,41 @@ test("computeSearchTotals rolls up counts and weighted avg score", () => {
   assert.equal(totals.avgScore, 73);
 });
 
+test("computeSearchTotals rolls up latest trusted run deltas separately", () => {
+  const totals = computeSearchTotals(
+    [
+      {
+        foundCount: 34,
+        filteredCount: 12,
+        dedupedCount: 1,
+        importedCount: 21,
+        latestTrustedRunFoundCount: 8,
+        latestTrustedRunFilteredCount: 3,
+        latestTrustedRunDedupedCount: 0,
+        latestTrustedRunImportedCount: 5,
+        avgScore: 80,
+      },
+      {
+        foundCount: 10,
+        filteredCount: 4,
+        dedupedCount: 2,
+        importedCount: 4,
+        latestTrustedRunFoundCount: 2,
+        latestTrustedRunFilteredCount: 1,
+        latestTrustedRunDedupedCount: 1,
+        latestTrustedRunImportedCount: 0,
+        avgScore: 60,
+      },
+    ],
+    "enabled",
+  );
+
+  assert.equal(totals.latestTrustedRunFoundCount, 10);
+  assert.equal(totals.latestTrustedRunFilteredCount, 4);
+  assert.equal(totals.latestTrustedRunDedupedCount, 1);
+  assert.equal(totals.latestTrustedRunImportedCount, 5);
+});
+
 test("buildSearchRows preserves explicit found counts", () => {
   const rows = buildSearchRows([
     {
@@ -221,6 +256,36 @@ test("buildSearchRows preserves explicit found counts", () => {
 
   assert.equal(rows[0].foundCount, 10);
   assert.equal(presentSearchStatus(rows[0]).foundLabel, "10");
+});
+
+test("buildSearchRows preserves latest trusted run deltas separately from cumulative totals", () => {
+  const rows = buildSearchRows([
+    {
+      id: "builtin",
+      name: "Built In",
+      type: "builtin_search",
+      searchUrl: "https://builtin.example",
+      enabled: true,
+      authRequired: false,
+      foundCount: 34,
+      droppedByHardFilterCount: 12,
+      droppedByDedupeCount: 1,
+      importedCount: 21,
+      latestTrustedRunFoundCount: 8,
+      latestTrustedRunFilteredCount: 3,
+      latestTrustedRunDedupedCount: 0,
+      latestTrustedRunImportedCount: 5,
+    },
+  ]);
+
+  assert.equal(rows[0].foundCount, 34);
+  assert.equal(rows[0].filteredCount, 12);
+  assert.equal(rows[0].dedupedCount, 1);
+  assert.equal(rows[0].importedCount, 21);
+  assert.equal(rows[0].latestTrustedRunFoundCount, 8);
+  assert.equal(rows[0].latestTrustedRunFilteredCount, 3);
+  assert.equal(rows[0].latestTrustedRunDedupedCount, 0);
+  assert.equal(rows[0].latestTrustedRunImportedCount, 5);
 });
 
 test("buildSearchRows preserves unknown filtered and deduped history instead of coercing zeros", () => {

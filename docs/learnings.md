@@ -387,3 +387,4 @@ As of 2026-03-06.
 - When the user directly observes the live automation tab, treat that as ground truth over indirect CLI signals. I incorrectly concluded the LinkedIn drift was fixed because a raw capture completed, but the browser was still ending in `similar-jobs`. For LinkedIn search capture, the correct rule is stricter: keep the search page read-only and do not click into card/detail state during raw capture at all.
 
 - Do not mix source-run accounting with refresh-state status in stakeholder surfaces. If counts come from latest/cumulative run deltas, displayed servedFrom/status must prefer the latest run row unless there was a later failed attempt.
+- For source-run reporting, do not let a later `cache_fresh` replay of the same `captured_at` outrank the live row that actually produced the capture. Latest-run truth and cumulative totals both need a trust ordering, not just `recorded_at DESC`.

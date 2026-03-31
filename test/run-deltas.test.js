@@ -258,6 +258,65 @@ test("recordSourceRunDeltas persists rows and listLatestSourceRunDeltas returns 
   }
 });
 
+test("listLatestSourceRunDeltas prefers a live row over a later cache replay for the same capture", () => {
+  const { db, dir } = createTempDb();
+
+  try {
+    recordSourceRunDeltas(db, [
+      {
+        runId: "run-live",
+        sourceId: "source-a",
+        foundCount: 18,
+        filteredCount: 4,
+        dedupedCount: 0,
+        rawFoundCount: 18,
+        hardFilteredCount: 4,
+        duplicateCollapsedCount: 0,
+        importedKeptCount: 14,
+        newCount: 3,
+        updatedCount: 1,
+        unchangedCount: 10,
+        importedCount: 14,
+        refreshMode: "safe",
+        servedFrom: "live",
+        statusReason: "fetched_during_sync",
+        statusLabel: "ready_live",
+        capturedAt: "2026-03-31T10:00:00.000Z",
+        recordedAt: "2026-03-31T10:00:10.000Z"
+      },
+      {
+        runId: "run-cache",
+        sourceId: "source-a",
+        foundCount: 18,
+        filteredCount: 4,
+        dedupedCount: 0,
+        rawFoundCount: 18,
+        hardFilteredCount: 4,
+        duplicateCollapsedCount: 0,
+        importedKeptCount: 14,
+        newCount: 0,
+        updatedCount: 0,
+        unchangedCount: 14,
+        importedCount: 14,
+        refreshMode: "safe",
+        servedFrom: "cache",
+        statusReason: "cache_fresh",
+        statusLabel: "cache_fresh",
+        capturedAt: "2026-03-31T10:00:00.000Z",
+        recordedAt: "2026-03-31T10:05:00.000Z"
+      }
+    ]);
+
+    const latest = listLatestSourceRunDeltas(db).map((row) => ({ ...row }));
+    assert.equal(latest.length, 1);
+    assert.equal(latest[0].runId, "run-live");
+    assert.equal(latest[0].servedFrom, "live");
+    assert.equal(latest[0].statusReason, "fetched_during_sync");
+  } finally {
+    cleanupTempDb(db, dir);
+  }
+});
+
 test("buildSourceRunSemanticMetrics counts reject-bucket jobs as filtered even without hardFiltered flag", () => {
   const normalizedJobs = [
     { id: "job-1", normalizedHash: "hash-1" },
@@ -423,6 +482,81 @@ test("listSourceRunTotals dedupes repeated source runs with the same captured_at
         hardFilteredCount: 5,
         duplicateCollapsedCount: 2,
         importedKeptCount: 13,
+        foundSamples: 1,
+        filteredSamples: 1,
+        dedupedSamples: 1,
+        rawFoundSamples: 1,
+        hardFilteredSamples: 1,
+        duplicateCollapsedSamples: 1,
+        importedKeptSamples: 1
+      }
+    ]);
+  } finally {
+    cleanupTempDb(db, dir);
+  }
+});
+
+test("listSourceRunTotals prefers a live row over a cache replay for the same capture", () => {
+  const { db, dir } = createTempDb();
+
+  try {
+    recordSourceRunDeltas(db, [
+      {
+        runId: "run-live",
+        sourceId: "source-a",
+        foundCount: 18,
+        filteredCount: 4,
+        dedupedCount: 0,
+        rawFoundCount: 18,
+        hardFilteredCount: 4,
+        duplicateCollapsedCount: 0,
+        importedKeptCount: 14,
+        newCount: 3,
+        updatedCount: 1,
+        unchangedCount: 10,
+        importedCount: 14,
+        refreshMode: "safe",
+        servedFrom: "live",
+        statusReason: "fetched_during_sync",
+        statusLabel: "ready_live",
+        capturedAt: "2026-03-31T10:00:00.000Z",
+        recordedAt: "2026-03-31T10:00:10.000Z"
+      },
+      {
+        runId: "run-cache",
+        sourceId: "source-a",
+        foundCount: 18,
+        filteredCount: 4,
+        dedupedCount: 0,
+        rawFoundCount: 18,
+        hardFilteredCount: 4,
+        duplicateCollapsedCount: 0,
+        importedKeptCount: 14,
+        newCount: 0,
+        updatedCount: 0,
+        unchangedCount: 14,
+        importedCount: 14,
+        refreshMode: "safe",
+        servedFrom: "cache",
+        statusReason: "cache_fresh",
+        statusLabel: "cache_fresh",
+        capturedAt: "2026-03-31T10:00:00.000Z",
+        recordedAt: "2026-03-31T10:05:00.000Z"
+      }
+    ]);
+
+    const totals = listSourceRunTotals(db).map((row) => ({ ...row }));
+    assert.deepEqual(totals, [
+      {
+        sourceId: "source-a",
+        importedCount: 14,
+        foundCount: 18,
+        filteredCount: 4,
+        dedupedCount: 0,
+        rawFoundCount: 18,
+        hardFilteredCount: 4,
+        duplicateCollapsedCount: 0,
+        importedKeptCount: 14,
         foundSamples: 1,
         filteredSamples: 1,
         dedupedSamples: 1,

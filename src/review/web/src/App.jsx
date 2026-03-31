@@ -156,6 +156,21 @@ function formatSearchMetricValue(value) {
   return Number.isFinite(Number(value)) ? Math.max(0, Math.round(Number(value))) : "—";
 }
 
+function SearchMetricValue({ value, delta }) {
+  const primary = formatSearchMetricValue(value);
+  const hasDelta = Number.isFinite(Number(delta));
+  const deltaLabel = hasDelta ? `+${Math.max(0, Math.round(Number(delta)))}` : null;
+
+  return (
+    <div className="flex items-center gap-2">
+      <span>{primary}</span>
+      {deltaLabel ? (
+        <span className="text-xs font-medium text-muted-foreground">{deltaLabel}</span>
+      ) : null}
+    </div>
+  );
+}
+
 function formatJobStatus(status) {
   if (status === "skip_for_now") {
     return "skip for now";
@@ -2325,10 +2340,30 @@ export default function App() {
                                 ) : null}
                               </div>
                             </TableCell>
-                            <TableCell>{statusPresentation.foundLabel}</TableCell>
-                            <TableCell>{formatSearchMetricValue(row.filteredCount)}</TableCell>
-                            <TableCell>{formatSearchMetricValue(row.dedupedCount)}</TableCell>
-                            <TableCell>{row.importedCount}</TableCell>
+                            <TableCell>
+                              <SearchMetricValue
+                                value={row.foundCount}
+                                delta={row.latestTrustedRunFoundCount}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <SearchMetricValue
+                                value={row.filteredCount}
+                                delta={row.latestTrustedRunFilteredCount}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <SearchMetricValue
+                                value={row.dedupedCount}
+                                delta={row.latestTrustedRunDedupedCount}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <SearchMetricValue
+                                value={row.importedCount}
+                                delta={row.latestTrustedRunImportedCount}
+                              />
+                            </TableCell>
                             <TableCell>{row.avgScore === null ? "n/a" : row.avgScore}</TableCell>
                             <TableCell className="align-middle pr-1">
                               <Button
@@ -2409,10 +2444,30 @@ export default function App() {
                         <TableCell className="font-semibold">{totals.stateLabel}</TableCell>
                         <TableCell>—</TableCell>
                         <TableCell>—</TableCell>
-                        <TableCell>{totals.foundLabel}</TableCell>
-                        <TableCell>{formatSearchMetricValue(totals.filtered)}</TableCell>
-                        <TableCell>{formatSearchMetricValue(totals.deduped)}</TableCell>
-                        <TableCell>{totals.imported}</TableCell>
+                        <TableCell>
+                          <SearchMetricValue
+                            value={totals.foundCount}
+                            delta={totals.latestTrustedRunFoundCount}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <SearchMetricValue
+                            value={totals.filtered}
+                            delta={totals.latestTrustedRunFilteredCount}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <SearchMetricValue
+                            value={totals.deduped}
+                            delta={totals.latestTrustedRunDedupedCount}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <SearchMetricValue
+                            value={totals.imported}
+                            delta={totals.latestTrustedRunImportedCount}
+                          />
+                        </TableCell>
                         <TableCell>{totals.avgScore}</TableCell>
                         <TableCell>—</TableCell>
                         <TableCell>—</TableCell>
