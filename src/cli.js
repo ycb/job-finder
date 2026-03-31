@@ -126,6 +126,7 @@ import {
 } from "./sources/source-canaries.js";
 import { runSourceContractDiagnostics } from "./sources/source-contracts.js";
 import {
+  collectRawJobsFromSource,
   collectJobsFromSource,
   importLinkedInSnapshot
 } from "./sources/linkedin-saved-search.js";
@@ -575,7 +576,7 @@ function runSync(options = {}) {
     const captureSummary = readSourceCaptureSummary(source);
     let rawJobs;
     try {
-      rawJobs = collectJobsFromSource(source);
+      rawJobs = collectRawJobsFromSource(source);
     } catch (error) {
       const evaluation = buildRejectedEvaluation(`collection failed: ${error.message}`);
       const failurePayload = {

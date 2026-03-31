@@ -90,7 +90,10 @@ import {
   computeAllSourceHealthStatuses,
   recordSourceHealthFromCaptureEvaluation
 } from "../sources/source-health.js";
-import { collectJobsFromSource } from "../sources/linkedin-saved-search.js";
+import {
+  collectJobsFromSource,
+  collectRawJobsFromSource
+} from "../sources/linkedin-saved-search.js";
 import { buildAnalyticsEvent, recordAnalyticsEvent } from "../analytics/events.js";
 import { getEntitlementState } from "../monetization/entitlements.js";
 import {
@@ -1230,7 +1233,7 @@ function runSyncAndScore() {
       const captureSummary = readSourceCaptureSummary(source);
       let rawJobs;
       try {
-        rawJobs = collectJobsFromSource(source);
+        rawJobs = collectRawJobsFromSource(source);
       } catch (error) {
         const evaluation = buildRejectedEvaluation(`collection failed: ${error.message}`);
         const failurePayload = {

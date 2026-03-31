@@ -367,3 +367,11 @@ As of 2026-03-06.
 - Do not ask for stakeholder QA on source search quality until manual-parity checks have been run for each active source and the acceptance criteria are actually met. “Builder passes tests” is not enough; live query parity must be demonstrated first.
 - If stakeholder QA is supposed to measure current source quality, the QA path must force live capture and allow the current capture to reach sync even when internal safety heuristics would normally quarantine it. Hidden cache reuse or silent quarantine makes the run look healthy while masking the thing under test.
 - Source-row refresh metadata must come from the current capture attempt, not a post-sync cache-policy recomputation. If sync recomputes refresh state after a fresh capture, it can relabel the current live run as `cache_fresh` and destroy trust in the run table.
+
+## Source Regression Baseline Discipline
+
+- When a user says a source used to work, do not continue with generic source-quality tuning. First compare current source handling against the last known-good baseline commit and identify which layers changed: query builder, browser extraction, normalization, evaluation, and source-row accounting.
+- Do not tell the user a source is parity-ready until you have personally checked the generated source-native URL/state against a manual-equivalent live search and verified the first-page result count and top captured matches are in the same rough range.
+- If a source row disagrees with the raw capture artifact, treat that as a separate accounting bug. Do not rationalize low source counts as search quality until capture count, evaluation count, and imported count reconcile.
+- Do not let the generic sync path count from a source-level prefilter. User-facing source metrics must start from raw captured rows and only then apply shared evaluation and dedupe.
+- When canonicalizing source definitions into the library, preserve source-specific native search state that materially affects quality. Replacing richer working base URLs with generic endpoints is a regression unless proven harmless.
