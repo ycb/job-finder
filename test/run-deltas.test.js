@@ -258,6 +258,54 @@ test("recordSourceRunDeltas persists rows and listLatestSourceRunDeltas returns 
   }
 });
 
+test("buildSourceRunSemanticMetrics counts reject-bucket jobs as filtered even without hardFiltered flag", () => {
+  const normalizedJobs = [
+    { id: "job-1", normalizedHash: "hash-1" },
+    { id: "job-2", normalizedHash: "hash-2" },
+    { id: "job-3", normalizedHash: "hash-3" }
+  ];
+  const evaluations = [
+    { jobId: "job-1", bucket: "reject", hardFiltered: false },
+    { jobId: "job-2", bucket: "review_later", hardFiltered: false },
+    { jobId: "job-3", bucket: "high_signal", hardFiltered: false }
+  ];
+
+  const metrics = buildSourceRunSemanticMetrics({
+    normalizedJobs,
+    evaluations,
+    knownDuplicateHashes: new Set()
+  });
+
+  assert.equal(metrics.rawFoundCount, 3);
+  assert.equal(metrics.hardFilteredCount, 1);
+  assert.equal(metrics.duplicateCollapsedCount, 0);
+  assert.equal(metrics.importedKeptCount, 2);
+});
+
+test("buildSourceRunSemanticMetrics counts duplicate hashes only after non-reject rows survive filtering", () => {
+  const normalizedJobs = [
+    { id: "job-1", normalizedHash: "shared-hash" },
+    { id: "job-2", normalizedHash: "shared-hash" },
+    { id: "job-3", normalizedHash: "hash-3" }
+  ];
+  const evaluations = [
+    { jobId: "job-1", bucket: "reject", hardFiltered: false },
+    { jobId: "job-2", bucket: "review_later", hardFiltered: false },
+    { jobId: "job-3", bucket: "review_later", hardFiltered: false }
+  ];
+
+  const metrics = buildSourceRunSemanticMetrics({
+    normalizedJobs,
+    evaluations,
+    knownDuplicateHashes: new Set()
+  });
+
+  assert.equal(metrics.rawFoundCount, 3);
+  assert.equal(metrics.hardFilteredCount, 1);
+  assert.equal(metrics.duplicateCollapsedCount, 0);
+  assert.equal(metrics.importedKeptCount, 2);
+});
+
 test("listSourceRunTotals returns cumulative persisted source funnel metrics", () => {
   const { db, dir } = createTempDb();
 
