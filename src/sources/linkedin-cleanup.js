@@ -317,6 +317,23 @@ export function chooseLinkedInDescription(
   return fallback;
 }
 
+function chooseTrustedLinkedInDetail(job, externalId) {
+  const detailExternalId = normalizeText(
+    job?.detailExternalId || job?.detail_external_id
+  );
+  if (!detailExternalId || !externalId || detailExternalId === externalId) {
+    return {
+      detailDescription: job?.detailDescription || job?.detail_description || "",
+      detailExternalId
+    };
+  }
+
+  return {
+    detailDescription: "",
+    detailExternalId
+  };
+}
+
 export function isLinkedInSourceType(sourceType) {
   const normalized = normalizeText(sourceType).toLowerCase();
   return normalized === "linkedin_capture_file" || normalized === "mock_linkedin_saved_search";
@@ -338,6 +355,7 @@ export function sanitizeLinkedInJob(job = {}, context = {}) {
   const currentUrl = normalizeText(job.url || job.sourceUrl);
   const externalId =
     normalizeText(job.externalId) || extractLinkedInExternalIdFromUrl(currentUrl);
+  const trustedDetail = chooseTrustedLinkedInDetail(job, externalId);
   const location = normalizeText(job.location);
   let title = sanitizeLinkedInTitle(job.title, {
     company: job.company,
@@ -345,7 +363,11 @@ export function sanitizeLinkedInJob(job = {}, context = {}) {
   });
   const company = inferLinkedInCompany(job, title, location);
   title = sanitizeLinkedInTitle(title, { company, location });
-  const description = chooseLinkedInDescription(job);
+  const description = chooseLinkedInDescription({
+    ...job,
+    detailDescription: trustedDetail.detailDescription,
+    detail_description: trustedDetail.detailDescription
+  });
   const salaryText = chooseLinkedInSalaryText(
     job.salaryText || job.salary_text,
     ""
@@ -364,6 +386,10 @@ export function sanitizeLinkedInJob(job = {}, context = {}) {
     description: description || normalizeText(job.description),
     summary: summary || normalizeText(job.summary),
     externalId: externalId || null,
+    detailExternalId: trustedDetail.detailExternalId || null,
+    detail_external_id: Object.prototype.hasOwnProperty.call(job, "detail_external_id")
+      ? trustedDetail.detailExternalId || null
+      : job.detail_external_id,
     url: Object.prototype.hasOwnProperty.call(job, "url") ? canonicalUrl : job.url,
     sourceUrl: Object.prototype.hasOwnProperty.call(job, "sourceUrl")
       ? canonicalUrl

@@ -147,6 +147,28 @@ test("sanitizeLinkedInJob prefers detail-first descriptions when present", () =>
   );
 });
 
+test("sanitizeLinkedInJob drops mismatched LinkedIn detail descriptions", () => {
+  const sanitized = sanitizeLinkedInJob({
+    sourceId: "linkedin-live-capture",
+    source: "linkedin_capture_file",
+    title: "Product Manager",
+    company: "Peregrine",
+    location: "San Francisco, CA",
+    description: "Product Manager · Peregrine · San Francisco, CA",
+    detailDescription:
+      "About the job Location: Seattle, WA/Remote; open to candidates anywhere in the U.S. Compensation: $200K-$300K+.",
+    detailExternalId: "999999999",
+    externalId: "111111111",
+    url: "https://www.linkedin.com/jobs/view/111111111/"
+  });
+
+  assert.equal(
+    sanitized.description,
+    "Product Manager · Peregrine · San Francisco, CA"
+  );
+  assert.equal(sanitized.detailExternalId, "999999999");
+});
+
 test("writeLinkedInCaptureFile sanitizes polluted LinkedIn jobs before persisting", () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-finder-linkedin-write-"));
   const source = {
