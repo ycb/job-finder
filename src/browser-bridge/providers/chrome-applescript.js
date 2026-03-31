@@ -838,7 +838,10 @@ function buildExtractionScript() {
     };
   };
 
-  let detailReadBudget = 120;
+  // Keep LinkedIn search capture read-only. Clicking into cards/details can
+  // navigate the automation tab into "similar jobs" collections and poison the
+  // capture context. Direct detail enrichment runs later against canonical job URLs.
+  let detailReadBudget = 0;
   for (const seed of buildCardSeeds()) {
     const cardRoot = seed.cardRoot;
     const dismissButton = seed.dismissButton;
