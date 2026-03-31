@@ -2036,6 +2036,8 @@ function readZipRecruiterJobsFromChrome(searchUrl, options = {}) {
     'div[class*="job_result_two_pane"]',
     'article[class*="job_result"]',
     'li[class*="job_result"]',
+    'li[data-testid*="job"]',
+    'div[data-testid*="job-result"]',
     'div[data-testid*="jobCard"]',
     'div[data-testid*="job_card"]'
   ].join(", ");
@@ -2073,18 +2075,33 @@ function readZipRecruiterJobsFromChrome(searchUrl, options = {}) {
   };
 
   const findScrollContainers = () => {
-    const candidates = [];
+    const seeded = Array.from(document.querySelectorAll([
+      'main',
+      '[role="main"]',
+      '[data-testid*="results"]',
+      '[data-testid*="searchResults"]',
+      '[class*="results"]',
+      '[class*="Results"]',
+      '[class*="job_results"]',
+      '[class*="jobResults"]',
+      '[class*="jobs_results"]',
+      '[class*="jobsResults"]',
+      '[class*="left-pane"]',
+      '[class*="leftPane"]'
+    ].join(", ")));
+    const ancestorCandidates = [];
     for (const card of getCards()) {
       let node = card?.parentElement;
       let depth = 0;
-      while (node && depth < 8) {
-        candidates.push(node);
+      while (node && depth < 10) {
+        ancestorCandidates.push(node);
         node = node.parentElement;
         depth += 1;
       }
     }
+    const allScrollable = Array.from(document.querySelectorAll("*"));
 
-    const ordered = uniqueElements(candidates)
+    const ordered = uniqueElements([...seeded, ...ancestorCandidates, ...allScrollable])
       .map((element) => ({ element, score: scoreScrollCandidate(element) }))
       .filter((entry) => entry.score > 0)
       .sort((left, right) => right.score - left.score)
@@ -2241,7 +2258,7 @@ function readZipRecruiterJobsFromChrome(searchUrl, options = {}) {
     let lastCount = jobs.length;
     let previousScrollTop = -1;
 
-    for (let pass = 0; pass < 18 && stagnantPasses < 3; pass += 1) {
+    for (let pass = 0; pass < 24 && stagnantPasses < 4; pass += 1) {
       const scrollTopBefore =
         container === document.scrollingElement || container === document.documentElement || container === document.body
           ? window.scrollY
@@ -2258,7 +2275,7 @@ function readZipRecruiterJobsFromChrome(searchUrl, options = {}) {
       }
 
       const start = Date.now();
-      while (Date.now() - start < 220) {
+      while (Date.now() - start < 320) {
         // allow virtualization/rendering to catch up
       }
 
