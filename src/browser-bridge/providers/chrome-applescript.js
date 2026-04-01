@@ -8,6 +8,7 @@ import {
   INDEED_EXPECTED_COUNT_SELECTORS,
   writeIndeedCaptureFile
 } from "../../sources/indeed-jobs.js";
+import { sanitizeLinkedInJob } from "../../sources/linkedin-cleanup.js";
 import { writeLinkedInCaptureFile } from "../../sources/linkedin-saved-search.js";
 import { writeRemoteOkCaptureFile } from "../../sources/remoteok-jobs.js";
 import { writeWellfoundCaptureFile } from "../../sources/wellfound-jobs.js";
@@ -353,12 +354,6 @@ function buildExtractionScript() {
     });
   };
 
-  const jobs = [];
-  const seenJobs = new Set();
-  const dismissButtons = Array.from(
-    document.querySelectorAll('[aria-label^="Dismiss "][aria-label$=" job"]')
-  );
-
   const toAbsoluteUrl = (href) => {
     const value = normalize(href);
     if (!value) return "";
@@ -400,98 +395,6 @@ function buildExtractionScript() {
     } catch {
       return "";
     }
-  };
-
-  const findTextContainer = (startNode) => {
-    let current = startNode?.parentElement || null;
-
-    while (current) {
-      const text = normalize(current.innerText || current.textContent || "");
-      if (text) {
-        return current;
-      }
-
-      current = current.parentElement;
-    }
-
-    return null;
-  };
-
-  const findCardRoot = (dismissButton) =>
-    dismissButton?.closest("li") ||
-    dismissButton?.closest('[data-occludable-job-id]') ||
-    dismissButton?.closest('div[class*="job-card"]') ||
-    dismissButton?.parentElement ||
-    null;
-
-  const buildCardSeeds = () => {
-    const seeds = [];
-    const seenKeys = new Set();
-
-    const addSeed = (cardRoot, dismissButton = null, seededAnchor = null) => {
-      if (!cardRoot) {
-        return;
-      }
-
-      const key = normalize(
-        cardRoot.getAttribute("data-occludable-job-id") ||
-          cardRoot.getAttribute("data-job-id") ||
-          seededAnchor?.getAttribute("href") ||
-          ""
-      );
-      if (key && seenKeys.has(key)) {
-        return;
-      }
-      if (key) {
-        seenKeys.add(key);
-      }
-
-      seeds.push({
-        cardRoot,
-        dismissButton,
-        seededAnchor
-      });
-    };
-
-    const anchors = Array.from(
-      document.querySelectorAll('a[href*="/jobs/view/"], a[href*="currentJobId="]')
-    );
-    for (const anchor of anchors) {
-      const anchorText = normalize(anchor.innerText || anchor.textContent || "");
-      if (
-        !anchorText ||
-        anchorText.length < 8 ||
-        anchorText.length > 180 ||
-        !/[a-z]/i.test(anchorText) ||
-        !/\\s/.test(anchorText) ||
-        /^(more|about|accessibility|help center|privacy|terms|ad choices|advertising|business services)$/i.test(
-          anchorText
-        ) ||
-        /are these results helpful|your feedback helps/i.test(anchorText)
-      ) {
-        continue;
-      }
-
-      const cardRoot =
-        anchor.closest("li") ||
-        anchor.closest('[data-occludable-job-id]') ||
-        anchor.closest('div[class*="job-card"]') ||
-        anchor.parentElement;
-      if (!cardRoot) {
-        continue;
-      }
-      addSeed(
-        cardRoot,
-        null,
-        anchor
-      );
-    }
-
-    for (const dismissButton of dismissButtons) {
-      addSeed(findCardRoot(dismissButton), dismissButton, null);
-    }
-
-    return seeds;
   };
 
   const parseCardLines = (text) => {
@@ -737,9 +640,178 @@ function buildExtractionScript() {
     }
   };
 
-  const readDetailHints = (cardRoot, dismissButton, titleAnchor, expectedExternalId) => {
+  const getRowId = (row) => {
+    const direct = normalize(
+      row?.getAttribute("data-occludable-job-id") ||
+      row?.getAttribute("data-job-id") ||
+      ""
+    );
+    const numeric = direct.match(/\\d{6,}/);
+    return numeric ? numeric[0] : "";
+  };
+
+  const findResultRows = () => {
+    const rows = new Map();
+    for (const node of document.querySelectorAll("li[data-occludable-job-id], [data-occludable-job-id]")) {
+      const row =
+        node.closest("li[data-occludable-job-id]") ||
+        node.closest("[data-occludable-job-id]") ||
+        node;
+      const rowId = getRowId(row);
+      if (!row || !rowId || rows.has(rowId)) {
+        continue;
+      }
+      rows.set(rowId, row);
+    }
+    return Array.from(rows.values());
+  };
+
+  const findResultRowById = (rowId) =>
+    document.querySelector('li[data-occludable-job-id="' + rowId + '"], [data-occludable-job-id="' + rowId + '"]');
+
+  const readRowSnapshot = (row) => {
+    const rowId = getRowId(row);
+    const titleAnchor =
+      row?.querySelector('a[href*="/jobs/view/"]') ||
+      row?.querySelector('a[href*="currentJobId="]') ||
+      row?.querySelector(".job-card-container__link") ||
+      row?.querySelector("a[href]");
+    const companyNode = row?.querySelector(
+      '.artdeco-entity-lockup__subtitle span, .job-card-container__company-name, .artdeco-entity-lockup__subtitle, .base-search-card__subtitle a, .base-search-card__subtitle'
+    );
+    const locationNode = row?.querySelector(
+      '.artdeco-entity-lockup__caption, .job-search-card__location, .base-search-card__metadata, .job-card-container__metadata-wrapper li'
+    );
+
+    const directUrl = toAbsoluteUrl(titleAnchor?.getAttribute("href") || "");
+    const externalId =
+      extractLinkedInExternalId(directUrl) ||
+      rowId ||
+      null;
+    const domTitle = normalize(titleAnchor?.innerText || titleAnchor?.textContent || "");
+    const domCompany = normalize(companyNode?.innerText || companyNode?.textContent || "");
+    const domLocation = normalize(locationNode?.innerText || locationNode?.textContent || "");
+    const cardText = normalize(row?.innerText || row?.textContent || "");
+    const cardLines = parseCardLines(cardText);
+
+    let title = sanitizeLinkedInTitle(domTitle || cardLines[0], {
+      company: domCompany || cardLines[1] || "",
+      location: domLocation || cardLines[2] || ""
+    });
+    let company = domCompany || normalize(cardLines[1]);
+    let location = domLocation || normalize(cardLines[2] || "");
+
+    if (company && normalizeTitle(company) === title) {
+      company = normalize(cardLines[2] || "");
+      location = location || normalize(cardLines[3] || "");
+    }
+    if (company && location && normalizeTitle(company) === title) {
+      company = location;
+      location = "";
+    }
+    if (location && !looksLikeLocation(location)) {
+      location = "";
+    }
+
+    if (!title || !company) {
+      return {
+        status: "placeholder",
+        rowId,
+        externalId: externalId || rowId || "",
+        directUrl
+      };
+    }
+
+    const salaryPattern =
+      /(?:[$€£]\\s*\\d[\\d,]*(?:\\.\\d+)?(?:[kKmM])?(?:\\s*[-–]\\s*[$€£]?\\s*\\d[\\d,]*(?:\\.\\d+)?(?:[kKmM])?)?|\\b\\d{2,3}\\s*[Kk]\\s*[-–]\\s*\\d{2,3}\\s*[Kk]\\b)(?:\\s*(?:annually|yearly|monthly|weekly|hourly|per\\s+(?:year|yr|hour|hr)|\\/(?:year|yr|hour|hr)))?/i;
+    const salaryText = cardLines.find((line) => salaryPattern.test(line)) || null;
+    const postedAt =
+      normalize(
+        row?.querySelector("time, .job-search-card__listdate, .job-search-card__listdate--new")?.innerText ||
+        row?.querySelector("time, .job-search-card__listdate, .job-search-card__listdate--new")?.textContent ||
+        ""
+      ) ||
+      cardLines.find((line) => /^Posted on /i.test(line)) ||
+      cardLines.find((line) => /(?:hour|day|week|month|year)s? ago/i.test(line)) ||
+      cardLines.find((line) => /\\b(today|yesterday|just posted|reposted)\\b/i.test(line)) ||
+      "";
+    const employmentHint = normalize(
+      row?.querySelector('.job-card-container__metadata-item, [class*="job-insight"]')?.innerText ||
+      row?.querySelector('.job-card-container__metadata-item, [class*="job-insight"]')?.textContent ||
+      ""
+    );
+    const employmentType =
+      (/\\b(full[- ]?time|part[- ]?time|contract|temporary|internship|freelance|apprenticeship)\\b/i.test(
+        employmentHint
+      )
+        ? employmentHint
+        : "") ||
+      cardLines.find((line) =>
+        /\\b(full[- ]?time|part[- ]?time|contract|temporary|internship|freelance|apprenticeship)\\b/i.test(
+          line
+        )
+      ) ||
+      "";
+
+    return {
+      status: "hydrated",
+      rowId,
+      externalId: externalId || rowId || "",
+      directUrl,
+      title,
+      company,
+      location,
+      postedAt: postedAt ? postedAt.replace(/^Posted on /i, "").trim() : "",
+      employmentType: normalize(employmentType),
+      salaryText: normalize(salaryText || ""),
+      easyApply: /easy apply/i.test(cardText),
+      summaryText: normalize([title, company, location].filter(Boolean).join(" · ")).slice(0, 500),
+      descriptionText: normalize(
+        [title, company, location, postedAt, employmentType, salaryText]
+          .filter(Boolean)
+          .join(" · ")
+      )
+    };
+  };
+
+  const waitForHydratedRow = (rowId, attempts = 8, delayMs = 90) => {
+    let lastSnapshot = {
+      status: "placeholder",
+      rowId,
+      externalId: rowId
+    };
+
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const row = findResultRowById(rowId);
+      if (!row) {
+        spinWait(delayMs);
+        continue;
+      }
+
+      row.scrollIntoView({ behavior: "auto", block: "center", inline: "nearest" });
+      spinWait(delayMs);
+
+      const snapshot = readRowSnapshot(row);
+      lastSnapshot = snapshot;
+      if (snapshot.status === "hydrated") {
+        return snapshot;
+      }
+
+      spinWait(delayMs);
+    }
+
+    return lastSnapshot;
+  };
+
+  const readDetailHints = (rowId, expectedExternalId) => {
     const searchHrefBeforeClick = String(location.href || "");
-    const clickTarget = cardRoot || titleAnchor || dismissButton;
+    const row = findResultRowById(rowId);
+    const titleAnchor =
+      row?.querySelector('a[href*="/jobs/view/"]') ||
+      row?.querySelector('a[href*="currentJobId="]') ||
+      row?.querySelector(".job-card-container__link") ||
+      row?.querySelector("a[href]");
+    const clickTarget = titleAnchor || row;
     if (clickTarget && typeof clickTarget.click === "function") {
       clickTarget.click();
     }
@@ -780,7 +852,8 @@ function buildExtractionScript() {
           return {
             ...parseDetailHints(""),
             externalId: extractLinkedInExternalId(searchHrefBeforeClick),
-            descriptionText: ""
+            descriptionText: "",
+            mismatched: false
           };
         }
       }
@@ -829,7 +902,8 @@ function buildExtractionScript() {
         return {
           ...hints,
           externalId: resolvedExternalId,
-          descriptionText: bestDescriptionText
+          descriptionText: bestDescriptionText,
+          mismatched: false
         };
       }
 
@@ -843,213 +917,224 @@ function buildExtractionScript() {
       return {
         ...parseDetailHints(""),
         externalId: expectedExternalId || "",
-        descriptionText: ""
+        descriptionText: "",
+        mismatched: true
       };
     }
 
     return {
       ...parseDetailHints([bestMetadataText, bestDescriptionText].filter(Boolean).join(" ")),
       externalId: resolvedExternalId,
-      descriptionText: bestDescriptionText
+      descriptionText: bestDescriptionText,
+      mismatched: false
     };
   };
 
-  // LinkedIn card snippets are often too thin to prove an AI match. Read a
-  // bounded number of detail panes, but only through canonical job links and
-  // only while we remain anchored to search results.
+  const rowSnapshots = [];
+  const resultRows = findResultRows();
+  const seenRowIds = new Set();
   let detailReadBudget = 24;
-  for (const seed of buildCardSeeds()) {
-    const cardRoot = seed.cardRoot;
-    const dismissButton = seed.dismissButton;
-    const card = findTextContainer(dismissButton || seed.seededAnchor || cardRoot) || cardRoot;
-    if (!card) {
+  for (const row of resultRows) {
+    const rowId = getRowId(row);
+    if (!rowId || seenRowIds.has(rowId)) {
+      continue;
+    }
+    seenRowIds.add(rowId);
+
+    const snapshot = waitForHydratedRow(rowId);
+    if (snapshot.status !== "hydrated") {
+      rowSnapshots.push(snapshot);
       continue;
     }
 
-    const titleAnchor =
-      seed.seededAnchor ||
-      (cardRoot || card).querySelector('a[href*="/jobs/view/"]') ||
-      (cardRoot || card).querySelector('a[href*="currentJobId="]') ||
-      (cardRoot || card).querySelector("a[href]");
-    const companyNode = (cardRoot || card).querySelector(
-      '.artdeco-entity-lockup__subtitle span, .base-search-card__subtitle a, .base-search-card__subtitle'
-    );
-    const locationNode = (cardRoot || card).querySelector(
-      '.artdeco-entity-lockup__caption, .job-search-card__location, .base-search-card__metadata'
-    );
-
-    const directUrl = toAbsoluteUrl(titleAnchor?.getAttribute("href") || "");
-    const cardExternalId = normalize(
-      (cardRoot || card).getAttribute("data-occludable-job-id") ||
-        (cardRoot || card).getAttribute("data-job-id") ||
-        ""
-    );
-    const externalId =
-      extractLinkedInExternalId(directUrl) ||
-      (cardExternalId.match(/\\d{6,}/)?.[0] || "") ||
-      null;
-    const domTitle = normalize(titleAnchor?.innerText || titleAnchor?.textContent || "");
-    const domCompany = normalize(companyNode?.innerText || companyNode?.textContent || "");
-    const domLocation = normalize(locationNode?.innerText || locationNode?.textContent || "");
-
-    const cardLines = parseCardLines(card.innerText || card.textContent || "");
-    if (cardLines.length < 2) {
-      continue;
-    }
-
-    let title = sanitizeLinkedInTitle(domTitle || cardLines[0], {
-      company: domCompany || cardLines[1] || "",
-      location: domLocation || cardLines[2] || ""
-    });
-    let company = domCompany || normalize(cardLines[1]);
-    let location = domLocation || normalize(cardLines[2] || "");
-
-    if (company && normalizeTitle(company) === title) {
-      company = normalize(cardLines[2] || "");
-      location = location || normalize(cardLines[3] || "");
-    }
-
-    if (company && location && normalizeTitle(company) === title) {
-      company = location;
-      location = "";
-    }
-    if (location && !looksLikeLocation(location)) {
-      location = "";
-    }
-
-    if (!title || !company) {
-      continue;
-    }
-
-    const salaryPattern =
-      /(?:[$€£]\\s*\\d[\\d,]*(?:\\.\\d+)?(?:[kKmM])?(?:\\s*[-–]\\s*[$€£]?\\s*\\d[\\d,]*(?:\\.\\d+)?(?:[kKmM])?)?|\\b\\d{2,3}\\s*[Kk]\\s*[-–]\\s*\\d{2,3}\\s*[Kk]\\b)(?:\\s*(?:annually|yearly|monthly|weekly|hourly|per\\s+(?:year|yr|hour|hr)|\\/(?:year|yr|hour|hr)))?/i;
-    const cardSalaryText = cardLines.find((line) => salaryPattern.test(line)) || null;
-
-    const cardPostedLine =
-      normalize(
-        (cardRoot || card).querySelector(
-          "time, .job-search-card__listdate, .job-search-card__listdate--new"
-        )?.innerText ||
-          (cardRoot || card).querySelector(
-            "time, .job-search-card__listdate, .job-search-card__listdate--new"
-          )?.textContent ||
-          ""
-      ) ||
-      cardLines.find((line) => /^Posted on /i.test(line)) ||
-      cardLines.find((line) => /(?:hour|day|week|month|year)s? ago/i.test(line)) ||
-      cardLines.find((line) => /\\b(today|yesterday|just posted|reposted)\\b/i.test(line)) ||
-      null;
-
-    const cardEmploymentHint = normalize(
-      (cardRoot || card).querySelector(
-        '.job-card-container__metadata-item, [class*="job-insight"]'
-      )?.innerText ||
-        (cardRoot || card).querySelector(
-          '.job-card-container__metadata-item, [class*="job-insight"]'
-        )?.textContent ||
-        ""
-    );
-
-    const cardEmploymentType =
-      (/\\b(full[- ]?time|part[- ]?time|contract|temporary|internship|freelance|apprenticeship)\\b/i.test(
-        cardEmploymentHint
-      )
-        ? cardEmploymentHint
-        : "") ||
-      cardLines.find((line) =>
-        /\\b(full[- ]?time|part[- ]?time|contract|temporary|internship|freelance|apprenticeship)\\b/i.test(
-          line
-        )
-      ) || null;
     let detailHints = {
       ...parseDetailHints(""),
-      externalId: ""
+      externalId: "",
+      descriptionText: "",
+      mismatched: false
     };
     if (
       detailReadBudget > 0 &&
-      (!cardPostedLine || !cardSalaryText || !cardEmploymentType || !location)
+      (!snapshot.postedAt || !snapshot.salaryText || !snapshot.employmentType || !snapshot.location)
     ) {
-      detailHints = readDetailHints(
-        cardRoot || titleAnchor,
-        dismissButton,
-        titleAnchor,
-        externalId
-      );
+      detailHints = readDetailHints(rowId, snapshot.externalId);
       detailReadBudget -= 1;
     }
-    const resolvedExternalId = externalId || detailHints.externalId || null;
-    const salaryText = chooseLinkedInSalaryText(cardSalaryText, detailHints.salaryText);
-    const postedLine = cardPostedLine || detailHints.postedAt || null;
-    const employmentType = cardEmploymentType || detailHints.employmentType || null;
-    const resolvedLocation = location || detailHints.location || "";
-    const detailDescription = normalize(detailHints.descriptionText || "") || null;
-    const cleanedDescription = normalize(
-      [
-        company,
-        resolvedLocation,
-        postedLine,
-        employmentType,
-        salaryText
-      ]
-        .filter(Boolean)
-        .join(" · ")
-    );
 
-    const easyApply = /easy apply/i.test(card.innerText || "");
-
-    const href =
-      (resolvedExternalId
-        ? "https://www.linkedin.com/jobs/view/" + resolvedExternalId + "/"
-        : "") ||
-      directUrl ||
-      buildSearchUrl(title, company);
-    const roleKey = [title.toLowerCase(), company.toLowerCase()].join("|");
-    const dedupeKey = resolvedExternalId
-      ? "linkedin:" + resolvedExternalId
-      : "role:" + roleKey;
-
-    if (seenJobs.has(dedupeKey) || seenJobs.has("role:" + roleKey)) {
-      continue;
-    }
-    seenJobs.add(dedupeKey);
-    seenJobs.add("role:" + roleKey);
-
-    jobs.push({
-      externalId: resolvedExternalId,
-      detailExternalId: detailHints.externalId || null,
-      title,
-      company,
-      location: resolvedLocation || null,
-      postedAt: postedLine ? postedLine.replace(/^Posted on /i, "").trim() : null,
-      employmentType,
-      easyApply,
-      salaryText,
-      summary: normalize([title, company, resolvedLocation].filter(Boolean).join(" · ")).slice(0, 500),
-      description: detailDescription || cleanedDescription,
-      detailDescription,
-      extractorProvenance: {
-        postedAt: cardPostedLine ? "card" : detailHints.postedAt ? "detail" : "fallback_unknown",
-        salaryText: cardSalaryText ? "card" : detailHints.salaryText ? "detail" : "fallback_unknown",
-        employmentType: cardEmploymentType
-          ? "card"
-          : detailHints.employmentType
-            ? "detail"
-            : "fallback_unknown",
-        location: location ? "card" : detailHints.location ? "detail" : "fallback_unknown",
-        description: detailDescription ? "detail" : "card"
-      },
-      url: href
+    rowSnapshots.push({
+      ...snapshot,
+      detailExternalId: detailHints.externalId || "",
+      detailPostedAt: detailHints.postedAt || "",
+      detailSalaryText: detailHints.salaryText || "",
+      detailEmploymentType: detailHints.employmentType || "",
+      detailLocation: detailHints.location || "",
+      detailDescription: detailHints.descriptionText || "",
+      detailMismatched: detailHints.mismatched === true
     });
   }
 
   return JSON.stringify({
     pageUrl: location.href,
     capturedAt: new Date().toISOString(),
-    jobs,
-    expectedCount: extractExpectedCount()
+    expectedCount: extractExpectedCount(),
+    rowSnapshots,
+    stopReason: rowSnapshots.length === 0 ? "no_result_rows" : "completed_row_traversal"
   });
 })()
   `.trim();
+}
+
+function normalizeLinkedInSnapshotValue(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+export function isLinkedInHydratedRowSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== "object") {
+    return false;
+  }
+
+  if (String(snapshot.status || "").trim().toLowerCase() === "placeholder") {
+    return false;
+  }
+
+  const title = normalizeLinkedInSnapshotValue(snapshot.title);
+  const company = normalizeLinkedInSnapshotValue(snapshot.company);
+  return Boolean(title && company);
+}
+
+function buildLinkedInSummaryText(title, company, location) {
+  return normalizeLinkedInSnapshotValue([title, company, location].filter(Boolean).join(" · "));
+}
+
+function buildLinkedInDescriptionText(snapshot, detailAllowed) {
+  const detailDescription = detailAllowed
+    ? normalizeLinkedInSnapshotValue(snapshot.detailDescription)
+    : "";
+  if (detailDescription) {
+    return detailDescription;
+  }
+
+  return normalizeLinkedInSnapshotValue(
+    [
+      snapshot.title,
+      snapshot.company,
+      snapshot.location,
+      snapshot.postedAt,
+      snapshot.employmentType,
+      snapshot.salaryText
+    ]
+      .filter(Boolean)
+      .join(" · ")
+  );
+}
+
+export function finalizeLinkedInCapturePayload(payload = {}) {
+  const rowSnapshots = Array.isArray(payload?.rowSnapshots) ? payload.rowSnapshots : [];
+  const jobs = [];
+  const missedPlaceholderJobIds = [];
+  let detailMismatchCount = 0;
+
+  for (const rawSnapshot of rowSnapshots) {
+    if (!rawSnapshot || typeof rawSnapshot !== "object") {
+      continue;
+    }
+
+    const externalId = normalizeLinkedInSnapshotValue(
+      rawSnapshot.externalId || rawSnapshot.rowId
+    );
+    if (!isLinkedInHydratedRowSnapshot(rawSnapshot)) {
+      if (externalId) {
+        missedPlaceholderJobIds.push(externalId);
+      }
+      continue;
+    }
+
+    const detailExternalId = normalizeLinkedInSnapshotValue(rawSnapshot.detailExternalId);
+    const detailMatches = doesLinkedInDetailIdMatch(externalId, detailExternalId);
+    if (detailExternalId && !detailMatches) {
+      detailMismatchCount += 1;
+    }
+
+    const title = normalizeLinkedInSnapshotValue(rawSnapshot.title);
+    const company = normalizeLinkedInSnapshotValue(rawSnapshot.company);
+    const location = normalizeLinkedInSnapshotValue(
+      rawSnapshot.location || (detailMatches ? rawSnapshot.detailLocation : "")
+    );
+    const salaryText = normalizeLinkedInSnapshotValue(
+      rawSnapshot.salaryText || (detailMatches ? rawSnapshot.detailSalaryText : "")
+    );
+    const postedAt = normalizeLinkedInSnapshotValue(
+      rawSnapshot.postedAt || (detailMatches ? rawSnapshot.detailPostedAt : "")
+    );
+    const employmentType = normalizeLinkedInSnapshotValue(
+      rawSnapshot.employmentType || (detailMatches ? rawSnapshot.detailEmploymentType : "")
+    );
+    const url =
+      normalizeLinkedInSnapshotValue(rawSnapshot.directUrl) ||
+      (externalId ? `https://www.linkedin.com/jobs/view/${externalId}/` : "");
+
+    const summary = buildLinkedInSummaryText(title, company, location);
+    const description = buildLinkedInDescriptionText(rawSnapshot, detailMatches);
+
+    const sanitized = sanitizeLinkedInJob(
+      {
+        sourceId: "linkedin-live-capture",
+        source: "linkedin_capture_file",
+        externalId: externalId || null,
+        detailExternalId: detailExternalId || null,
+        title,
+        company,
+        location: location || null,
+        postedAt: postedAt || null,
+        employmentType: employmentType || null,
+        easyApply: rawSnapshot.easyApply === true,
+        salaryText: salaryText || null,
+        summary,
+        description: description || summary,
+        detailDescription: detailMatches
+          ? normalizeLinkedInSnapshotValue(rawSnapshot.detailDescription) || null
+          : null,
+        url
+      },
+      {
+        sourceType: "linkedin_capture_file",
+        sourceId: "linkedin-live-capture"
+      }
+    );
+
+    jobs.push(sanitized);
+  }
+
+  const dedupedJobs = dedupeJobsByIdentity(jobs);
+  const capturedJobIds = dedupedJobs
+    .map((job) => normalizeLinkedInSnapshotValue(job.externalId))
+    .filter(Boolean);
+
+  return {
+    pageUrl: payload?.pageUrl || null,
+    capturedAt: payload?.capturedAt || new Date().toISOString(),
+    jobs: dedupedJobs,
+    expectedCount:
+      Number.isFinite(Number(payload?.expectedCount)) && Number(payload.expectedCount) > 0
+        ? Math.round(Number(payload.expectedCount))
+        : null,
+    captureDiagnostics: {
+      advertisedCount:
+        Number.isFinite(Number(payload?.expectedCount)) && Number(payload.expectedCount) > 0
+          ? Math.round(Number(payload.expectedCount))
+          : null,
+      capturedCount: dedupedJobs.length,
+      capturedJobIds,
+      missedPlaceholderCount: missedPlaceholderJobIds.length,
+      missedPlaceholderJobIds,
+      detailMismatchCount,
+      pageCountVisited:
+        Number.isFinite(Number(payload?.pageCountVisited)) && Number(payload.pageCountVisited) > 0
+          ? Math.round(Number(payload.pageCountVisited))
+          : 1,
+      stopReason: normalizeLinkedInSnapshotValue(payload?.stopReason) || "completed_row_traversal"
+    }
+  };
 }
 
 function buildLinkedInScrollStepScript() {
@@ -1154,7 +1239,8 @@ function harvestLinkedInPageJobs({
   attemptDelayMs,
   timeoutMs
 }) {
-  const collected = [];
+  const collectedSnapshots = [];
+  const seenSnapshotIds = new Set();
   let lastPayload = runExtractionAttempts(
     extractionScript,
     maxAttempts,
@@ -1162,10 +1248,24 @@ function harvestLinkedInPageJobs({
     timeoutMs
   );
   let expectedCount = null;
-  let sawValidPayload = Boolean(lastPayload && Array.isArray(lastPayload.jobs));
+  let sawValidPayload = Boolean(lastPayload && Array.isArray(lastPayload.rowSnapshots));
+  let stopReason =
+    typeof lastPayload?.stopReason === "string" && lastPayload.stopReason.trim()
+      ? lastPayload.stopReason.trim()
+      : "";
 
-  if (Array.isArray(lastPayload?.jobs) && lastPayload.jobs.length > 0) {
-    collected.push(...lastPayload.jobs);
+  if (Array.isArray(lastPayload?.rowSnapshots) && lastPayload.rowSnapshots.length > 0) {
+    for (const snapshot of lastPayload.rowSnapshots) {
+      const snapshotId = normalizeLinkedInSnapshotValue(
+        snapshot?.externalId || snapshot?.rowId
+      );
+      const uniqueKey = snapshotId || `${collectedSnapshots.length}`;
+      if (seenSnapshotIds.has(uniqueKey)) {
+        continue;
+      }
+      seenSnapshotIds.add(uniqueKey);
+      collectedSnapshots.push(snapshot);
+    }
   }
   if (Number.isFinite(Number(lastPayload?.expectedCount))) {
     const parsed = Math.round(Number(lastPayload.expectedCount));
@@ -1174,7 +1274,7 @@ function harvestLinkedInPageJobs({
     }
   }
 
-  let lastCollectedCount = dedupeJobsByIdentity(collected).length;
+  let lastCollectedCount = collectedSnapshots.length;
   let idleSteps = 0;
 
   for (let step = 0; step < maxScrollSteps; step += 1) {
@@ -1191,10 +1291,23 @@ function harvestLinkedInPageJobs({
     if (payload) {
       lastPayload = payload;
       sawValidPayload = true;
+      if (typeof payload?.stopReason === "string" && payload.stopReason.trim()) {
+        stopReason = payload.stopReason.trim();
+      }
     }
 
-    if (Array.isArray(payload?.jobs) && payload.jobs.length > 0) {
-      collected.push(...payload.jobs);
+    if (Array.isArray(payload?.rowSnapshots) && payload.rowSnapshots.length > 0) {
+      for (const snapshot of payload.rowSnapshots) {
+        const snapshotId = normalizeLinkedInSnapshotValue(
+          snapshot?.externalId || snapshot?.rowId
+        );
+        const uniqueKey = snapshotId || `${collectedSnapshots.length}`;
+        if (seenSnapshotIds.has(uniqueKey)) {
+          continue;
+        }
+        seenSnapshotIds.add(uniqueKey);
+        collectedSnapshots.push(snapshot);
+      }
     }
     if (Number.isFinite(Number(payload?.expectedCount))) {
       const parsed = Math.round(Number(payload.expectedCount));
@@ -1203,9 +1316,9 @@ function harvestLinkedInPageJobs({
       }
     }
 
-    const dedupedCount = dedupeJobsByIdentity(collected).length;
-    if (dedupedCount > lastCollectedCount) {
-      lastCollectedCount = dedupedCount;
+    const snapshotCount = collectedSnapshots.length;
+    if (snapshotCount > lastCollectedCount) {
+      lastCollectedCount = snapshotCount;
       idleSteps = 0;
     } else {
       idleSteps += 1;
@@ -1222,9 +1335,10 @@ function harvestLinkedInPageJobs({
   return {
     pageUrl: lastPayload?.pageUrl || null,
     capturedAt: new Date().toISOString(),
-    jobs: dedupeJobsByIdentity(collected),
+    rowSnapshots: collectedSnapshots,
     expectedCount,
-    sawValidPayload
+    sawValidPayload,
+    stopReason: stopReason || "exhausted_scroll_steps"
   };
 }
 
@@ -1324,22 +1438,28 @@ function readLinkedInJobsFromChrome(searchUrl, options = {}) {
   const extractionScript = buildExtractionScript();
   const scrollScript = buildLinkedInScrollStepScript();
 
-  const collected = [];
+  const collectedSnapshots = [];
+  const seenSnapshotIds = new Set();
   let sawValidPayload = false;
   let expectedCount = null;
   let lastPageJobCount = null;
+  let pageCountVisited = 0;
+  let stopReason = "";
 
   for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
     if (!shouldFetchLinkedInPage(expectedCount, pageIndex)) {
+      stopReason = "expected_count_limit";
       break;
     }
     if (pageIndex > 1 && !shouldContinueLinkedInPagination(lastPageJobCount)) {
+      stopReason = "short_page";
       break;
     }
 
     const pageUrl = buildLinkedInPageUrl(searchUrl, pageIndex);
     navigateAutomationTab(pageUrl, "Refreshing LinkedIn source...", timeoutMs);
     sleepSync(settleMs);
+    pageCountVisited += 1;
 
     const pagePayload = harvestLinkedInPageJobs({
       extractionScript,
@@ -1355,6 +1475,9 @@ function readLinkedInJobsFromChrome(searchUrl, options = {}) {
     if (pagePayload?.sawValidPayload === true) {
       sawValidPayload = true;
     }
+    if (typeof pagePayload?.stopReason === "string" && pagePayload.stopReason.trim()) {
+      stopReason = pagePayload.stopReason.trim();
+    }
     if (Number.isFinite(Number(pagePayload?.expectedCount))) {
       const parsed = Math.round(Number(pagePayload.expectedCount));
       if (parsed > 0 && (expectedCount === null || parsed > expectedCount)) {
@@ -1362,30 +1485,45 @@ function readLinkedInJobsFromChrome(searchUrl, options = {}) {
       }
     }
 
-    const pageJobs = Array.isArray(pagePayload?.jobs) ? pagePayload.jobs : [];
-    lastPageJobCount = pageJobs.length;
-    if (pageJobs.length === 0) {
+    const pageSnapshots = Array.isArray(pagePayload?.rowSnapshots)
+      ? pagePayload.rowSnapshots
+      : [];
+    lastPageJobCount = pageSnapshots.filter((snapshot) =>
+      isLinkedInHydratedRowSnapshot(snapshot)
+    ).length;
+    if (pageSnapshots.length === 0) {
+      stopReason = stopReason || "empty_page";
       break;
     }
 
-    const priorCount = collected.length;
-    collected.push(...pageJobs);
-    const deduped = dedupeJobsByIdentity(collected);
-    collected.length = 0;
-    collected.push(...deduped);
+    const priorCount = collectedSnapshots.length;
+    for (const snapshot of pageSnapshots) {
+      const snapshotId = normalizeLinkedInSnapshotValue(
+        snapshot?.externalId || snapshot?.rowId
+      );
+      const uniqueKey = snapshotId || `${pageIndex}-${collectedSnapshots.length}`;
+      if (seenSnapshotIds.has(uniqueKey)) {
+        continue;
+      }
+      seenSnapshotIds.add(uniqueKey);
+      collectedSnapshots.push(snapshot);
+    }
 
-    if (collected.length === priorCount) {
+    if (collectedSnapshots.length === priorCount) {
+      stopReason = stopReason || "no_new_rows";
       break;
     }
   }
 
-  if (collected.length > 0 || sawValidPayload) {
-    return {
+  if (collectedSnapshots.length > 0 || sawValidPayload) {
+    return finalizeLinkedInCapturePayload({
       pageUrl: searchUrl,
       capturedAt: new Date().toISOString(),
-      jobs: dedupeJobsByIdentity(collected),
-      expectedCount
-    };
+      expectedCount,
+      rowSnapshots: collectedSnapshots,
+      pageCountVisited,
+      stopReason: stopReason || "completed_pagination"
+    });
   }
 
   throw new Error("Could not extract LinkedIn jobs from the active Chrome tab.");
@@ -3320,9 +3458,17 @@ function runExtractionAttempts(
     const raw = executeInAutomationTab(extractionScript, timeoutMs);
     const payload = parseBridgeJsonPayload(raw);
 
-    if (payload && Array.isArray(payload.jobs)) {
+    if (
+      payload &&
+      (Array.isArray(payload.jobs) || Array.isArray(payload.rowSnapshots))
+    ) {
       lastPayload = payload;
-      if (payload.jobs.length > 0) {
+      const resultCount = Array.isArray(payload.jobs)
+        ? payload.jobs.length
+        : Array.isArray(payload.rowSnapshots)
+          ? payload.rowSnapshots.length
+          : 0;
+      if (resultCount > 0) {
         return payload;
       }
     }
@@ -3461,16 +3607,14 @@ export function captureLinkedInSourceWithChromeAppleScript(
         ? Number(source.maxIdleScrollSteps)
         : options.maxIdleScrollSteps
   });
-  const enrichedJobs = applySearchFilterInferences(
-    source,
-    runDetailEnrichment(source, payload.jobs, options)
-  );
+  const enrichedJobs = applySearchFilterInferences(source, payload.jobs);
 
   return {
     ...writeLinkedInCaptureFile(source, enrichedJobs, {
       capturedAt: payload.capturedAt,
       pageUrl: payload.pageUrl,
-      expectedCount: payload.expectedCount
+      expectedCount: payload.expectedCount,
+      captureDiagnostics: payload.captureDiagnostics
     }),
     provider: "chrome_applescript",
     status: "completed"

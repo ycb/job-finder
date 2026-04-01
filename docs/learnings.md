@@ -219,6 +219,12 @@ As of 2026-03-06.
 - Orientation guidance should use a true toast pattern: fixed top-right, animated entrance from the right, non-blocking with explicit CTA + dismiss.
 - For row-level status diagnostics, use on-demand toasts instead of persistent inline sub-status blocks/popovers so the primary status cell stays scannable.
 
+## LinkedIn Capture Scope and Verification
+
+- For LinkedIn MVP, summary-card data is sufficient for import. Do not let full JD extraction block capture stability work; keep full JD as a backlog enrichment item.
+- When verifying browser-capture changes, make sure the browser bridge is running from the same checkout as the code under test. An already-running QA bridge can silently validate `/Users/admin/job-finder` while the controller worktree appears to be under test.
+- If live verification is serviced by a different checkout, do not claim the controller implementation is live-verified. Call out the bridge/cwd ambiguity explicitly and either restart the bridge from the controller checkout or fold the branch into `qa/current` first.
+
 ## Crash Recovery and Dirty Worktrees
 
 - After a crash during multi-lane work, do not assume newly dirty files are foreign edits. First reconcile the dirty paths against recent subagent notifications and the active controller plan.

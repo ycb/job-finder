@@ -17,6 +17,10 @@ import {
   parseLinkedInSnapshot,
   writeLinkedInCaptureFile
 } from "../src/sources/linkedin-saved-search.js";
+import {
+  finalizeLinkedInCapturePayload,
+  isLinkedInHydratedRowSnapshot
+} from "../src/browser-bridge/providers/chrome-applescript.js";
 
 test("sanitizeLinkedInTitle strips duplicated verification suffixes", () => {
   assert.equal(
@@ -186,6 +190,97 @@ test("sanitizeLinkedInJob drops mismatched LinkedIn detail descriptions", () => 
     "Product Manager · Peregrine · San Francisco, CA"
   );
   assert.equal(sanitized.detailExternalId, "999999999");
+});
+
+test("isLinkedInHydratedRowSnapshot requires title and company for MVP capture", () => {
+  assert.equal(
+    isLinkedInHydratedRowSnapshot({
+      externalId: "123",
+      title: "Product Manager",
+      company: "Replicant"
+    }),
+    true
+  );
+  assert.equal(
+    isLinkedInHydratedRowSnapshot({
+      externalId: "123",
+      title: "",
+      company: "Replicant"
+    }),
+    false
+  );
+  assert.equal(
+    isLinkedInHydratedRowSnapshot({
+      externalId: "123",
+      title: "Product Manager",
+      company: ""
+    }),
+    false
+  );
+});
+
+test("finalizeLinkedInCapturePayload skips placeholder rows and records diagnostics", () => {
+  const result = finalizeLinkedInCapturePayload({
+    pageUrl: "https://www.linkedin.com/jobs/search/?keywords=Product%20manager%20ai",
+    expectedCount: 49,
+    pageCountVisited: 2,
+    stopReason: "exhausted_page_rows",
+    rowSnapshots: [
+      {
+        status: "hydrated",
+        externalId: "4388130875",
+        title: "Principal Product Manager",
+        company: "Replicant",
+        location: "United States (Remote)",
+        directUrl: "https://www.linkedin.com/jobs/view/4388130875/",
+        salaryText: "$130,602.50 - $219,500.00",
+        postedAt: "1 day ago",
+        summaryText: "Principal Product Manager · Replicant · United States (Remote)",
+        descriptionText:
+          "Principal Product Manager · Replicant · United States (Remote) · $130,602.50 - $219,500.00"
+      },
+      {
+        status: "placeholder",
+        externalId: "4388511040"
+      }
+    ]
+  });
+
+  assert.equal(result.jobs.length, 1);
+  assert.equal(result.jobs[0].title, "Principal Product Manager");
+  assert.equal(result.jobs[0].externalId, "4388130875");
+  assert.deepEqual(result.captureDiagnostics.capturedJobIds, ["4388130875"]);
+  assert.equal(result.captureDiagnostics.capturedCount, 1);
+  assert.equal(result.captureDiagnostics.missedPlaceholderCount, 1);
+  assert.deepEqual(result.captureDiagnostics.missedPlaceholderJobIds, ["4388511040"]);
+  assert.equal(result.captureDiagnostics.pageCountVisited, 2);
+  assert.equal(result.captureDiagnostics.stopReason, "exhausted_page_rows");
+});
+
+test("finalizeLinkedInCapturePayload counts mismatched detail ids and ignores their descriptions", () => {
+  const result = finalizeLinkedInCapturePayload({
+    pageUrl: "https://www.linkedin.com/jobs/search/?keywords=Product%20manager",
+    expectedCount: 43,
+    rowSnapshots: [
+      {
+        status: "hydrated",
+        externalId: "111111111",
+        title: "Product Manager",
+        company: "Peregrine",
+        location: "San Francisco, CA",
+        directUrl: "https://www.linkedin.com/jobs/view/111111111/",
+        descriptionText: "Product Manager · Peregrine · San Francisco, CA",
+        detailExternalId: "999999999",
+        detailDescription:
+          "About the job Location: Seattle, WA/Remote; open to candidates anywhere in the U.S.",
+        detailLocation: "Seattle, WA"
+      }
+    ]
+  });
+
+  assert.equal(result.jobs.length, 1);
+  assert.equal(result.jobs[0].description, "Product Manager · Peregrine · San Francisco, CA");
+  assert.equal(result.captureDiagnostics.detailMismatchCount, 1);
 });
 
 test("writeLinkedInCaptureFile sanitizes polluted LinkedIn jobs before persisting", () => {
