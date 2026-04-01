@@ -1123,6 +1123,7 @@ function buildLinkedInScrollStepScript() {
       target: "container",
       scrollTop: Number(container.scrollTop || 0),
       scrollHeight: Number(container.scrollHeight || 0),
+      clientHeight: Number(container.clientHeight || 0),
       cardsVisible: dismissButtons.length,
       clickedLoadMore: Boolean(loadMore)
     });
@@ -1135,6 +1136,7 @@ function buildLinkedInScrollStepScript() {
     target: "window",
     scrollTop: Number(window.scrollY || 0),
     scrollHeight: Number(document.body.scrollHeight || 0),
+    viewportHeight: Number(window.innerHeight || 0),
     cardsVisible: dismissButtons.length,
     clickedLoadMore: Boolean(loadMore)
   });
@@ -1176,7 +1178,8 @@ function harvestLinkedInPageJobs({
   let idleSteps = 0;
 
   for (let step = 0; step < maxScrollSteps; step += 1) {
-    executeInAutomationTab(scrollScript, timeoutMs);
+    const scrollRaw = executeInAutomationTab(scrollScript, timeoutMs);
+    const scrollPayload = parseBridgeJsonPayload(scrollRaw);
     sleepSync(scrollDelayMs);
 
     const payload = runExtractionAttempts(
@@ -1208,7 +1211,10 @@ function harvestLinkedInPageJobs({
       idleSteps += 1;
     }
 
-    if (idleSteps >= maxIdleScrollSteps) {
+    if (
+      idleSteps >= maxIdleScrollSteps &&
+      hasReachedLinkedInScrollExtent(scrollPayload)
+    ) {
       break;
     }
   }
@@ -1255,6 +1261,25 @@ export function shouldContinueLinkedInPagination(lastPageJobCount) {
   }
 
   return parsedCount >= 25;
+}
+
+export function hasReachedLinkedInScrollExtent(scrollPayload, thresholdPx = 40) {
+  const top = Number(scrollPayload?.scrollTop);
+  const height = Number(scrollPayload?.scrollHeight);
+  const viewport = Number(
+    scrollPayload?.clientHeight ?? scrollPayload?.viewportHeight ?? 0
+  );
+  if (
+    !Number.isFinite(top) ||
+    !Number.isFinite(height) ||
+    !Number.isFinite(viewport) ||
+    height <= 0 ||
+    viewport <= 0
+  ) {
+    return false;
+  }
+
+  return top + viewport >= height - Math.max(0, Number(thresholdPx) || 0);
 }
 
 export function doesLinkedInDetailIdMatch(expectedExternalId, resolvedExternalId) {

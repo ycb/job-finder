@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   buildLinkedInPageUrl,
   doesLinkedInDetailIdMatch,
+  hasReachedLinkedInScrollExtent,
   isLinkedInSearchResultsUrl,
   shouldContinueLinkedInPagination,
   shouldFetchLinkedInPage
@@ -49,6 +50,26 @@ test("shouldContinueLinkedInPagination stops after a short final page", () => {
   assert.equal(shouldContinueLinkedInPagination(24), false);
   assert.equal(shouldContinueLinkedInPagination(9), false);
   assert.equal(shouldContinueLinkedInPagination(0), false);
+});
+
+test("hasReachedLinkedInScrollExtent only returns true near the bottom of the scroll container", () => {
+  assert.equal(
+    hasReachedLinkedInScrollExtent({
+      scrollTop: 1206,
+      scrollHeight: 2572,
+      clientHeight: 354
+    }),
+    false
+  );
+  assert.equal(
+    hasReachedLinkedInScrollExtent({
+      scrollTop: 2200,
+      scrollHeight: 2572,
+      clientHeight: 354
+    }),
+    true
+  );
+  assert.equal(hasReachedLinkedInScrollExtent(null), false);
 });
 
 test("isLinkedInSearchResultsUrl accepts search pages and rejects similar jobs collections", () => {
