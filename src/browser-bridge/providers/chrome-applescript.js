@@ -862,6 +862,24 @@ function buildExtractionScript() {
       ".jobs-search__job-details",
       ".scaffold-layout__detail"
     ];
+    const titleSelectors = [
+      ".job-details-jobs-unified-top-card__job-title",
+      ".jobs-unified-top-card__job-title",
+      ".t-24.job-details-jobs-unified-top-card__job-title",
+      ".t-24.t-bold.inline"
+    ];
+    const companySelectors = [
+      ".job-details-jobs-unified-top-card__company-name",
+      ".jobs-unified-top-card__company-name",
+      ".job-details-jobs-unified-top-card__primary-description a",
+      ".jobs-unified-top-card__primary-description a"
+    ];
+    const locationSelectors = [
+      ".job-details-jobs-unified-top-card__primary-description-container",
+      ".jobs-unified-top-card__primary-description-container",
+      ".job-details-jobs-unified-top-card__primary-description",
+      ".jobs-unified-top-card__primary-description"
+    ];
     const descriptionSelectors = [
       ".jobs-box__html-content",
       ".jobs-description-content__text"
@@ -869,7 +887,11 @@ function buildExtractionScript() {
 
     let bestMetadataText = "";
     let bestDescriptionText = "";
+    let bestTitleText = "";
+    let bestCompanyText = "";
+    let bestLocationText = "";
     let resolvedExternalId = extractLinkedInExternalId(location.href);
+    let detailHref = "";
     const startedAt = Date.now();
     while (Date.now() - startedAt < 350) {
       if (!isSearchResultsUrl(location.href)) {
@@ -911,11 +933,36 @@ function buildExtractionScript() {
           bestDescriptionText = text;
         }
       }
+      for (const selector of titleSelectors) {
+        const node = document.querySelector(selector);
+        const text = normalize(node?.innerText || node?.textContent || "");
+        if (text.length > bestTitleText.length) {
+          bestTitleText = text;
+        }
+      }
+      for (const selector of companySelectors) {
+        const node = document.querySelector(selector);
+        const text = normalize(node?.innerText || node?.textContent || "");
+        if (text.length > bestCompanyText.length) {
+          bestCompanyText = text;
+        }
+      }
+      for (const selector of locationSelectors) {
+        const node = document.querySelector(selector);
+        const text = normalize(node?.innerText || node?.textContent || "");
+        if (text.length > bestLocationText.length) {
+          bestLocationText = text;
+        }
+      }
       const hrefNode = document.querySelector(
         '.jobs-search__job-details a[href*="/jobs/view/"], .jobs-search__job-details a[href*="currentJobId="], .scaffold-layout__detail a[href*="/jobs/view/"], .scaffold-layout__detail a[href*="currentJobId="]'
       );
+      const hrefValue = toAbsoluteUrl(hrefNode?.getAttribute("href") || "");
+      if (hrefValue && hrefValue.length > detailHref.length) {
+        detailHref = hrefValue;
+      }
       const hintedExternalId = extractLinkedInExternalId(
-        toAbsoluteUrl(hrefNode?.getAttribute("href") || location.href)
+        hrefValue || location.href
       );
       if (hintedExternalId) {
         resolvedExternalId = hintedExternalId;
@@ -941,6 +988,10 @@ function buildExtractionScript() {
         return {
           ...hints,
           externalId: resolvedExternalId,
+          title: bestTitleText,
+          company: bestCompanyText,
+          locationText: bestLocationText,
+          directUrl: detailHref,
           descriptionText: bestDescriptionText,
           mismatched: false
         };
@@ -956,6 +1007,10 @@ function buildExtractionScript() {
       return {
         ...parseDetailHints(""),
         externalId: expectedExternalId || "",
+        title: "",
+        company: "",
+        locationText: "",
+        directUrl: "",
         descriptionText: "",
         mismatched: true
       };
@@ -964,6 +1019,10 @@ function buildExtractionScript() {
     return {
       ...parseDetailHints([bestMetadataText, bestDescriptionText].filter(Boolean).join(" ")),
       externalId: resolvedExternalId,
+      title: bestTitleText,
+      company: bestCompanyText,
+      locationText: bestLocationText,
+      directUrl: detailHref,
       descriptionText: bestDescriptionText,
       mismatched: false
     };
@@ -984,6 +1043,45 @@ function buildExtractionScript() {
 
     const snapshot = waitForHydratedRow(rowId);
     if (snapshot.status !== "hydrated") {
+      const detailHints = readDetailHints(rowId, snapshot.externalId);
+      const detailMatches = !detailHints.mismatched &&
+        detailHints.externalId &&
+        detailHints.externalId === snapshot.externalId;
+      const recoveredTitle = sanitizeLinkedInTitle(detailHints.title || "", {
+        company: detailHints.company || "",
+        location: detailHints.location || detailHints.locationText || ""
+      });
+      const recoveredCompany = normalize(detailHints.company || "");
+      const recoveredLocation = normalize(detailHints.location || detailHints.locationText || "");
+      if (detailMatches && recoveredTitle && recoveredCompany) {
+        rowSnapshots.push({
+          status: "hydrated",
+          rowId,
+          externalId: snapshot.externalId || rowId || "",
+          directUrl: detailHints.directUrl || snapshot.directUrl || "",
+          title: recoveredTitle,
+          company: recoveredCompany,
+          location: recoveredLocation,
+          postedAt: detailHints.postedAt || "",
+          employmentType: detailHints.employmentType || "",
+          salaryText: detailHints.salaryText || "",
+          easyApply: /easy apply/i.test(detailHints.descriptionText || ""),
+          summaryText: normalize([recoveredTitle, recoveredCompany, recoveredLocation].filter(Boolean).join(" · ")).slice(0, 500),
+          descriptionText: normalize(
+            [recoveredTitle, recoveredCompany, recoveredLocation, detailHints.postedAt, detailHints.employmentType, detailHints.salaryText]
+              .filter(Boolean)
+              .join(" · ")
+          ),
+          detailExternalId: detailHints.externalId || "",
+          detailPostedAt: detailHints.postedAt || "",
+          detailSalaryText: detailHints.salaryText || "",
+          detailEmploymentType: detailHints.employmentType || "",
+          detailLocation: detailHints.location || detailHints.locationText || "",
+          detailDescription: detailHints.descriptionText || "",
+          detailMismatched: false
+        });
+        continue;
+      }
       rowSnapshots.push(snapshot);
       continue;
     }
