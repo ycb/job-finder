@@ -669,6 +669,40 @@ function buildExtractionScript() {
   const findResultRowById = (rowId) =>
     document.querySelector('li[data-occludable-job-id="' + rowId + '"], [data-occludable-job-id="' + rowId + '"]');
 
+  const activateRow = (row) => {
+    if (!row) {
+      return;
+    }
+
+    const target =
+      row.querySelector('[data-job-id] a[href*="/jobs/view/"]') ||
+      row.querySelector('a[href*="currentJobId="]') ||
+      row.querySelector('a[href*="/jobs/view/"]') ||
+      row.querySelector('[role="button"]') ||
+      row;
+
+    if (!target || typeof target.dispatchEvent !== "function") {
+      return;
+    }
+
+    const eventInit = {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      view: window
+    };
+
+    try {
+      target.dispatchEvent(new MouseEvent("mousedown", eventInit));
+      target.dispatchEvent(new MouseEvent("mouseup", eventInit));
+      target.dispatchEvent(new MouseEvent("click", eventInit));
+    } catch {
+      if (typeof target.click === "function") {
+        target.click();
+      }
+    }
+  };
+
   const readRowSnapshot = (row) => {
     const rowId = getRowId(row);
     const titleAnchor =
@@ -790,6 +824,11 @@ function buildExtractionScript() {
 
       row.scrollIntoView({ behavior: "auto", block: "center", inline: "nearest" });
       spinWait(delayMs);
+
+      if (attempt > 0) {
+        activateRow(row);
+        spinWait(delayMs);
+      }
 
       const snapshot = readRowSnapshot(row);
       lastSnapshot = snapshot;
