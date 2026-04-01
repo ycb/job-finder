@@ -1416,6 +1416,17 @@ function harvestLinkedInPageJobs({
   let lastCollectedCount = collectedSnapshots.length;
   let idleSteps = 0;
 
+  if (collectedSnapshots.length > 0 || sawValidPayload) {
+    return {
+      pageUrl: lastPayload?.pageUrl || null,
+      capturedAt: new Date().toISOString(),
+      rowSnapshots: collectedSnapshots,
+      expectedCount,
+      sawValidPayload,
+      stopReason: stopReason || "completed_row_traversal"
+    };
+  }
+
   for (let step = 0; step < maxScrollSteps; step += 1) {
     const scrollRaw = executeInAutomationTab(scrollScript, timeoutMs);
     const scrollPayload = parseBridgeJsonPayload(scrollRaw);
