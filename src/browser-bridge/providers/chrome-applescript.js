@@ -737,7 +737,7 @@ function buildExtractionScript() {
     }
   };
 
-  const readDetailHints = (cardRoot, dismissButton, titleAnchor) => {
+  const readDetailHints = (cardRoot, dismissButton, titleAnchor, expectedExternalId) => {
     const searchHrefBeforeClick = String(location.href || "");
     const clickTarget = cardRoot || titleAnchor || dismissButton;
     if (clickTarget && typeof clickTarget.click === "function") {
@@ -809,17 +809,24 @@ function buildExtractionScript() {
         resolvedExternalId = hintedExternalId;
       }
 
+      const detailIdMatchesExpectation =
+        !expectedExternalId ||
+        !resolvedExternalId ||
+        resolvedExternalId === expectedExternalId;
       const combinedText = [bestMetadataText, bestDescriptionText]
         .filter(Boolean)
         .join(" ");
       const hints = parseDetailHints(combinedText);
-      if (
-        bestDescriptionText.length >= 160 ||
-        hints.postedAt ||
-        hints.salaryText ||
-        hints.employmentType ||
-        hints.location
-      ) {
+      const hasUsableDetailHints =
+        detailIdMatchesExpectation &&
+        (
+          bestDescriptionText.length >= 160 ||
+          hints.postedAt ||
+          hints.salaryText ||
+          hints.employmentType ||
+          hints.location
+        );
+      if (hasUsableDetailHints) {
         return {
           ...hints,
           externalId: resolvedExternalId,
@@ -953,9 +960,10 @@ function buildExtractionScript() {
       (!cardPostedLine || !cardSalaryText || !cardEmploymentType || !location)
     ) {
       detailHints = readDetailHints(
-        (cardRoot || card).querySelector('a[href*="/jobs/view/"]') || titleAnchor,
+        cardRoot || titleAnchor,
         dismissButton,
-        titleAnchor
+        titleAnchor,
+        externalId
       );
       detailReadBudget -= 1;
     }
