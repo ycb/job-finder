@@ -453,53 +453,38 @@ function buildExtractionScript() {
       });
     };
 
-    const resultCardRoots = Array.from(
-      document.querySelectorAll(
-        'li[data-occludable-job-id], .scaffold-layout__list-item[data-occludable-job-id]'
-      )
+    const anchors = Array.from(
+      document.querySelectorAll('a[href*="/jobs/view/"], a[href*="currentJobId="]')
     );
-    if (resultCardRoots.length > 0) {
-      for (const cardRoot of resultCardRoots) {
-        const anchor =
-          cardRoot.querySelector('a[href*="/jobs/view/"]') ||
-          cardRoot.querySelector('a[href*="currentJobId="]') ||
-          cardRoot.querySelector("a[href]");
-        addSeed(cardRoot, null, anchor);
+    for (const anchor of anchors) {
+      const anchorText = normalize(anchor.innerText || anchor.textContent || "");
+      if (
+        !anchorText ||
+        anchorText.length < 8 ||
+        anchorText.length > 180 ||
+        !/[a-z]/i.test(anchorText) ||
+        !/\\s/.test(anchorText) ||
+        /^(more|about|accessibility|help center|privacy|terms|ad choices|advertising|business services)$/i.test(
+          anchorText
+        ) ||
+        /are these results helpful|your feedback helps/i.test(anchorText)
+      ) {
+        continue;
       }
-    } else {
-      const anchors = Array.from(
-        document.querySelectorAll('a[href*="/jobs/view/"], a[href*="currentJobId="]')
-      );
-      for (const anchor of anchors) {
-        const anchorText = normalize(anchor.innerText || anchor.textContent || "");
-        if (
-          !anchorText ||
-          anchorText.length < 8 ||
-          anchorText.length > 180 ||
-          !/[a-z]/i.test(anchorText) ||
-          !/\\s/.test(anchorText) ||
-          /^(more|about|accessibility|help center|privacy|terms|ad choices|advertising|business services)$/i.test(
-            anchorText
-          ) ||
-          /are these results helpful|your feedback helps/i.test(anchorText)
-        ) {
-          continue;
-        }
 
-        const cardRoot =
-          anchor.closest("li") ||
-          anchor.closest('[data-occludable-job-id]') ||
-          anchor.closest('div[class*="job-card"]') ||
-          anchor.parentElement;
-        if (!cardRoot) {
-          continue;
-        }
-        addSeed(
-          cardRoot,
-          null,
-          anchor
-        );
+      const cardRoot =
+        anchor.closest("li") ||
+        anchor.closest('[data-occludable-job-id]') ||
+        anchor.closest('div[class*="job-card"]') ||
+        anchor.parentElement;
+      if (!cardRoot) {
+        continue;
       }
+      addSeed(
+        cardRoot,
+        null,
+        anchor
+      );
     }
 
     for (const dismissButton of dismissButtons) {

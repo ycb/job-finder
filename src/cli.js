@@ -460,6 +460,10 @@ function resolveAllowQuarantinedIngest(options = {}) {
     return true;
   }
 
+  if (isSourceQaModeEnabled()) {
+    return true;
+  }
+
   const envValue = String(
     process.env.JOB_FINDER_ALLOW_QUARANTINED_CAPTURE || ""
   ).trim().toLowerCase();
