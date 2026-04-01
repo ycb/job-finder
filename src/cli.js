@@ -460,10 +460,6 @@ function resolveAllowQuarantinedIngest(options = {}) {
     return true;
   }
 
-  if (isSourceQaModeEnabled()) {
-    return true;
-  }
-
   const envValue = String(
     process.env.JOB_FINDER_ALLOW_QUARANTINED_CAPTURE || ""
   ).trim().toLowerCase();
@@ -557,6 +553,11 @@ function buildSourceRefreshContext(source, options = {}) {
 
 function runSync(options = {}) {
   const sources = loadSources();
+  const selectedSourceIds = new Set(
+    Array.isArray(options.sourceIds)
+      ? options.sourceIds.map((value) => String(value || "").trim()).filter(Boolean)
+      : []
+  );
   const { db } = withDatabase();
   const allowQuarantined = resolveAllowQuarantinedIngest(options);
   const runId = randomUUID();
@@ -572,7 +573,15 @@ function runSync(options = {}) {
   let skippedByQuality = 0;
   const qualityMessages = [];
   const sourceDeltaRows = [];
-  for (const source of sources.sources.filter((item) => item.enabled)) {
+  for (const source of sources.sources.filter((item) => {
+    if (!item.enabled) {
+      return false;
+    }
+    if (selectedSourceIds.size === 0) {
+      return true;
+    }
+    return selectedSourceIds.has(item.id);
+  })) {
     const captureSummary = readSourceCaptureSummary(source);
     let rawJobs;
     try {
@@ -1839,6 +1848,7 @@ async function runCaptureAllLive(snapshotDirArg, options = {}) {
   const snapshotDir = path.resolve(snapshotDirArg || "output/playwright");
   const liveSources = [];
   const liveDecisions = new Map();
+  const completedSourceIds = [];
   let completed = 0;
   let bridgeSession = null;
 
@@ -1862,6 +1872,7 @@ async function runCaptureAllLive(snapshotDirArg, options = {}) {
     console.log(`capture-all-live imported ${completed} source(s).`);
     return {
       completed,
+      completedSourceIds,
       pending: false,
       skipped: false
     };
@@ -1911,6 +1922,7 @@ async function runCaptureAllLive(snapshotDirArg, options = {}) {
       });
 
       completed += 1;
+      completedSourceIds.push(source.id);
       console.log(
         `Live-captured ${result.jobsImported} job(s) for "${source.name}" via ${result.provider || "bridge"}`
       );
@@ -1919,6 +1931,7 @@ async function runCaptureAllLive(snapshotDirArg, options = {}) {
     console.log(`capture-all-live imported ${completed} source(s).`);
     return {
       completed,
+      completedSourceIds,
       pending: false,
       skipped: false
     };
@@ -1973,11 +1986,18 @@ async function runReview(portArg, output = createCliOutput()) {
 async function runPipeline(options = {}) {
   const sources = loadSources().sources.filter((source) => source.enabled);
   const hasBrowserCapture = sources.some((source) => isBrowserCaptureSource(source));
+  const directFetchSourceIds = sources
+    .filter((source) => !isBrowserCaptureSource(source))
+    .map((source) => source.id);
+  let syncSourceIds = [...directFetchSourceIds];
 
   if (hasBrowserCapture) {
     const captureSummary = await runCaptureAllLive(undefined, {
       forceRefresh: Boolean(options.forceRefresh)
     });
+    if (Array.isArray(captureSummary?.completedSourceIds)) {
+      syncSourceIds = [...new Set([...syncSourceIds, ...captureSummary.completedSourceIds])];
+    }
 
     if (captureSummary?.pending) {
       console.log(
@@ -1988,7 +2008,10 @@ async function runPipeline(options = {}) {
     console.log("No enabled browser-capture sources. Skipping browser capture.");
   }
 
-  runSync({ allowQuarantined: options.allowQuarantined });
+  runSync({
+    allowQuarantined: options.allowQuarantined,
+    sourceIds: syncSourceIds
+  });
   runScore();
   runShortlist();
   runList(10);

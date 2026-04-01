@@ -56,8 +56,8 @@ test("runAllCapturesWithOptions continues after a browser source fails and still
           snapshotPath
         };
       },
-      runSyncAndScoreFn: () => {
-        syncCalls.push("sync");
+      runSyncAndScoreFn: (options) => {
+        syncCalls.push(options);
         return { collected: 2 };
       },
       recordRefreshEventFn: (payload) => {
@@ -82,7 +82,7 @@ test("runAllCapturesWithOptions continues after a browser source fails and still
       { sourceId: "source-c", status: "completed", provider: "source_fetch", error: null }
     ]
   );
-  assert.deepEqual(syncCalls, ["sync"]);
+  assert.deepEqual(syncCalls, [{ sourceIds: ["source-a", "source-c"] }]);
   assert.equal(result.sync.collected, 2);
   assert.equal(refreshEvents.length, 2);
   assert.deepEqual(
@@ -95,6 +95,73 @@ test("runAllCapturesWithOptions continues after a browser source fails and still
       { sourceId: "source-b", outcome: "transient_error" }
     ]
   );
+});
+
+test("runAllCapturesWithOptions excludes cache-served browser sources from sync", async () => {
+  const syncCalls = [];
+
+  const result = await reviewServer.runAllCapturesWithOptions(
+    {},
+    {
+      loadSourcesFn: () => ({
+        sources: [
+          {
+            id: "zip-ai-pm",
+            name: "ZipRecruiter",
+            type: "browser_zip",
+            enabled: true
+          },
+          {
+            id: "builtin-sf-ai-pm",
+            name: "Built In",
+            type: "builtin_search",
+            enabled: true
+          }
+        ]
+      }),
+      isBrowserCaptureSourceFn: (source) => source.type.startsWith("browser"),
+      sourceWithCadenceCacheTtlFn: (source) => source,
+      getSourceRefreshDecisionFn: () => ({
+        allowLive: false,
+        reason: "cache_fresh",
+        cacheSummary: { jobCount: 9 }
+      }),
+      ensureBridgeFn: async () => {
+        throw new Error("bridge should not start");
+      },
+      runSyncAndScoreFn: (options) => {
+        syncCalls.push(options);
+        return { collected: 1 };
+      },
+      recordRefreshEventFn: () => {},
+      classifyRefreshErrorOutcomeFn: () => "transient_error",
+      buildSourceSnapshotPathFn: () => "/tmp/zip.json"
+    }
+  );
+
+  assert.deepEqual(
+    result.captures.map((capture) => ({
+      sourceId: capture.sourceId,
+      provider: capture.provider,
+      servedFrom: capture.servedFrom || null,
+      status: capture.status
+    })),
+    [
+      {
+        sourceId: "zip-ai-pm",
+        provider: "cache",
+        servedFrom: "cache",
+        status: "completed"
+      },
+      {
+        sourceId: "builtin-sf-ai-pm",
+        provider: "source_fetch",
+        servedFrom: null,
+        status: "completed"
+      }
+    ]
+  );
+  assert.deepEqual(syncCalls, [{ sourceIds: ["builtin-sf-ai-pm"] }]);
 });
 
 test("runAllCapturesWithOptions forces live browser capture in source QA mode", async () => {
