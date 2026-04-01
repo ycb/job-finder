@@ -236,6 +236,14 @@ export function writeLinkedInCaptureFile(
     payload.expectedCount = Math.round(expectedCount);
   }
 
+  if (
+    options.captureDiagnostics &&
+    typeof options.captureDiagnostics === "object" &&
+    !Array.isArray(options.captureDiagnostics)
+  ) {
+    payload.captureDiagnostics = options.captureDiagnostics;
+  }
+
   fs.writeFileSync(source.capturePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 
   return {
