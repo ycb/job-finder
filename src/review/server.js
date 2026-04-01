@@ -1217,10 +1217,6 @@ function resolveAllowQuarantinedIngest(options = {}) {
     return true;
   }
 
-  if (isSourceQaModeEnabled()) {
-    return true;
-  }
-
   const envValue = String(
     process.env.JOB_FINDER_ALLOW_QUARANTINED_CAPTURE || ""
   ).trim().toLowerCase();
@@ -1263,9 +1259,22 @@ function buildRejectedEvaluation(reason) {
   };
 }
 
-function runSyncAndScore() {
+function runSyncAndScore(options = {}) {
   const { criteria } = loadSearchCriteria();
-  const sources = loadSources().sources.filter((source) => source.enabled);
+  const selectedSourceIds = new Set(
+    Array.isArray(options.sourceIds)
+      ? options.sourceIds.map((value) => String(value || "").trim()).filter(Boolean)
+      : []
+  );
+  const sources = loadSources().sources.filter((source) => {
+    if (!source.enabled) {
+      return false;
+    }
+    if (selectedSourceIds.size === 0) {
+      return true;
+    }
+    return selectedSourceIds.has(source.id);
+  });
   const allowQuarantined = resolveAllowQuarantinedIngest();
   const retentionPolicy = loadRetentionPolicy();
   const runId = randomUUID();
@@ -1528,7 +1537,7 @@ async function runSourceCaptureWithOptions(sourceId, options = {}) {
         jobsImported: null,
         message: `Synced source "${source.name}" via direct fetch.`
       },
-      sync: options.skipSync ? null : runSyncAndScore()
+      sync: options.skipSync ? null : runSyncAndScore({ sourceIds: [source.id] })
     };
   }
 
@@ -1554,7 +1563,7 @@ async function runSourceCaptureWithOptions(sourceId, options = {}) {
         nextEligibleAt: decision.nextEligibleAt || null,
           message: describeRefreshDecision(source, decision)
         },
-        sync: options.skipSync ? null : runSyncAndScore()
+        sync: null
       };
     }
 
@@ -1587,7 +1596,9 @@ async function runSourceCaptureWithOptions(sourceId, options = {}) {
   }
 
   const sync =
-    capture.status === "completed" && !options.skipSync ? runSyncAndScore() : null;
+    capture.status === "completed" && !options.skipSync
+      ? runSyncAndScore({ sourceIds: [source.id] })
+      : null;
 
   return {
     capture,
@@ -1776,6 +1787,7 @@ export async function runAllCapturesWithOptions(options = {}, overrides = {}) {
     await ensureBridgeFn(liveBrowserSources);
   }
 
+  const completedSourceIds = [];
   for (const source of sources) {
     let capture;
 
@@ -1861,15 +1873,22 @@ export async function runAllCapturesWithOptions(options = {}, overrides = {}) {
       ...capture
     });
 
-    if (capture.status === "completed") {
+    if (
+      capture.status === "completed" &&
+      (!isBrowserCaptureSourceFn(source) || capture.servedFrom !== "cache")
+    ) {
       completedCount += 1;
+      completedSourceIds.push(source.id);
     }
   }
 
   return {
     captures,
     failures,
-    sync: completedCount > 0 ? runSyncAndScoreFn() : null
+    sync:
+      completedCount > 0
+        ? runSyncAndScoreFn({ sourceIds: completedSourceIds })
+        : null
   };
 }
 

@@ -27,6 +27,8 @@ Job Finder's product promise is simple: take a search the user could do manually
 - [x] (2026-03-31 23:58Z) Fixed the `Run search` honesty gap for auth-blocked preflight failures. Backend now records blocked auth-check attempts into refresh state, and the React run-all path reloads the dashboard on the `409 requiresAuthCheck` path so stale source rows are replaced by the latest failed-attempt state.
 - [x] (2026-04-01 00:07Z) Fixed a LinkedIn detail-provenance regression: detail text is now trusted only when `detailExternalId === externalId`, preventing stale detail-pane text from contaminating unrelated job rows during cleanup and scoring.
 - [x] (2026-04-01 00:11Z) Recovered the recent Zip regression to manual-native parity. Zip is no longer treated as auth-required, and the URL builder now preserves the source-native shaping params (`radius`, `days`, `refine_by_salary`, existing refinement params`) instead of stripping them.
+- [x] (2026-04-01 02:32Z) Closed the remaining QA-contract loophole. `JOB_FINDER_SOURCE_QA_MODE` no longer forces quarantined ingest, and run-all sync remains batch-scoped so a cache-served or failed browser source cannot mint a fresh-looking row from stale capture data.
+- [x] (2026-04-01 02:45Z) Fixed the stale-sync batch bug. `run-all` had been syncing every enabled source after any completed capture, so a failed browser source could still get a fresh batch row built from its older on-disk capture file. Server and CLI now sync only the sources that actually completed in the current batch.
 - [ ] Validate the live QA batch after the controller fixes land on `qa/current`, and compare the new `LinkedIn` / `ZipRecruiter` rows against their raw capture artifacts and manual-equivalent native searches.
 - [ ] Add regression tests that fail if a source is declared parity-ready without matching a manual-equivalent baseline for at least the first-page count and representative top matches.
 
@@ -52,6 +54,8 @@ Job Finder's product promise is simple: take a search the user could do manually
 
 - Observation: the QA-path honesty fixes did their job; the remaining issues are true source-quality regressions, not cache/quarantine lies.
   Evidence: latest `source_run_deltas` rows for run `61de70cf-e340-490d-9520-025c7ceeba8d` all show `served_from=live` and `status_reason=fetched_during_sync`, proving the current bad outcomes are coming from real live attempts.
+- Observation: QA mode still had one hidden masking path even after the earlier honesty work.
+  Evidence: `src/sources/qa-mode.js` was still forcing `allowQuarantined: true`, so stakeholder QA could ingest quarantined captures unless a caller explicitly overrode it. That contradicted the agreed QA contract and needed to be removed.
 
 - Observation: the current `Filtered` column was still semantically wrong even after raw-capture accounting was restored.
   Evidence: direct evaluation of fresh raw captures showed `LinkedIn 34 -> 19 reject`, `Indeed 24 -> 11 reject`, and `Zip 4 -> 1 reject`, but `buildSourceRunSemanticMetrics()` only counted `evaluation.hardFiltered`. Because the scorer reserves `hardFiltered=true` for required-term and exclude-term failures, normal title/location/salary/date rejects were being shown as unfiltered in the Sources table.
@@ -79,6 +83,9 @@ Job Finder's product promise is simple: take a search the user could do manually
 - Decision: for ZipRecruiter MVP, only title/keywords/location remain URL-side constraints; salary/date/distance/experience move to post-capture evaluation.
   Rationale: the live direct-capture comparison proved that URL-side Zip constraints were overconstraining the native search state and suppressing relevant results. The product promise is better served by broad native capture plus honest shared filtering than by pretending Zip reliably honors the full structured criteria model in its URL.
   Date/Author: 2026-03-31 / Codex
+- Decision: stakeholder QA must not override quarantined ingest by default.
+  Rationale: quarantine is an internal safety heuristic, not part of the accepted stakeholder QA contract. If the user wants to measure live source quality, QA must surface the broken run rather than silently accepting it.
+  Date/Author: 2026-04-01 / Codex
 
 ## Outcomes & Retrospective
 
