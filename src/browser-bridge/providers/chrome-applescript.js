@@ -837,10 +837,10 @@ function buildExtractionScript() {
     };
   };
 
-  // Keep LinkedIn search capture read-only. Clicking into cards/details can
-  // navigate the automation tab into "similar jobs" collections and poison the
-  // capture context. Direct detail enrichment runs later against canonical job URLs.
-  let detailReadBudget = 0;
+  // LinkedIn card snippets are often too thin to prove an AI match. Read a
+  // bounded number of detail panes, but only through canonical job links and
+  // only while we remain anchored to search results.
+  let detailReadBudget = 24;
   for (const seed of buildCardSeeds()) {
     const cardRoot = seed.cardRoot;
     const dismissButton = seed.dismissButton;
@@ -952,7 +952,11 @@ function buildExtractionScript() {
       detailReadBudget > 0 &&
       (!cardPostedLine || !cardSalaryText || !cardEmploymentType || !location)
     ) {
-      detailHints = readDetailHints(cardRoot, dismissButton, titleAnchor);
+      detailHints = readDetailHints(
+        (cardRoot || card).querySelector('a[href*="/jobs/view/"]') || titleAnchor,
+        dismissButton,
+        titleAnchor
+      );
       detailReadBudget -= 1;
     }
     const resolvedExternalId = externalId || detailHints.externalId || null;
@@ -1229,13 +1233,13 @@ function readLinkedInJobsFromChrome(searchUrl, options = {}) {
   const maxPages = Number(options.maxPages) > 0 ? Number(options.maxPages) : 4;
   const maxScrollSteps = Number(options.maxScrollSteps) > 0
     ? Number(options.maxScrollSteps)
-    : 14;
+    : 18;
   const maxIdleScrollSteps = Number(options.maxIdleScrollSteps) > 0
     ? Number(options.maxIdleScrollSteps)
-    : 3;
+    : 5;
   const scrollDelayMs = Number(options.scrollDelayMs) > 0
     ? Number(options.scrollDelayMs)
-    : 1000;
+    : 1200;
   const extractionScript = buildExtractionScript();
   const scrollScript = buildLinkedInScrollStepScript();
 
