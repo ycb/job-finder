@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 
 import {
   buildLinkedInPageUrl,
-  isLinkedInSearchResultsUrl
+  doesLinkedInDetailIdMatch,
+  isLinkedInSearchResultsUrl,
+  shouldFetchLinkedInPage
 } from "../src/browser-bridge/providers/chrome-applescript.js";
 
 test("buildLinkedInPageUrl applies LinkedIn start offset in 25-result increments", () => {
@@ -23,6 +25,22 @@ test("buildLinkedInPageUrl replaces existing start query parameter", () => {
     buildLinkedInPageUrl(baseUrl, 0),
     "https://www.linkedin.com/jobs/search/?keywords=ai+pm&start=0&f_TPR=r604800"
   );
+});
+
+test("shouldFetchLinkedInPage stops before overshooting the known result count", () => {
+  assert.equal(shouldFetchLinkedInPage(null, 0), true);
+  assert.equal(shouldFetchLinkedInPage(48, 0), true);
+  assert.equal(shouldFetchLinkedInPage(48, 1), true);
+  assert.equal(shouldFetchLinkedInPage(48, 2), false);
+  assert.equal(shouldFetchLinkedInPage(66, 2), true);
+  assert.equal(shouldFetchLinkedInPage(66, 3), false);
+});
+
+test("doesLinkedInDetailIdMatch requires a resolved detail id when a card id is known", () => {
+  assert.equal(doesLinkedInDetailIdMatch("", ""), true);
+  assert.equal(doesLinkedInDetailIdMatch("123", "123"), true);
+  assert.equal(doesLinkedInDetailIdMatch("123", ""), false);
+  assert.equal(doesLinkedInDetailIdMatch("123", "999"), false);
 });
 
 test("isLinkedInSearchResultsUrl accepts search pages and rejects similar jobs collections", () => {
