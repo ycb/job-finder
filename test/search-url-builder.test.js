@@ -84,23 +84,24 @@ test("buildSearchUrlForSourceType formats ZipRecruiter criteria", () => {
     "principal product manager b2b saas fintech payments"
   );
   assert.equal(parsed.searchParams.get("location"), "San Francisco, CA");
-  assert.equal(parsed.searchParams.get("radius"), "25");
-  assert.equal(parsed.searchParams.get("refine_by_salary"), "200000");
-  assert.equal(parsed.searchParams.get("days"), "7");
+  assert.equal(parsed.searchParams.get("radius"), null);
+  assert.equal(parsed.searchParams.get("refine_by_salary"), null);
+  assert.equal(parsed.searchParams.get("days"), null);
   assert.equal(parsed.searchParams.get("refine_by_experience_level"), "mid,senior");
   assert.equal(parsed.searchParams.get("refine_by_employment"), "employment_type:all");
   assert.equal(parsed.searchParams.get("page"), "1");
   assert.equal(parsed.searchParams.get("lk"), null);
   assert.deepEqual(result.unsupported, []);
   assert.deepEqual(result.criteriaAccountability.appliedInUrl.sort(), [
-    "datePosted",
-    "distanceMiles",
     "keywords",
     "location",
-    "minSalary",
     "title"
   ]);
-  assert.deepEqual(result.criteriaAccountability.appliedPostCapture, []);
+  assert.deepEqual(result.criteriaAccountability.appliedPostCapture.sort(), [
+    "datePosted",
+    "distanceMiles",
+    "minSalary"
+  ]);
 });
 
 test("buildSearchUrlForSourceType preserves richer LinkedIn location when criteria only specifies city", () => {
@@ -141,7 +142,7 @@ test("buildSearchUrlForSourceType formats Indeed criteria", () => {
   assert.equal(parsed.pathname, "/jobs");
   assert.equal(parsed.searchParams.get("q"), "senior product manager fintech payments");
   assert.equal(parsed.searchParams.get("l"), "San Francisco, CA");
-  assert.equal(parsed.searchParams.get("radius"), "25");
+  assert.equal(parsed.searchParams.get("radius"), null);
   assert.equal(parsed.searchParams.get("salaryType"), "$195,000");
   assert.equal(parsed.searchParams.get("fromage"), "3");
   assert.ok(result.unsupported.includes("experienceLevel"));
@@ -218,10 +219,9 @@ test("buildSearchUrlForSourceType returns accountability buckets for Indeed crit
 
   assert.ok(result.criteriaAccountability);
   assert.deepEqual(result.criteriaAccountability.appliedInUiBootstrap, []);
-  assert.deepEqual(result.criteriaAccountability.appliedPostCapture, []);
+  assert.deepEqual(result.criteriaAccountability.appliedPostCapture, ["distanceMiles"]);
   assert.deepEqual(result.criteriaAccountability.appliedInUrl.sort(), [
     "datePosted",
-    "distanceMiles",
     "keywords",
     "location",
     "minSalary",
