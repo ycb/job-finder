@@ -1248,6 +1248,15 @@ export function shouldFetchLinkedInPage(expectedCount, pageIndex = 0) {
   return normalizedPageIndex * 25 < parsedExpected;
 }
 
+export function shouldContinueLinkedInPagination(lastPageJobCount) {
+  const parsedCount = Number(lastPageJobCount);
+  if (!Number.isFinite(parsedCount) || parsedCount <= 0) {
+    return false;
+  }
+
+  return parsedCount >= 25;
+}
+
 export function doesLinkedInDetailIdMatch(expectedExternalId, resolvedExternalId) {
   const expected = normalizeLinkedInIdValue(expectedExternalId);
   if (!expected) {
@@ -1293,9 +1302,13 @@ function readLinkedInJobsFromChrome(searchUrl, options = {}) {
   const collected = [];
   let sawValidPayload = false;
   let expectedCount = null;
+  let lastPageJobCount = null;
 
   for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
     if (!shouldFetchLinkedInPage(expectedCount, pageIndex)) {
+      break;
+    }
+    if (pageIndex > 0 && !shouldContinueLinkedInPagination(lastPageJobCount)) {
       break;
     }
 
@@ -1325,6 +1338,7 @@ function readLinkedInJobsFromChrome(searchUrl, options = {}) {
     }
 
     const pageJobs = Array.isArray(pagePayload?.jobs) ? pagePayload.jobs : [];
+    lastPageJobCount = pageJobs.length;
     if (pageJobs.length === 0) {
       break;
     }

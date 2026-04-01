@@ -5,6 +5,7 @@ import {
   buildLinkedInPageUrl,
   doesLinkedInDetailIdMatch,
   isLinkedInSearchResultsUrl,
+  shouldContinueLinkedInPagination,
   shouldFetchLinkedInPage
 } from "../src/browser-bridge/providers/chrome-applescript.js";
 
@@ -41,6 +42,13 @@ test("doesLinkedInDetailIdMatch requires a resolved detail id when a card id is 
   assert.equal(doesLinkedInDetailIdMatch("123", "123"), true);
   assert.equal(doesLinkedInDetailIdMatch("123", ""), false);
   assert.equal(doesLinkedInDetailIdMatch("123", "999"), false);
+});
+
+test("shouldContinueLinkedInPagination stops after a short final page", () => {
+  assert.equal(shouldContinueLinkedInPagination(25), true);
+  assert.equal(shouldContinueLinkedInPagination(24), false);
+  assert.equal(shouldContinueLinkedInPagination(9), false);
+  assert.equal(shouldContinueLinkedInPagination(0), false);
 });
 
 test("isLinkedInSearchResultsUrl accepts search pages and rejects similar jobs collections", () => {
