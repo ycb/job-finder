@@ -933,7 +933,9 @@ function buildExtractionScript() {
   const rowSnapshots = [];
   const resultRows = findResultRows();
   const seenRowIds = new Set();
-  let detailReadBudget = 24;
+  // MVP capture is summary-card-first. Avoid detail-pane reads here because
+  // they materially slow down LinkedIn capture and are not required for import.
+  let detailReadBudget = 0;
   for (const row of resultRows) {
     const rowId = getRowId(row);
     if (!rowId || seenRowIds.has(rowId)) {
