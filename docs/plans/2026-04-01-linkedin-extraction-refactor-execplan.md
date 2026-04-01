@@ -17,6 +17,7 @@ LinkedIn is currently failing at the exact thing the product needs most: harvest
 - [x] (2026-04-01 20:54Z) Proved the primary LinkedIn data surface is the live `voyagerJobsDashJobCards` response, not hidden payloads or hydrated row DOM. Resource-layer POC fetched `25` first-page jobs with CSRF + Rest.li headers.
 - [x] (2026-04-01 21:09Z) Updated parser and provider tests for resource-layer paging metadata and `start`-offset resource selection.
 - [~] (2026-04-01 21:15Z) Swapped the controller-side LinkedIn provider to resource-layer-first capture with DOM fallback. Targeted tests are green; live QA verification against the `40+` success bar is in progress.
+- [x] (2026-04-01 23:30Z) Verified live QA LinkedIn capture now reaches `82 / 82` jobs from the resource layer. The remaining mismatch was not extractor drift; it was source-table semantics counting generic `bucket=reject` rows as `Filtered`.
 
 ## Surprises & Discoveries
 
@@ -32,6 +33,9 @@ LinkedIn is currently failing at the exact thing the product needs most: harvest
 - Observation: the hidden `<code>` payloads on LinkedIn search pages are real but incomplete; the authoritative first-page dataset is exposed in the live `voyagerJobsDashJobCards` resource response.
   Evidence: hidden payload parsing yielded `7` jobs, while a same-page resource-layer fetch using CSRF + `x-restli-protocol-version: 2.0.0` returned `25` jobs from `start=0`.
 
+- Observation: the stored LinkedIn run-delta row `82 / 66 / 16` matched the QA checkout exactly; the bad diagnosis came from comparing against the controller worktree's different criteria and from treating `bucket=reject` as if it should not affect `Filtered` under the current implementation.
+  Evidence: direct reproduction inside `/Users/admin/job-finder` produced `82 raw`, `0 hardFiltered`, `66 reject`, `16 review_later`, and `buildSourceRunSemanticMetrics()` returned `82 / 66 / 16`.
+
 ## Decision Log
 
 - Decision: MVP LinkedIn import will be summary-card-first.
@@ -46,9 +50,13 @@ LinkedIn is currently failing at the exact thing the product needs most: harvest
   Rationale: the page’s visible row DOM is too virtualized to provide stable coverage, while the resource response yields regular structured job records with stable ids and MVP fields.
   Date/Author: 2026-04-01 / Codex
 
+- Decision: source-table `Filtered` must count only `evaluation.hardFiltered`, not generic `bucket=reject`; non-hard-filtered rejects remain `Imported` for source-table accounting unless they are true duplicates.
+  Rationale: this matches the approved source-table contract and keeps `Found = Filtered + Dupes + Imported` without conflating low-score rejects with hard-filter failures.
+  Date/Author: 2026-04-01 / Codex
+
 ## Outcomes & Retrospective
 
-Implementation is partially complete in the controller worktree. The summary-card-first constraint remains in place, and the extraction path now prefers the live `voyagerJobsDashJobCards` resource response before falling back to DOM row snapshots. The remaining gap is live verification in the same checkout as the changed provider code; final acceptance still requires a QA run that clears the `40+` captured-job bar on the canonical search.
+Implementation is materially complete for LinkedIn extraction. Live QA capture now reaches the full visible result set (`82 / 82`) through the resource-layer path. The follow-on work is no longer extraction; it is source-table semantic cleanup so the latest LinkedIn run is represented with the approved meanings of `Filtered`, `Dupes`, and `Imported`.
 
 ## Context and Orientation
 

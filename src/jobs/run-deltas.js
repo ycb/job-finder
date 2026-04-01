@@ -194,7 +194,7 @@ export function buildSourceRunSemanticMetrics({
     const evaluation = evaluationMap.get(String(job?.id || ""));
     rawFoundCount += 1;
 
-    if (evaluation?.bucket === "reject" || evaluation?.hardFiltered) {
+    if (evaluation?.hardFiltered) {
       hardFilteredCount += 1;
       continue;
     }
