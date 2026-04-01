@@ -45,7 +45,7 @@ test("doesLinkedInDetailIdMatch requires a resolved detail id when a card id is 
   assert.equal(doesLinkedInDetailIdMatch("123", "999"), false);
 });
 
-test("shouldContinueLinkedInPagination stops after a short final page", () => {
+test("shouldContinueLinkedInPagination stops after a short raw-results page", () => {
   assert.equal(shouldContinueLinkedInPagination(25), true);
   assert.equal(shouldContinueLinkedInPagination(24), false);
   assert.equal(shouldContinueLinkedInPagination(9), false);

@@ -808,7 +808,7 @@ function buildExtractionScript() {
     };
   };
 
-  const waitForHydratedRow = (rowId, attempts = 8, delayMs = 90) => {
+  const waitForHydratedRow = (rowId, attempts = 4, delayMs = 45) => {
     let lastSnapshot = {
       status: "placeholder",
       rowId,
@@ -1409,8 +1409,8 @@ export function shouldFetchLinkedInPage(expectedCount, pageIndex = 0) {
   return normalizedPageIndex * 25 < parsedExpected;
 }
 
-export function shouldContinueLinkedInPagination(lastPageJobCount) {
-  const parsedCount = Number(lastPageJobCount);
+export function shouldContinueLinkedInPagination(lastPageRowCount) {
+  const parsedCount = Number(lastPageRowCount);
   if (!Number.isFinite(parsedCount) || parsedCount <= 0) {
     return false;
   }
@@ -1483,7 +1483,7 @@ function readLinkedInJobsFromChrome(searchUrl, options = {}) {
   const seenSnapshotIds = new Set();
   let sawValidPayload = false;
   let expectedCount = null;
-  let lastPageJobCount = null;
+  let lastPageRowCount = null;
   let pageCountVisited = 0;
   let stopReason = "";
 
@@ -1492,7 +1492,7 @@ function readLinkedInJobsFromChrome(searchUrl, options = {}) {
       stopReason = "expected_count_limit";
       break;
     }
-    if (pageIndex > 1 && !shouldContinueLinkedInPagination(lastPageJobCount)) {
+    if (pageIndex > 1 && !shouldContinueLinkedInPagination(lastPageRowCount)) {
       stopReason = "short_page";
       break;
     }
@@ -1529,9 +1529,7 @@ function readLinkedInJobsFromChrome(searchUrl, options = {}) {
     const pageSnapshots = Array.isArray(pagePayload?.rowSnapshots)
       ? pagePayload.rowSnapshots
       : [];
-    lastPageJobCount = pageSnapshots.filter((snapshot) =>
-      isLinkedInHydratedRowSnapshot(snapshot)
-    ).length;
+    lastPageRowCount = pageSnapshots.length;
     if (pageSnapshots.length === 0) {
       stopReason = stopReason || "empty_page";
       break;
