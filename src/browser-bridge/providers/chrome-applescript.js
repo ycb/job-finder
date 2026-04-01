@@ -811,8 +811,7 @@ function buildExtractionScript() {
 
       const detailIdMatchesExpectation =
         !expectedExternalId ||
-        !resolvedExternalId ||
-        resolvedExternalId === expectedExternalId;
+        (resolvedExternalId && resolvedExternalId === expectedExternalId);
       const combinedText = [bestMetadataText, bestDescriptionText]
         .filter(Boolean)
         .join(" ");
@@ -835,6 +834,17 @@ function buildExtractionScript() {
       }
 
       spinWait(35);
+    }
+
+    const detailIdMatchesExpectation =
+      !expectedExternalId ||
+      (resolvedExternalId && resolvedExternalId === expectedExternalId);
+    if (!detailIdMatchesExpectation) {
+      return {
+        ...parseDetailHints(""),
+        externalId: expectedExternalId || "",
+        descriptionText: ""
+      };
     }
 
     return {
@@ -1219,6 +1229,35 @@ export function buildLinkedInPageUrl(searchUrl, pageIndex = 0) {
   return buildUrlWithSearchParam(searchUrl, "start", String(startOffset));
 }
 
+function normalizeLinkedInIdValue(value) {
+  return String(value || "").trim();
+}
+
+export function shouldFetchLinkedInPage(expectedCount, pageIndex = 0) {
+  const normalizedPageIndex =
+    Number.isInteger(pageIndex) && pageIndex > 0 ? pageIndex : 0;
+  if (normalizedPageIndex === 0) {
+    return true;
+  }
+
+  const parsedExpected = Number(expectedCount);
+  if (!Number.isFinite(parsedExpected) || parsedExpected <= 0) {
+    return true;
+  }
+
+  return normalizedPageIndex * 25 < parsedExpected;
+}
+
+export function doesLinkedInDetailIdMatch(expectedExternalId, resolvedExternalId) {
+  const expected = normalizeLinkedInIdValue(expectedExternalId);
+  if (!expected) {
+    return true;
+  }
+
+  const resolved = normalizeLinkedInIdValue(resolvedExternalId);
+  return Boolean(resolved) && resolved === expected;
+}
+
 export function isLinkedInSearchResultsUrl(url) {
   try {
     const parsed = new URL(String(url || ""), "https://www.linkedin.com");
@@ -1256,6 +1295,10 @@ function readLinkedInJobsFromChrome(searchUrl, options = {}) {
   let expectedCount = null;
 
   for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
+    if (!shouldFetchLinkedInPage(expectedCount, pageIndex)) {
+      break;
+    }
+
     const pageUrl = buildLinkedInPageUrl(searchUrl, pageIndex);
     navigateAutomationTab(pageUrl, "Refreshing LinkedIn source...", timeoutMs);
     sleepSync(settleMs);
