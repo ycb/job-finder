@@ -18,6 +18,7 @@ LinkedIn is currently failing at the exact thing the product needs most: harvest
 - [x] (2026-04-01 21:09Z) Updated parser and provider tests for resource-layer paging metadata and `start`-offset resource selection.
 - [~] (2026-04-01 21:15Z) Swapped the controller-side LinkedIn provider to resource-layer-first capture with DOM fallback. Targeted tests are green; live QA verification against the `40+` success bar is in progress.
 - [x] (2026-04-01 23:30Z) Verified live QA LinkedIn capture now reaches `82 / 82` jobs from the resource layer. The remaining mismatch was not extractor drift; it was source-table semantics counting generic `bucket=reject` rows as `Filtered`.
+- [x] (2026-04-01 23:38Z) Corrected source-table semantics so `Filtered` counts only `hardFiltered`, bumped `CURRENT_SOURCE_RUN_SEMANTICS_VERSION` to `3`, and prepared QA to ignore pre-fix v2 rows after a fresh sync.
 
 ## Surprises & Discoveries
 

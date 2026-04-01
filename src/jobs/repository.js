@@ -1,4 +1,4 @@
-export const CURRENT_SOURCE_RUN_SEMANTICS_VERSION = 2;
+export const CURRENT_SOURCE_RUN_SEMANTICS_VERSION = 3;
 
 function sourceRunPreferenceSql(alias) {
   return `

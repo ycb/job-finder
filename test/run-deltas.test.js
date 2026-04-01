@@ -8,6 +8,7 @@ import { openDatabase } from "../src/db/client.js";
 import { runMigrations } from "../src/db/migrations.js";
 import { classifyRunDeltas } from "../src/jobs/run-deltas.js";
 import {
+  CURRENT_SOURCE_RUN_SEMANTICS_VERSION,
   countSourceJobsInBatch,
   getLatestImportedRunId,
   listSourceRunTotals,
@@ -211,7 +212,7 @@ test("recordSourceRunDeltas persists rows and listLatestSourceRunDeltas returns 
       {
         runId: "run-2",
         sourceId: "source-a",
-        semanticsVersion: 2,
+        semanticsVersion: CURRENT_SOURCE_RUN_SEMANTICS_VERSION,
         foundCount: 18,
         filteredCount: 4,
         dedupedCount: 2,
@@ -233,7 +234,7 @@ test("recordSourceRunDeltas persists rows and listLatestSourceRunDeltas returns 
       {
         runId: "run-1",
         sourceId: "source-b",
-        semanticsVersion: 2,
+        semanticsVersion: CURRENT_SOURCE_RUN_SEMANTICS_VERSION,
         foundCount: 8,
         filteredCount: 2,
         dedupedCount: 1,
