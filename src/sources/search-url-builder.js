@@ -801,8 +801,7 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
     }
 
     if (criteria.distanceMiles) {
-      nextParams.set("radius", String(criteria.distanceMiles));
-      criteriaAccountability.markAppliedInUrl("distanceMiles");
+      criteriaAccountability.markAppliedPostCapture("distanceMiles");
     } else {
       const existingRadius = normalizePositiveInt(parsed.searchParams.get("radius"));
       if (existingRadius) {
@@ -884,8 +883,7 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
     }
 
     if (criteria.distanceMiles) {
-      nextParams.set("radius", String(criteria.distanceMiles));
-      criteriaAccountability.markAppliedInUrl("distanceMiles");
+      criteriaAccountability.markAppliedPostCapture("distanceMiles");
     } else {
       const existingRadius = normalizePositiveInt(parsed.searchParams.get("radius"));
       if (existingRadius) {
@@ -894,17 +892,7 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
     }
 
     if (criteria.datePosted) {
-      if (criteria.datePosted === "any") {
-        criteriaAccountability.markAppliedInUrl("datePosted");
-      } else {
-        const days = DATE_POSTED_TO_DAYS.get(criteria.datePosted);
-        if (days) {
-          nextParams.set("days", String(days));
-          criteriaAccountability.markAppliedInUrl("datePosted");
-        } else {
-          criteriaAccountability.markUnsupported("datePosted");
-        }
-      }
+      criteriaAccountability.markAppliedPostCapture("datePosted");
     } else {
       const existingDays = normalizePositiveInt(parsed.searchParams.get("days"));
       if (existingDays) {
@@ -913,8 +901,7 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
     }
 
     if (criteria.minSalary) {
-      nextParams.set("refine_by_salary", String(criteria.minSalary));
-      criteriaAccountability.markAppliedInUrl("minSalary");
+      criteriaAccountability.markAppliedPostCapture("minSalary");
     } else {
       const existingSalary = normalizePositiveInt(parsed.searchParams.get("refine_by_salary"));
       if (existingSalary) {

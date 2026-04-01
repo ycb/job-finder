@@ -1902,8 +1902,8 @@ export function buildZipRecruiterPageUrl(urlText, pageNumber) {
       return parsed.toString();
     }
 
-    parsed.searchParams.delete("page");
-    parsed.pathname = "/jobs-search/" + String(page);
+    parsed.pathname = parsed.pathname.replace(/\/jobs-search\/\d+$/, "/jobs-search");
+    parsed.searchParams.set("page", String(page));
     return parsed.toString();
   } catch {
     return buildUrlWithSearchParam(urlText, "page", String(pageNumber || 1));
@@ -1976,6 +1976,7 @@ function readGenericBoardJobsFromChrome(searchUrl, extractionScript, options = {
   const maxAttempts = Number(options.maxAttempts) > 0 ? Number(options.maxAttempts) : 6;
   const attemptDelayMs =
     Number(options.attemptDelayMs) > 0 ? Number(options.attemptDelayMs) : 1500;
+  const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 15_000;
 
   sleepSync(settleMs);
   const tabInfo = readAutomationTabInfo();
@@ -1990,7 +1991,7 @@ function readGenericBoardJobsFromChrome(searchUrl, extractionScript, options = {
   let lastError = null;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const raw = executeInAutomationTab(extractionScript);
+    const raw = executeInAutomationTab(extractionScript, timeoutMs);
     lastRaw = raw;
     if (debugResultPath) {
       fs.writeFileSync(debugResultPath, `${String(raw || "").trim()}\n`, "utf8");
@@ -2164,9 +2165,8 @@ function readZipRecruiterJobsFromChrome(searchUrl, options = {}) {
         depth += 1;
       }
     }
-    const allScrollable = Array.from(document.querySelectorAll("*"));
 
-    const ordered = uniqueElements([...seeded, ...ancestorCandidates, ...allScrollable])
+    const ordered = uniqueElements([...seeded, ...ancestorCandidates])
       .map((element) => ({ element, score: scoreScrollCandidate(element) }))
       .filter((entry) => entry.score > 0)
       .sort((left, right) => right.score - left.score)
@@ -2213,34 +2213,6 @@ function readZipRecruiterJobsFromChrome(searchUrl, options = {}) {
     };
   };
 
-  const readDetailHints = (clickNode) => {
-    if (clickNode && typeof clickNode.click === "function") {
-      clickNode.click();
-    }
-
-    const start = Date.now();
-    while (Date.now() - start < 150) {
-      // allow detail pane repaint
-    }
-
-    const selectors = [
-      '[data-testid*="job-description"]',
-      '[class*="job_description"]',
-      '[class*="jobDescription"]',
-      '[class*="job-details"]',
-      '[class*="jobDetails"]'
-    ];
-    for (const selector of selectors) {
-      const node = document.querySelector(selector);
-      const text = normalize(node?.innerText || node?.textContent || "");
-      if (text.length > 40) {
-        return parseDetailHints(text);
-      }
-    }
-
-    return parseDetailHints("");
-  };
-
   const jobs = [];
   const seen = new Set();
   const collectVisibleJobs = () => {
@@ -2273,9 +2245,8 @@ function readZipRecruiterJobsFromChrome(searchUrl, options = {}) {
       const location = normalize(
         locationNode?.innerText || locationNode?.textContent || ""
       ) || null;
-      const detailHints = readDetailHints(jobLink || titleNode || companyLink || card);
-
       const cardText = normalize(card.innerText || card.textContent || "");
+      const detailHints = parseDetailHints(cardText);
       const cardSalaryText =
         normalize(
           cardText.match(/\\$\\d[\\d,]*(?:K)?\\s*-\\s*\\$\\d[\\d,]*(?:K)?\\/?(?:yr|year|hr|hour)?/i)?.[0]
@@ -2323,7 +2294,7 @@ function readZipRecruiterJobsFromChrome(searchUrl, options = {}) {
     let lastCount = jobs.length;
     let previousScrollTop = -1;
 
-    for (let pass = 0; pass < 24 && stagnantPasses < 4; pass += 1) {
+    for (let pass = 0; pass < 12 && stagnantPasses < 3; pass += 1) {
       const scrollTopBefore =
         container === document.scrollingElement || container === document.documentElement || container === document.body
           ? window.scrollY
@@ -2340,7 +2311,7 @@ function readZipRecruiterJobsFromChrome(searchUrl, options = {}) {
       }
 
       const start = Date.now();
-      while (Date.now() - start < 320) {
+      while (Date.now() - start < 180) {
         // allow virtualization/rendering to catch up
       }
 
@@ -3533,6 +3504,12 @@ export function captureZipRecruiterSourceWithChromeAppleScript(
 
   const payload = readZipRecruiterJobsFromChrome(source.searchUrl, {
     ...options,
+    timeoutMs:
+      Number(source.timeoutMs) > 0
+        ? Number(source.timeoutMs)
+        : Number(options.timeoutMs) > 0
+          ? Number(options.timeoutMs)
+          : 30_000,
     maxPages: Number(source.maxPages) > 0 ? Number(source.maxPages) : options.maxPages
   });
   const enrichedJobs = applySearchFilterInferences(
