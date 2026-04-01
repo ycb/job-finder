@@ -1029,6 +1029,22 @@ function buildExtractionScript() {
   };
 
   const rowSnapshots = [];
+  const snapshotIndexByRowId = new Map();
+  const unresolvedRowIds = [];
+  const upsertSnapshot = (snapshot) => {
+    const key = normalize(snapshot?.rowId || snapshot?.externalId || "");
+    if (!key) {
+      rowSnapshots.push(snapshot);
+      return;
+    }
+    const existingIndex = snapshotIndexByRowId.get(key);
+    if (existingIndex !== undefined) {
+      rowSnapshots[existingIndex] = snapshot;
+      return;
+    }
+    snapshotIndexByRowId.set(key, rowSnapshots.length);
+    rowSnapshots.push(snapshot);
+  };
   const resultRows = findResultRows();
   const seenRowIds = new Set();
   // MVP capture is summary-card-first. Avoid detail-pane reads here because
@@ -1054,7 +1070,7 @@ function buildExtractionScript() {
       const recoveredCompany = normalize(detailHints.company || "");
       const recoveredLocation = normalize(detailHints.location || detailHints.locationText || "");
       if (detailMatches && recoveredTitle && recoveredCompany) {
-        rowSnapshots.push({
+        upsertSnapshot({
           status: "hydrated",
           rowId,
           externalId: snapshot.externalId || rowId || "",
@@ -1082,7 +1098,8 @@ function buildExtractionScript() {
         });
         continue;
       }
-      rowSnapshots.push(snapshot);
+      upsertSnapshot(snapshot);
+      unresolvedRowIds.push(rowId);
       continue;
     }
 
@@ -1100,7 +1117,7 @@ function buildExtractionScript() {
       detailReadBudget -= 1;
     }
 
-    rowSnapshots.push({
+    upsertSnapshot({
       ...snapshot,
       detailExternalId: detailHints.externalId || "",
       detailPostedAt: detailHints.postedAt || "",
@@ -1110,6 +1127,71 @@ function buildExtractionScript() {
       detailDescription: detailHints.descriptionText || "",
       detailMismatched: detailHints.mismatched === true
     });
+  }
+
+  for (const rowId of unresolvedRowIds) {
+    const existingIndex = snapshotIndexByRowId.get(rowId);
+    if (existingIndex === undefined) {
+      continue;
+    }
+    const existingSnapshot = rowSnapshots[existingIndex];
+    if (existingSnapshot?.status === "hydrated") {
+      continue;
+    }
+
+    const retriedSnapshot = waitForHydratedRow(rowId, 3, 90);
+    if (retriedSnapshot.status === "hydrated") {
+      upsertSnapshot({
+        ...retriedSnapshot,
+        detailExternalId: "",
+        detailPostedAt: "",
+        detailSalaryText: "",
+        detailEmploymentType: "",
+        detailLocation: "",
+        detailDescription: "",
+        detailMismatched: false
+      });
+      continue;
+    }
+
+    const detailHints = readDetailHints(rowId, retriedSnapshot.externalId);
+    const detailMatches = !detailHints.mismatched &&
+      detailHints.externalId &&
+      detailHints.externalId === retriedSnapshot.externalId;
+    const recoveredTitle = sanitizeLinkedInTitle(detailHints.title || "", {
+      company: detailHints.company || "",
+      location: detailHints.location || detailHints.locationText || ""
+    });
+    const recoveredCompany = normalize(detailHints.company || "");
+    const recoveredLocation = normalize(detailHints.location || detailHints.locationText || "");
+    if (detailMatches && recoveredTitle && recoveredCompany) {
+      upsertSnapshot({
+        status: "hydrated",
+        rowId,
+        externalId: retriedSnapshot.externalId || rowId || "",
+        directUrl: detailHints.directUrl || retriedSnapshot.directUrl || "",
+        title: recoveredTitle,
+        company: recoveredCompany,
+        location: recoveredLocation,
+        postedAt: detailHints.postedAt || "",
+        employmentType: detailHints.employmentType || "",
+        salaryText: detailHints.salaryText || "",
+        easyApply: /easy apply/i.test(detailHints.descriptionText || ""),
+        summaryText: normalize([recoveredTitle, recoveredCompany, recoveredLocation].filter(Boolean).join(" · ")).slice(0, 500),
+        descriptionText: normalize(
+          [recoveredTitle, recoveredCompany, recoveredLocation, detailHints.postedAt, detailHints.employmentType, detailHints.salaryText]
+            .filter(Boolean)
+            .join(" · ")
+        ),
+        detailExternalId: detailHints.externalId || "",
+        detailPostedAt: detailHints.postedAt || "",
+        detailSalaryText: detailHints.salaryText || "",
+        detailEmploymentType: detailHints.employmentType || "",
+        detailLocation: detailHints.location || detailHints.locationText || "",
+        detailDescription: detailHints.descriptionText || "",
+        detailMismatched: false
+      });
+    }
   }
 
   return JSON.stringify({
