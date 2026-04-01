@@ -6,6 +6,7 @@ import {
   doesLinkedInDetailIdMatch,
   hasReachedLinkedInScrollExtent,
   isLinkedInSearchResultsUrl,
+  pickLinkedInJobCardsResourceUrl,
   shouldContinueLinkedInPagination,
   shouldFetchLinkedInPage
 } from "../src/browser-bridge/providers/chrome-applescript.js";
@@ -90,5 +91,21 @@ test("isLinkedInSearchResultsUrl accepts search pages and rejects similar jobs c
       "https://www.linkedin.com/jobs/collections/similar-jobs/?currentJobId=4379860891&referenceJobId=4379860891"
     ),
     false
+  );
+});
+
+test("pickLinkedInJobCardsResourceUrl prefers the resource matching the current start offset", () => {
+  const resources = [
+    "https://www.linkedin.com/voyager/api/graphql?query=voyagerJobsDashJobCards&start=25&count=25",
+    "https://www.linkedin.com/voyager/api/graphql?query=voyagerJobsDashJobCards&start=0&count=25"
+  ];
+
+  assert.equal(
+    pickLinkedInJobCardsResourceUrl(resources, 0),
+    resources[1]
+  );
+  assert.equal(
+    pickLinkedInJobCardsResourceUrl(resources, 25),
+    resources[0]
   );
 });

@@ -6,7 +6,7 @@ This document is governed by `/Users/admin/job-finder/PLANS.md` and must be main
 
 ## Purpose / Big Picture
 
-LinkedIn is currently failing at the exact thing the product needs most: harvesting the search results page reliably enough to build a useful queue. The user can see dozens of jobs in the native LinkedIn search, but our extractor is only importing a small unstable subset because it still depends on passive scrolling of a virtualized results list. After this change, LinkedIn capture will traverse search rows deterministically, skip blank placeholders honestly, stay on the search results page, and import summary-card data without depending on full job-description extraction.
+LinkedIn is currently failing at the exact thing the product needs most: harvesting the search results page reliably enough to build a useful queue. The user can see dozens of jobs in the native LinkedIn search, but our extractor is only importing a small unstable subset because it still depends on visible DOM hydration. Live diagnostics and the resource-layer POC proved that the page exposes a richer `voyagerJobsDashJobCards` response than the hidden payloads or hydrated left-rail DOM. After this change, LinkedIn capture will read that resource-layer response page by page, stay on the search results page, and import summary-card data without depending on full job-description extraction.
 
 ## Progress
 
@@ -14,7 +14,9 @@ LinkedIn is currently failing at the exact thing the product needs most: harvest
 - [x] (2026-04-01 17:28Z) Created this dedicated LinkedIn refactor ExecPlan and recorded the explicit backlog deferral for full JD extraction in `docs/backlog-specs/p1-core-full-jd-pass.md`.
 - [x] (2026-04-01 17:34Z) Added failing tests for hydrated row snapshots, placeholder skipping, and LinkedIn capture diagnostics in `test/linkedin-chrome-extraction.test.js`.
 - [x] (2026-04-01 17:43Z) Refactored LinkedIn extraction in `src/browser-bridge/providers/chrome-applescript.js` to row-snapshot finalization and summary-card-first capture persistence.
-- [~] (2026-04-01 17:48Z) Targeted tests and build checks are green. Live verification is partially complete: a QA-bridge run captured `24` LinkedIn jobs, but direct controller-side verification is still blocked by bridge/cwd ambiguity and a long-running local AppleScript path.
+- [x] (2026-04-01 20:54Z) Proved the primary LinkedIn data surface is the live `voyagerJobsDashJobCards` response, not hidden payloads or hydrated row DOM. Resource-layer POC fetched `25` first-page jobs with CSRF + Rest.li headers.
+- [x] (2026-04-01 21:09Z) Updated parser and provider tests for resource-layer paging metadata and `start`-offset resource selection.
+- [~] (2026-04-01 21:15Z) Swapped the controller-side LinkedIn provider to resource-layer-first capture with DOM fallback. Targeted tests are green; live QA verification against the `40+` success bar is in progress.
 
 ## Surprises & Discoveries
 
@@ -27,6 +29,9 @@ LinkedIn is currently failing at the exact thing the product needs most: harvest
 - Observation: an existing bridge server can silently validate the wrong checkout.
   Evidence: `node src/cli.js capture-source-live linkedin-live-capture` reported `24` captured jobs but wrote `/Users/admin/job-finder/data/captures/linkedin-live-capture.json`, not this worktree's `data/captures/linkedin-live-capture.json`, because the long-running bridge process was already serving the QA checkout.
 
+- Observation: the hidden `<code>` payloads on LinkedIn search pages are real but incomplete; the authoritative first-page dataset is exposed in the live `voyagerJobsDashJobCards` resource response.
+  Evidence: hidden payload parsing yielded `7` jobs, while a same-page resource-layer fetch using CSRF + `x-restli-protocol-version: 2.0.0` returned `25` jobs from `start=0`.
+
 ## Decision Log
 
 - Decision: MVP LinkedIn import will be summary-card-first.
@@ -37,9 +42,13 @@ LinkedIn is currently failing at the exact thing the product needs most: harvest
   Rationale: stale or mismatched detail-pane text has already caused false hard-filter rejects and polluted persisted rows.
   Date/Author: 2026-04-01 / Codex
 
+- Decision: LinkedIn capture should be resource-layer-first, using the live `voyagerJobsDashJobCards` response as the primary source of truth and the DOM extractor only as fallback.
+  Rationale: the page’s visible row DOM is too virtualized to provide stable coverage, while the resource response yields regular structured job records with stable ids and MVP fields.
+  Date/Author: 2026-04-01 / Codex
+
 ## Outcomes & Retrospective
 
-Implementation is complete for the summary-card-first LinkedIn refactor in the controller worktree. The extraction tests and build checks pass, and the capture path now finalizes row snapshots into stable jobs with placeholder and detail-mismatch diagnostics. The remaining gap is live verification in the same checkout as the changed provider code; the current QA bridge can still route browser-capture verification through `/Users/admin/job-finder`, so final acceptance requires either folding the controller branch into `qa/current` or forcing a worktree-local bridge instance before claiming live parity.
+Implementation is partially complete in the controller worktree. The summary-card-first constraint remains in place, and the extraction path now prefers the live `voyagerJobsDashJobCards` resource response before falling back to DOM row snapshots. The remaining gap is live verification in the same checkout as the changed provider code; final acceptance still requires a QA run that clears the `40+` captured-job bar on the canonical search.
 
 ## Context and Orientation
 
