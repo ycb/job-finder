@@ -1308,7 +1308,7 @@ function readLinkedInJobsFromChrome(searchUrl, options = {}) {
     if (!shouldFetchLinkedInPage(expectedCount, pageIndex)) {
       break;
     }
-    if (pageIndex > 0 && !shouldContinueLinkedInPagination(lastPageJobCount)) {
+    if (pageIndex > 1 && !shouldContinueLinkedInPagination(lastPageJobCount)) {
       break;
     }
 
