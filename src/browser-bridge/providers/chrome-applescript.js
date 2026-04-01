@@ -9,6 +9,7 @@ import {
   writeIndeedCaptureFile
 } from "../../sources/indeed-jobs.js";
 import { sanitizeLinkedInJob } from "../../sources/linkedin-cleanup.js";
+import { extractLinkedInStructuredPageFromResponseBody } from "../../sources/linkedin-structured-payload.js";
 import { writeLinkedInCaptureFile } from "../../sources/linkedin-saved-search.js";
 import { writeRemoteOkCaptureFile } from "../../sources/remoteok-jobs.js";
 import { writeWellfoundCaptureFile } from "../../sources/wellfound-jobs.js";
@@ -1651,6 +1652,147 @@ export function isLinkedInSearchResultsUrl(url) {
   }
 }
 
+export function pickLinkedInJobCardsResourceUrl(resourceNames = [], startOffset = 0) {
+  const expectedStart = Math.max(0, Number(startOffset) || 0);
+  const normalizedNames = Array.isArray(resourceNames) ? resourceNames : [];
+  const exactMatch = normalizedNames.find((name) => {
+    const value = String(name || "");
+    return (
+      /voyagerJobsDashJobCards/i.test(value) &&
+      new RegExp(`(?:\\?|&)start=${expectedStart}(?:&|$)`).test(value)
+    );
+  });
+  if (exactMatch) {
+    return exactMatch;
+  }
+  return normalizedNames.find((name) => /voyagerJobsDashJobCards/i.test(String(name || ""))) || null;
+}
+
+function buildLinkedInJobCardsDiscoveryScript() {
+  return `
+(() => {
+  const resourceNames = performance
+    .getEntriesByType("resource")
+    .map((entry) => String(entry?.name || ""))
+    .filter((name) => /voyagerJobsDashJobCards/i.test(name));
+  return JSON.stringify({
+    href: String(location.href || ""),
+    title: String(document.title || ""),
+    resourceNames: Array.from(new Set(resourceNames))
+  });
+})()
+`;
+}
+
+function buildLinkedInJobCardsFetchScript(resourceUrl) {
+  return `
+(() => {
+  const url = ${JSON.stringify(resourceUrl)};
+  const csrfFromCookie = (() => {
+    const match = document.cookie.match(/(?:^|;\\s*)JSESSIONID="?([^"]+)"?/);
+    return match ? match[1] : "";
+  })();
+  const csrfFromMeta =
+    document.querySelector('meta[name="csrf-token"]')?.getAttribute("content") || "";
+  const csrfToken = csrfFromMeta || csrfFromCookie;
+  const request = new XMLHttpRequest();
+  request.open("GET", url, false);
+  request.withCredentials = true;
+  if (csrfToken) {
+    request.setRequestHeader("csrf-token", csrfToken);
+  }
+  request.setRequestHeader("x-restli-protocol-version", "2.0.0");
+  request.send();
+  return JSON.stringify({
+    ok: request.status >= 200 && request.status < 300,
+    status: request.status,
+    url,
+    csrfTokenPresent: Boolean(csrfToken),
+    text: String(request.responseText || "")
+  });
+})()
+`;
+}
+
+function buildLinkedInRowSnapshotsFromStructuredJobs(jobs = []) {
+  return (Array.isArray(jobs) ? jobs : []).map((job) => ({
+    status: "hydrated",
+    rowId: String(job?.externalId || "").trim(),
+    externalId: String(job?.externalId || "").trim(),
+    directUrl: String(job?.url || "").trim(),
+    title: String(job?.title || "").trim(),
+    company: String(job?.company || "").trim(),
+    location: String(job?.location || "").trim(),
+    postedAt: String(job?.postedAt || "").trim(),
+    employmentType: String(job?.employmentType || "").trim(),
+    salaryText: String(job?.salaryText || "").trim(),
+    summaryText: String(job?.summary || "").trim(),
+    descriptionText: String(job?.summary || "").trim()
+  }));
+}
+
+function readLinkedInResourcePage({ pageUrl, startOffset = 0, timeoutMs = 60_000, maxAttempts = 5, attemptDelayMs = 1200 }) {
+  const discoveryScript = buildLinkedInJobCardsDiscoveryScript();
+  let lastSnapshot = null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const snapshot = JSON.parse(executeInAutomationTab(discoveryScript, timeoutMs) || "{}");
+    lastSnapshot = snapshot;
+    if (!isLinkedInSearchResultsUrl(snapshot?.href || pageUrl)) {
+      sleepSync(attemptDelayMs);
+      continue;
+    }
+    const resourceUrl = pickLinkedInJobCardsResourceUrl(snapshot?.resourceNames, startOffset);
+    if (!resourceUrl) {
+      sleepSync(attemptDelayMs);
+      continue;
+    }
+
+    const response = JSON.parse(
+      executeInAutomationTab(buildLinkedInJobCardsFetchScript(resourceUrl), timeoutMs) || "{}"
+    );
+    if (response?.ok !== true || !response?.text) {
+      sleepSync(attemptDelayMs);
+      continue;
+    }
+
+    const parsedPage = extractLinkedInStructuredPageFromResponseBody(response.text);
+    if (parsedPage.jobs.length === 0) {
+      sleepSync(attemptDelayMs);
+      continue;
+    }
+
+    return {
+      pageUrl: snapshot?.href || pageUrl,
+      expectedCount: parsedPage.paging.total,
+      rowSnapshots: buildLinkedInRowSnapshotsFromStructuredJobs(parsedPage.jobs),
+      pageRowCount: parsedPage.jobs.length,
+      stopReason: parsedPage.jobs.length < 25 ? "resource_short_page" : "resource_page",
+      sawValidPayload: true,
+      captureDiagnostics: {
+        resourceUrl,
+        resourceStart: parsedPage.paging.start,
+        resourceCount: parsedPage.paging.count,
+        resourceTotal: parsedPage.paging.total,
+        resourceMode: "voyagerJobsDashJobCards"
+      }
+    };
+  }
+
+  return {
+    pageUrl,
+    expectedCount: null,
+    rowSnapshots: [],
+    pageRowCount: 0,
+    stopReason: "resource_unavailable",
+    sawValidPayload: isLinkedInSearchResultsUrl(lastSnapshot?.href || pageUrl),
+    captureDiagnostics: {
+      resourceUrl: null,
+      resourceMode: "voyagerJobsDashJobCards"
+    }
+  };
+}
+
 function readLinkedInJobsFromChrome(searchUrl, options = {}) {
   const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 60_000;
   const settleMs = Number(options.settleMs) > 0 ? Number(options.settleMs) : 2500;
@@ -1693,16 +1835,25 @@ function readLinkedInJobsFromChrome(searchUrl, options = {}) {
     sleepSync(settleMs);
     pageCountVisited += 1;
 
-    const pagePayload = harvestLinkedInPageJobs({
-      extractionScript,
-      scrollScript,
-      maxScrollSteps,
-      maxIdleScrollSteps,
-      scrollDelayMs,
+    let pagePayload = readLinkedInResourcePage({
+      pageUrl,
+      startOffset: pageIndex * 25,
+      timeoutMs,
       maxAttempts,
-      attemptDelayMs,
-      timeoutMs
+      attemptDelayMs
     });
+    if (!Array.isArray(pagePayload?.rowSnapshots) || pagePayload.rowSnapshots.length === 0) {
+      pagePayload = harvestLinkedInPageJobs({
+        extractionScript,
+        scrollScript,
+        maxScrollSteps,
+        maxIdleScrollSteps,
+        scrollDelayMs,
+        maxAttempts,
+        attemptDelayMs,
+        timeoutMs
+      });
+    }
 
     if (pagePayload?.sawValidPayload === true) {
       sawValidPayload = true;
@@ -1752,7 +1903,7 @@ function readLinkedInJobsFromChrome(searchUrl, options = {}) {
       expectedCount,
       rowSnapshots: collectedSnapshots,
       pageCountVisited,
-      stopReason: stopReason || "completed_pagination"
+      stopReason: stopReason || "completed_resource_pagination"
     });
   }
 
