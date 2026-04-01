@@ -317,7 +317,7 @@ test("listLatestSourceRunDeltas prefers a live row over a later cache replay for
   }
 });
 
-test("buildSourceRunSemanticMetrics counts reject-bucket jobs as filtered even without hardFiltered flag", () => {
+test("buildSourceRunSemanticMetrics does not count reject-bucket jobs as filtered without hardFiltered", () => {
   const normalizedJobs = [
     { id: "job-1", normalizedHash: "hash-1" },
     { id: "job-2", normalizedHash: "hash-2" },
@@ -336,12 +336,12 @@ test("buildSourceRunSemanticMetrics counts reject-bucket jobs as filtered even w
   });
 
   assert.equal(metrics.rawFoundCount, 3);
-  assert.equal(metrics.hardFilteredCount, 1);
+  assert.equal(metrics.hardFilteredCount, 0);
   assert.equal(metrics.duplicateCollapsedCount, 0);
-  assert.equal(metrics.importedKeptCount, 2);
+  assert.equal(metrics.importedKeptCount, 3);
 });
 
-test("buildSourceRunSemanticMetrics counts duplicate hashes only after non-reject rows survive filtering", () => {
+test("buildSourceRunSemanticMetrics treats reject-bucket rows as imported unless hardFiltered or duplicated", () => {
   const normalizedJobs = [
     { id: "job-1", normalizedHash: "shared-hash" },
     { id: "job-2", normalizedHash: "shared-hash" },
@@ -360,8 +360,8 @@ test("buildSourceRunSemanticMetrics counts duplicate hashes only after non-rejec
   });
 
   assert.equal(metrics.rawFoundCount, 3);
-  assert.equal(metrics.hardFilteredCount, 1);
-  assert.equal(metrics.duplicateCollapsedCount, 0);
+  assert.equal(metrics.hardFilteredCount, 0);
+  assert.equal(metrics.duplicateCollapsedCount, 1);
   assert.equal(metrics.importedKeptCount, 2);
 });
 
