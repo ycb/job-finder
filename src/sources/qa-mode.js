@@ -16,6 +16,7 @@ export function applySourceQaOverrides(options = {}, env = process.env) {
     ...options,
     refreshProfile: "probe",
     forceRefresh: true,
-    allowQuarantined: false
+    allowQuarantined: false,
+    bypassRefreshGuards: true
   };
 }

@@ -31,7 +31,8 @@ test("source QA mode enables live-first overrides", () => {
       refreshProfile: "probe",
       forceRefresh: true,
       allowQuarantined: false,
-      cacheTtlHours: 12
+      cacheTtlHours: 12,
+      bypassRefreshGuards: true
     }
   );
 });

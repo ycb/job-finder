@@ -4,7 +4,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { writeSourceCapturePayload } from "../src/sources/cache-policy.js";
+import {
+  getSourceRefreshDecision,
+  writeSourceCapturePayload
+} from "../src/sources/cache-policy.js";
 import { recordRefreshEvent } from "../src/sources/refresh-state.js";
 import {
   buildSourceRefreshMeta,
@@ -275,6 +278,45 @@ test("buildSourceRefreshMeta preserves live status for the current run capture",
     assert.equal(meta.servedFrom, "live");
     assert.equal(meta.statusLabel, "ready_live");
     assert.equal(meta.statusReason, "fetched_during_sync");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("getSourceRefreshDecision bypasses cooldown and cache in source QA mode", () => {
+  const { tempDir, capturePath, statePath } = createTempPaths();
+  const source = {
+    id: "linkedin-live-capture",
+    name: "LinkedIn",
+    type: "linkedin_capture_file",
+    searchUrl: "https://www.linkedin.com/jobs/search/?keywords=product%20manager",
+    capturePath,
+    cacheTtlHours: 12
+  };
+
+  try {
+    writeSourceCapturePayload(source, [{ title: "PM" }], {
+      capturedAt: "2026-03-30T10:00:00.000Z",
+      pageUrl: source.searchUrl
+    });
+    recordRefreshEvent({
+      statePath,
+      sourceId: source.id,
+      outcome: "challenge",
+      at: "2026-03-30T11:00:00.000Z",
+      cooldownMinutes: 180
+    });
+
+    const decision = getSourceRefreshDecision(source, {
+      statePath,
+      nowMs: Date.parse("2026-03-30T11:30:00.000Z"),
+      env: { JOB_FINDER_SOURCE_QA_MODE: "1" }
+    });
+
+    assert.equal(decision.allowLive, true);
+    assert.equal(decision.servedFrom, "live");
+    assert.equal(decision.reason, "qa_live");
+    assert.equal(decision.nextEligibleAt, null);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
