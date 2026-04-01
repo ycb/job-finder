@@ -4169,7 +4169,16 @@ export function renderDashboardPage(dashboard, options = {}) {
       }
 
       function formatBucket(bucket) {
-        return bucket ? bucket.replaceAll("_", " ") : "unscored";
+        if (bucket === "high_signal") {
+          return "Best match";
+        }
+        if (bucket === "medium_signal" || bucket === "review_later") {
+          return "Possible match";
+        }
+        if (bucket === "low_signal" || bucket === "reject") {
+          return "Low signal";
+        }
+        return "Unscored";
       }
 
       function formatValue(value, fallback) {

@@ -445,12 +445,18 @@ function formatRelativeDate(rawValue) {
 
 function formatBucket(bucket) {
   if (bucket === "high_signal") {
-    return "High signal";
+    return "Best match";
   }
   if (bucket === "medium_signal") {
-    return "Medium signal";
+    return "Possible match";
   }
   if (bucket === "low_signal") {
+    return "Low signal";
+  }
+  if (bucket === "review_later") {
+    return "Possible match";
+  }
+  if (bucket === "reject") {
     return "Low signal";
   }
   return "Unscored";
