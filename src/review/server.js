@@ -2168,15 +2168,18 @@ function buildDashboardData(limit = 200) {
         hasCountValue(foundCount) && hasCountValue(importedCount)
           ? buildSourceImportVerification(foundCount, importedCount)
           : null;
-      const manualRefreshesToday = countSourceEventsForUtcDay(
-        refreshState,
-        source.id,
-        nowIso,
-        { mode: "manual" }
-      );
-      const manualRemaining = Math.max(0, MANUAL_REFRESH_DAILY_CAP - manualRefreshesToday);
-      const manualCapNextEligibleAt =
-        manualRemaining <= 0 ? nextUtcDayStartIso(nowMs) : null;
+      const qaModeEnabled = isSourceQaModeEnabled();
+      const manualRefreshesToday = qaModeEnabled
+        ? 0
+        : countSourceEventsForUtcDay(refreshState, source.id, nowIso, { mode: "manual" });
+      const manualRemaining = qaModeEnabled
+        ? MANUAL_REFRESH_DAILY_CAP
+        : Math.max(0, MANUAL_REFRESH_DAILY_CAP - manualRefreshesToday);
+      const manualCapNextEligibleAt = qaModeEnabled
+        ? null
+        : manualRemaining <= 0
+          ? nextUtcDayStartIso(nowMs)
+          : null;
       const manualPolicyNextEligibleAt =
         typeof displayRefreshMeta.nextEligibleAt === "string" && displayRefreshMeta.nextEligibleAt.trim()
           ? displayRefreshMeta.nextEligibleAt
@@ -2188,7 +2191,7 @@ function buildDashboardData(limit = 200) {
           : manualPolicyNextEligibleAt
             ? String(displayRefreshMeta.statusReason || "min_interval")
             : null;
-      const manualAllowed = source.enabled === true && !manualNextEligibleAt;
+      const manualAllowed = source.enabled === true && (qaModeEnabled || !manualNextEligibleAt);
       const noveltyDiagnostics = sourceNoveltyBySourceId[source.id] || null;
 
       return {
@@ -7904,13 +7907,11 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
 
           const nowIso = new Date().toISOString();
           const refreshState = readRefreshState();
-          const manualRefreshesToday = countSourceEventsForUtcDay(
-            refreshState,
-            sourceId,
-            nowIso,
-            { mode: "manual" }
-          );
-          if (manualRefreshesToday >= MANUAL_REFRESH_DAILY_CAP) {
+          const qaModeEnabled = isSourceQaModeEnabled();
+          const manualRefreshesToday = qaModeEnabled
+            ? 0
+            : countSourceEventsForUtcDay(refreshState, sourceId, nowIso, { mode: "manual" });
+          if (!qaModeEnabled && manualRefreshesToday >= MANUAL_REFRESH_DAILY_CAP) {
             response.writeHead(429, { "Content-Type": "application/json; charset=utf-8" });
             response.end(
               JSON.stringify({
@@ -7926,7 +7927,8 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
             profile: normalizeRefreshProfile(
               applySourceQaOverrides({ refreshProfile: "safe" }).refreshProfile || "safe"
             ),
-            forceRefresh: applySourceQaOverrides({}).forceRefresh === true
+            forceRefresh: applySourceQaOverrides({}).forceRefresh === true,
+            bypassRefreshGuards: applySourceQaOverrides({}).bypassRefreshGuards === true
           });
           if (!decision.allowLive) {
             response.writeHead(409, { "Content-Type": "application/json; charset=utf-8" });

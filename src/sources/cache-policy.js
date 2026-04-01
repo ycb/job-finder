@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { getRefreshPolicyForSource, isLiveRefreshAllowed } from "./refresh-policy.js";
+import { isSourceQaModeEnabled } from "./qa-mode.js";
 import {
   countSourceEventsForUtcDay,
   readRefreshState,
@@ -306,6 +307,8 @@ export function getSourceRefreshDecision(source, options = {}) {
   const nowMs = Number.isFinite(options.nowMs) ? options.nowMs : Date.now();
   const nowIso = new Date(nowMs).toISOString();
   const forceRefresh = options.forceRefresh === true;
+  const bypassRefreshGuards =
+    options.bypassRefreshGuards === true || isSourceQaModeEnabled(options.env || process.env);
   const profile = normalizeRefreshProfile(
     options.profile || process.env.JOB_FINDER_REFRESH_PROFILE || "safe"
   );
@@ -332,6 +335,22 @@ export function getSourceRefreshDecision(source, options = {}) {
     lastLiveAt: sourceState.lastLiveAt,
     liveEventsTodayCount
   });
+
+  if (bypassRefreshGuards) {
+    return {
+      profile,
+      policy,
+      cacheSummary,
+      cacheFresh,
+      sourceState,
+      liveEventsTodayCount,
+      servedFrom: "live",
+      allowLive: true,
+      cached: false,
+      reason: "qa_live",
+      nextEligibleAt: null
+    };
+  }
 
   if (!forceRefresh && cacheFresh) {
     return {
