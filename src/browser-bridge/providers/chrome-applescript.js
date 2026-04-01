@@ -1652,7 +1652,7 @@ export function isLinkedInSearchResultsUrl(url) {
 }
 
 function readLinkedInJobsFromChrome(searchUrl, options = {}) {
-  const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 30_000;
+  const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 60_000;
   const settleMs = Number(options.settleMs) > 0 ? Number(options.settleMs) : 2500;
   const maxAttempts = Number(options.maxAttempts) > 0 ? Number(options.maxAttempts) : 5;
   const attemptDelayMs =
@@ -3826,7 +3826,7 @@ export function captureLinkedInSourceWithChromeAppleScript(
         ? Number(source.timeoutMs)
         : Number(options.timeoutMs) > 0
           ? Number(options.timeoutMs)
-          : 30_000,
+          : 60_000,
     maxPages: Number(source.maxPages) > 0 ? Number(source.maxPages) : options.maxPages,
     maxScrollSteps:
       Number(source.maxScrollSteps) > 0
