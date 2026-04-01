@@ -218,6 +218,11 @@ As of 2026-03-06.
 - Use explicit positive-success copy in auth modals: `Success! <Source> is now enabled.` instead of vague readiness text.
 - Orientation guidance should use a true toast pattern: fixed top-right, animated entrance from the right, non-blocking with explicit CTA + dismiss.
 - For row-level status diagnostics, use on-demand toasts instead of persistent inline sub-status blocks/popovers so the primary status cell stays scannable.
+
+## Crash Recovery and Dirty Worktrees
+
+- After a crash during multi-lane work, do not assume newly dirty files are foreign edits. First reconcile the dirty paths against recent subagent notifications and the active controller plan.
+- If the changed files match active subagent/controller scope, continue with review and verification instead of halting on a false "unexpected changes" branch.
 - For onboarding orientation toasts, use standard shadcn toast primitives (`Toaster` + `ToastAction`) and avoid one-off custom toast containers/styles.
 - Surface only actionable status issues to users (currently auth-required). Route formatter/schema drift diagnostics to internal alerts instead of user-facing row details.
 - For search composer UX, support two states explicitly: pre-search (expanded controls) and post-search (collapsed orientation bar + chips for advanced constraints). Keep `Run search` scoped to the full composer, not nested inside one sub-module.
@@ -369,6 +374,7 @@ As of 2026-03-06.
 - Source-row refresh metadata must come from the current capture attempt, not a post-sync cache-policy recomputation. If sync recomputes refresh state after a fresh capture, it can relabel the current live run as `cache_fresh` and destroy trust in the run table.
 - For source regressions, compare the generated URL against a direct live capture of the manual-equivalent broad query before changing extraction code. If the broad URL captures a healthy page and the configured URL does not, the regression is query-state overconstraint, not extractor incapacity.
 - Do not force every structured criterion into a source-native URL just because the product model has the field. If a source's native URL semantics are lossy or brittle, keep only the high-signal constraints in the URL and move the rest to honest post-capture evaluation.
+- If a source's current live search is materially controlled by native params that are already visible in the manual URL (`radius`, `days`, `refine_by_salary`, etc.), do not strip them out of the generated URL. That is not “cleaner”; it is a regression against manual parity and can collapse a healthy search into a near-empty one.
 
 ## Source Regression Baseline Discipline
 
@@ -388,3 +394,5 @@ As of 2026-03-06.
 
 - Do not mix source-run accounting with refresh-state status in stakeholder surfaces. If counts come from latest/cumulative run deltas, displayed servedFrom/status must prefer the latest run row unless there was a later failed attempt.
 - For source-run reporting, do not let a later `cache_fresh` replay of the same `captured_at` outrank the live row that actually produced the capture. Latest-run truth and cumulative totals both need a trust ordering, not just `recorded_at DESC`.
+- If the primary `Run search` action fails auth preflight or any other gate before a new batch is created, the UI must not leave the previous source table looking like the attempted run succeeded. A toast alone is insufficient; the dashboard needs an explicit failed-attempt state or refreshed run metadata.
+- For LinkedIn capture, never trust `detailDescription` unless the detail job id is present and matches the card job id. Missing detail ids are not a weak signal; they are an invalid provenance signal and can leak stale description text into unrelated jobs.

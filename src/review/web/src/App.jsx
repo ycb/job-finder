@@ -1553,6 +1553,7 @@ export default function App() {
       setJobsWidgetTitleFilter("");
       setJobsSalaryRangeFilter(null);
     } catch (error) {
+      await loadDashboard({ quiet: true });
       const authSources = Array.isArray(error?.payload?.authSources) ? error.payload.authSources : [];
       const authSourceLabels = authSources
         .map((source) => {

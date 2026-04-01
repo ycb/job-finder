@@ -8,6 +8,7 @@ import { writeSourceCapturePayload } from "../src/sources/cache-policy.js";
 import { recordRefreshEvent } from "../src/sources/refresh-state.js";
 import {
   buildSourceRefreshMeta,
+  recordBlockedAuthPreflightAttempt,
   resolveDashboardSourceRefreshMeta
 } from "../src/review/server.js";
 
@@ -187,6 +188,51 @@ test("buildSourceRefreshMeta reports a later transient error over an older succe
     assert.equal(meta.lastAttemptedAt, "2026-03-20T21:49:58.598Z");
     assert.equal(meta.lastAttemptOutcome, "transient_error");
     assert.equal(meta.lastAttemptError, "Cloudflare: additional verification needed");
+    assert.equal(meta.statusLabel, "attempt_failed");
+    assert.equal(meta.statusReason, "attempt_failed");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("recordBlockedAuthPreflightAttempt persists auth-check failures into refresh state", () => {
+  const { tempDir, capturePath, statePath } = createTempPaths();
+  const source = {
+    id: "zip-ai-pm",
+    name: "ZipRecruiter",
+    type: "ziprecruiter_search",
+    searchUrl: "https://www.ziprecruiter.com/jobs-search?search=product+manager",
+    capturePath,
+    cacheTtlHours: 12
+  };
+
+  try {
+    recordBlockedAuthPreflightAttempt(
+      source,
+      {
+        status: "fail",
+        reasonCode: "auth_check_failed",
+        userMessage: "Auth check failed. Open source site, sign in, then retry.",
+        technicalDetails: {
+          error: "Chrome AppleScript timed out after 15000ms"
+        }
+      },
+      {
+        statePath,
+        runMode: "manual",
+        at: "2026-03-31T20:00:00.000Z"
+      }
+    );
+
+    const meta = buildSourceRefreshMeta(source, {
+      refreshProfile: "probe",
+      refreshStatePath: statePath,
+      nowMs: Date.parse("2026-03-31T20:00:10.000Z")
+    });
+
+    assert.equal(meta.lastAttemptOutcome, "transient_error");
+    assert.equal(meta.lastAttemptError, "Chrome AppleScript timed out after 15000ms");
+    assert.equal(meta.lastAttemptedAt, "2026-03-31T20:00:00.000Z");
     assert.equal(meta.statusLabel, "attempt_failed");
     assert.equal(meta.statusReason, "attempt_failed");
   } finally {

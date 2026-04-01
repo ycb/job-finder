@@ -1652,6 +1652,42 @@ async function runSourceAuthProbe(source, options = {}) {
   return mapAuthProbeToCheckResult(source, probeResult);
 }
 
+export function recordBlockedAuthPreflightAttempt(source, result, options = {}) {
+  if (!source?.id || !result || String(result.status || "").trim().toLowerCase() === "pass") {
+    return null;
+  }
+
+  const technicalError =
+    typeof result?.technicalDetails?.error === "string" && result.technicalDetails.error.trim()
+      ? result.technicalDetails.error.trim()
+      : typeof result?.userMessage === "string" && result.userMessage.trim()
+        ? result.userMessage.trim()
+        : typeof result?.reasonCode === "string" && result.reasonCode.trim()
+          ? result.reasonCode.trim()
+          : null;
+  const reasonCode = String(result?.reasonCode || "").trim().toLowerCase();
+  const outcome =
+    reasonCode === "auth_challenge"
+      ? "challenge"
+      : classifyRefreshErrorOutcome(technicalError || reasonCode || "auth_check_failed");
+
+  recordRefreshEvent({
+    statePath: options.statePath,
+    sourceId: source.id,
+    outcome,
+    mode: options.runMode === "manual" ? "manual" : "scheduled",
+    at: options.at || new Date().toISOString(),
+    cooldownMinutes:
+      outcome === "challenge" ? Number(options.cooldownMinutes || 0) : 0,
+    error: technicalError
+  });
+
+  return {
+    outcome,
+    error: technicalError
+  };
+}
+
 async function runAuthPreflightForEnabledSources(options = {}) {
   const enabledAuthSources = loadSources().sources.filter(
     (source) => source.enabled && isSourceAuthRequired(source.type)
@@ -1674,6 +1710,7 @@ async function runAuthPreflightForEnabledSources(options = {}) {
 
     updateOnboardingSourceCheck(source.id, result);
     if (result.status !== "pass") {
+      recordBlockedAuthPreflightAttempt(source, result, options);
       blockedSources.push({
         sourceId: source.id,
         sourceName: source.name,
@@ -2071,22 +2108,23 @@ function buildDashboardData(limit = 200) {
         ? normalizeCount(runTotals.foundCount)
         : null;
       const latestTrustedRunFoundCount =
-        latestRunDelta?.servedFrom === "live" && hasCountValue(latestRunDelta?.foundCount)
-          ? normalizeCount(latestRunDelta.foundCount)
+        latestRunDelta?.servedFrom === "live" && hasCountValue(latestRunDelta?.rawFoundCount)
+          ? normalizeCount(latestRunDelta.rawFoundCount)
           : null;
       const latestTrustedRunFilteredCount =
-        latestRunDelta?.servedFrom === "live" && hasCountValue(latestRunDelta?.filteredCount)
-          ? normalizeCount(latestRunDelta.filteredCount)
+        latestRunDelta?.servedFrom === "live" &&
+        hasCountValue(latestRunDelta?.hardFilteredCount)
+          ? normalizeCount(latestRunDelta.hardFilteredCount)
           : null;
       const latestTrustedRunDedupedCount =
         latestRunDelta?.servedFrom === "live" &&
-        hasCountValue(latestRunDelta?.dedupedCount)
-          ? normalizeCount(latestRunDelta.dedupedCount)
+        hasCountValue(latestRunDelta?.duplicateCollapsedCount)
+          ? normalizeCount(latestRunDelta.duplicateCollapsedCount)
           : null;
       const latestTrustedRunImportedCount =
         latestRunDelta?.servedFrom === "live" &&
-        hasCountValue(latestRunDelta?.importedCount)
-          ? normalizeCount(latestRunDelta.importedCount)
+        hasCountValue(latestRunDelta?.importedKeptCount)
+          ? normalizeCount(latestRunDelta.importedKeptCount)
           : null;
       const captureStatus = isFileBackedCapture ? capture.status : "ready";
       const capturedAt = pickLatestTimestamp(

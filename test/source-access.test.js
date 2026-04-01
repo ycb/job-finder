@@ -38,10 +38,11 @@ test("checkEnvironmentReadiness reports baseline checks", () => {
   assert.ok(checks.some((check) => check.id === "chrome-apple-events"));
 });
 
-test("isSourceAuthRequired keeps Ashby in no-auth group", () => {
+test("isSourceAuthRequired keeps Ashby and ZipRecruiter in no-auth group", () => {
   assert.equal(isSourceAuthRequired("ashby_search"), false);
   assert.equal(isSourceAuthRequired("linkedin_capture_file"), true);
   assert.equal(isSourceAuthRequired("yc_jobs"), true);
+  assert.equal(isSourceAuthRequired("ziprecruiter_search"), false);
   assert.equal(isSourceAuthRequired("levelsfyi_search"), false);
 });
 

@@ -410,6 +410,20 @@ test("presentSearchStatus only exposes actionable auth-required details", () => 
   assert.equal(authRequiredStatus.tone, "warn");
   assert.equal(authRequiredStatus.statusDetail, "Sign in to this source to continue.");
 
+  const authRequiredFailedStatus = presentSearchStatus({
+    enabled: true,
+    authRequired: true,
+    readiness: { key: "not_authorized" },
+    captureStatus: "ready",
+    lastAttemptedAt: "2026-03-31T20:00:00.000Z",
+    lastAttemptOutcome: "transient_error",
+    lastAttemptError: "Chrome AppleScript timed out after 15000ms",
+  });
+  assert.match(
+    authRequiredFailedStatus.statusDetail,
+    /^Sign in to this source to continue\. · Last attempt failed · Chrome AppleScript timed out after 15000ms · /
+  );
+
   const nonActionableStatus = presentSearchStatus({
     enabled: true,
     authRequired: false,

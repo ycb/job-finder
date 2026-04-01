@@ -66,6 +66,7 @@ test("buildSearchUrlForSourceType formats ZipRecruiter criteria", () => {
       title: "principal product manager",
       keywords: "b2b saas fintech payments",
       location: "San Francisco",
+      distanceMiles: 25,
       minSalary: 200000,
       datePosted: "1w",
     },
@@ -83,23 +84,23 @@ test("buildSearchUrlForSourceType formats ZipRecruiter criteria", () => {
     "principal product manager b2b saas fintech payments"
   );
   assert.equal(parsed.searchParams.get("location"), "San Francisco, CA");
-  assert.equal(parsed.searchParams.get("radius"), null);
-  assert.equal(parsed.searchParams.get("refine_by_salary"), null);
-  assert.equal(parsed.searchParams.get("days"), null);
-  assert.equal(parsed.searchParams.get("refine_by_experience_level"), null);
-  assert.equal(parsed.searchParams.get("refine_by_employment"), null);
+  assert.equal(parsed.searchParams.get("radius"), "25");
+  assert.equal(parsed.searchParams.get("refine_by_salary"), "200000");
+  assert.equal(parsed.searchParams.get("days"), "7");
+  assert.equal(parsed.searchParams.get("refine_by_experience_level"), "mid,senior");
+  assert.equal(parsed.searchParams.get("refine_by_employment"), "employment_type:all");
   assert.equal(parsed.searchParams.get("page"), "1");
   assert.equal(parsed.searchParams.get("lk"), null);
   assert.deepEqual(result.unsupported, []);
   assert.deepEqual(result.criteriaAccountability.appliedInUrl.sort(), [
+    "datePosted",
+    "distanceMiles",
     "keywords",
     "location",
+    "minSalary",
     "title"
   ]);
-  assert.deepEqual(result.criteriaAccountability.appliedPostCapture.sort(), [
-    "datePosted",
-    "minSalary"
-  ]);
+  assert.deepEqual(result.criteriaAccountability.appliedPostCapture, []);
 });
 
 test("buildSearchUrlForSourceType preserves richer LinkedIn location when criteria only specifies city", () => {

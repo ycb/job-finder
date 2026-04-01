@@ -138,6 +138,8 @@ test("sanitizeLinkedInJob prefers detail-first descriptions when present", () =>
       "Principal Product Manager · Replicant · United States (Remote) · Posted on March 18, 2026, 8:24 AM · $130,602.50 - $219,500.00",
     detailDescription:
       "About the job Replicant is hiring a Principal Product Manager to lead conversational AI platform strategy. You will own roadmap prioritization, partner with engineering, and define product bets for enterprise customers.",
+    detailExternalId: "4388130875",
+    externalId: "4388130875",
     url: "https://www.linkedin.com/jobs/view/4388130875/"
   });
 
@@ -145,6 +147,23 @@ test("sanitizeLinkedInJob prefers detail-first descriptions when present", () =>
     sanitized.description,
     "About the job Replicant is hiring a Principal Product Manager to lead conversational AI platform strategy. You will own roadmap prioritization, partner with engineering, and define product bets for enterprise customers."
   );
+});
+
+test("sanitizeLinkedInJob ignores detail descriptions without a matching detail id", () => {
+  const sanitized = sanitizeLinkedInJob({
+    sourceId: "linkedin-live-capture",
+    source: "linkedin_capture_file",
+    title: "Product Manager",
+    company: "Peregrine",
+    location: "San Francisco, CA",
+    description: "Product Manager · Peregrine · San Francisco, CA",
+    detailDescription:
+      "About the job Meta Product Managers work with cross-functional teams of engineers, designers, data scientists and researchers to build products.",
+    externalId: "111111111",
+    url: "https://www.linkedin.com/jobs/view/111111111/"
+  });
+
+  assert.equal(sanitized.description, "Product Manager · Peregrine · San Francisco, CA");
 });
 
 test("sanitizeLinkedInJob drops mismatched LinkedIn detail descriptions", () => {
@@ -228,6 +247,8 @@ test("collectLinkedInCaptureFile repairs polluted persisted LinkedIn rows on rea
             location: "United States (Remote)",
             description:
               "Principal Product Manager · Replicant · United States (Remote) · Posted on March 18, 2026, 8:24 AM · $130,602.50 - $219,500.00",
+            detailDescription:
+              "About the job Meta Product Managers work with cross-functional teams of engineers, designers, data scientists and researchers to build products.",
             url: "https://www.linkedin.com/jobs/view/4388130875/?trackingId=abc123",
             externalId: ""
           }
@@ -242,6 +263,10 @@ test("collectLinkedInCaptureFile repairs polluted persisted LinkedIn rows on rea
   const jobs = collectLinkedInCaptureFile(source);
   assert.equal(jobs[0].title, "Principal Product Manager");
   assert.equal(jobs[0].company, "Replicant");
+  assert.equal(
+    jobs[0].description,
+    "Principal Product Manager · Replicant · United States (Remote) · $130,602.50 - $219,500.00"
+  );
   assert.equal(jobs[0].url, "https://www.linkedin.com/jobs/view/4388130875/");
   assert.equal(jobs[0].externalId, "4388130875");
 });

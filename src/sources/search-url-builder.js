@@ -884,30 +884,60 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
     }
 
     if (criteria.distanceMiles) {
-      criteriaAccountability.markAppliedPostCapture("distanceMiles");
+      nextParams.set("radius", String(criteria.distanceMiles));
+      criteriaAccountability.markAppliedInUrl("distanceMiles");
     } else {
-      nextParams.delete("radius");
+      const existingRadius = normalizePositiveInt(parsed.searchParams.get("radius"));
+      if (existingRadius) {
+        nextParams.set("radius", String(existingRadius));
+      }
     }
 
     if (criteria.datePosted) {
-      criteriaAccountability.markAppliedPostCapture("datePosted");
+      if (criteria.datePosted === "any") {
+        criteriaAccountability.markAppliedInUrl("datePosted");
+      } else {
+        const days = DATE_POSTED_TO_DAYS.get(criteria.datePosted);
+        if (days) {
+          nextParams.set("days", String(days));
+          criteriaAccountability.markAppliedInUrl("datePosted");
+        } else {
+          criteriaAccountability.markUnsupported("datePosted");
+        }
+      }
+    } else {
+      const existingDays = normalizePositiveInt(parsed.searchParams.get("days"));
+      if (existingDays) {
+        nextParams.set("days", String(existingDays));
+      }
     }
-    nextParams.delete("days");
 
     if (criteria.minSalary) {
-      criteriaAccountability.markAppliedPostCapture("minSalary");
+      nextParams.set("refine_by_salary", String(criteria.minSalary));
+      criteriaAccountability.markAppliedInUrl("minSalary");
     } else {
-      nextParams.delete("refine_by_salary");
+      const existingSalary = normalizePositiveInt(parsed.searchParams.get("refine_by_salary"));
+      if (existingSalary) {
+        nextParams.set("refine_by_salary", String(existingSalary));
+      }
     }
 
     if (criteria.experienceLevel) {
       criteriaAccountability.markAppliedPostCapture("experienceLevel");
     } else {
-      nextParams.delete("refine_by_experience_level");
+      const existingExperienceLevel = normalizeText(
+        parsed.searchParams.get("refine_by_experience_level")
+      );
+      if (existingExperienceLevel) {
+        nextParams.set("refine_by_experience_level", existingExperienceLevel);
+      }
     }
 
     for (const passthroughKey of ["refine_by_employment", "refine_by_apply_type"]) {
-      nextParams.delete(passthroughKey);
+      const existingValue = normalizeText(parsed.searchParams.get(passthroughKey));
+      if (existingValue) {
+        nextParams.set(passthroughKey, existingValue);
+      }
     }
 
     nextParams.set("page", "1");
