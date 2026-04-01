@@ -15,7 +15,6 @@ export function isSourceAuthRequired(sourceType) {
     sourceType === "yc_jobs" ||
     sourceType === "wellfound_search" ||
     sourceType === "indeed_search" ||
-    sourceType === "ziprecruiter_search" ||
     sourceType === "remoteok_search"
   );
 }

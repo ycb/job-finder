@@ -32,6 +32,9 @@ test("loadSourceContracts parses configured contracts", () => {
   assert.ok(zip.searchParameterShape.supported.includes("includeTerms"));
   assert.ok(zip.searchParameterShape.supported.includes("keywordMode"));
   assert.ok(zip.searchParameterShape.supported.includes("excludeTerms"));
+  assert.ok(zip.searchParameterShape.supported.includes("distanceMiles"));
+  assert.ok(zip.searchParameterShape.supported.includes("datePosted"));
+  assert.ok(zip.searchParameterShape.supported.includes("minSalary"));
   const yc = loaded.byType.get("yc_jobs");
   assert.ok(yc.searchParameterShape.unsupported.includes("hardIncludeTerms"));
   assert.ok(yc.searchParameterShape.unsupported.includes("keywordMode"));

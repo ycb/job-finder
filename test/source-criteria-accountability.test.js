@@ -136,16 +136,21 @@ test("ziprecruiter criteria accountability marks hard include terms as applied i
     title: "Product manager",
     hardIncludeTerms: ["ai"],
     location: "San Francisco, CA",
+    distanceMiles: 25,
     datePosted: "3d",
     minSalary: 200000,
   });
 
-  assert.equal(result.url.includes("days=3"), false);
-  assert.equal(result.url.includes("refine_by_salary=200000"), false);
+  assert.equal(result.url.includes("days=3"), true);
+  assert.equal(result.url.includes("radius=25"), true);
+  assert.equal(result.url.includes("refine_by_salary=200000"), true);
   assert.equal(result.criteriaAccountability.appliedInUrl.includes("hardIncludeTerms"), true);
   assert.equal(result.criteriaAccountability.unsupported.includes("hardIncludeTerms"), false);
-  assert.equal(result.criteriaAccountability.appliedPostCapture.includes("datePosted"), true);
-  assert.equal(result.criteriaAccountability.appliedPostCapture.includes("minSalary"), true);
+  assert.equal(result.criteriaAccountability.appliedInUrl.includes("datePosted"), true);
+  assert.equal(result.criteriaAccountability.appliedInUrl.includes("distanceMiles"), true);
+  assert.equal(result.criteriaAccountability.appliedInUrl.includes("minSalary"), true);
+  assert.equal(result.criteriaAccountability.appliedPostCapture.includes("datePosted"), false);
+  assert.equal(result.criteriaAccountability.appliedPostCapture.includes("minSalary"), false);
 });
 
 test("indeed criteria accountability marks hard include terms as applied in URL", () => {

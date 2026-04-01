@@ -104,15 +104,13 @@ export function authProbeLooksUnauthorizedForSource(sourceType, payload) {
   const pathname = String(payload.pathname || "").toLowerCase();
   const source = String(sourceType || "").toLowerCase();
 
-  let hostPattern = /(linkedin|workatastartup|indeed|ziprecruiter|wellfound|remoteok)\./;
+  let hostPattern = /(linkedin|workatastartup|indeed|wellfound|remoteok)\./;
   if (source === "linkedin_capture_file") {
     hostPattern = /linkedin\./;
   } else if (source === "yc_jobs") {
     hostPattern = /workatastartup\./;
   } else if (source === "indeed_search") {
     hostPattern = /indeed\./;
-  } else if (source === "ziprecruiter_search") {
-    hostPattern = /ziprecruiter\./;
   } else if (source === "wellfound_search") {
     hostPattern = /wellfound\./;
   } else if (source === "remoteok_search") {

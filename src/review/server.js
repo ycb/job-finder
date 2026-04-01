@@ -1652,6 +1652,42 @@ async function runSourceAuthProbe(source, options = {}) {
   return mapAuthProbeToCheckResult(source, probeResult);
 }
 
+export function recordBlockedAuthPreflightAttempt(source, result, options = {}) {
+  if (!source?.id || !result || String(result.status || "").trim().toLowerCase() === "pass") {
+    return null;
+  }
+
+  const technicalError =
+    typeof result?.technicalDetails?.error === "string" && result.technicalDetails.error.trim()
+      ? result.technicalDetails.error.trim()
+      : typeof result?.userMessage === "string" && result.userMessage.trim()
+        ? result.userMessage.trim()
+        : typeof result?.reasonCode === "string" && result.reasonCode.trim()
+          ? result.reasonCode.trim()
+          : null;
+  const reasonCode = String(result?.reasonCode || "").trim().toLowerCase();
+  const outcome =
+    reasonCode === "auth_challenge"
+      ? "challenge"
+      : classifyRefreshErrorOutcome(technicalError || reasonCode || "auth_check_failed");
+
+  recordRefreshEvent({
+    statePath: options.statePath,
+    sourceId: source.id,
+    outcome,
+    mode: options.runMode === "manual" ? "manual" : "scheduled",
+    at: options.at || new Date().toISOString(),
+    cooldownMinutes:
+      outcome === "challenge" ? Number(options.cooldownMinutes || 0) : 0,
+    error: technicalError
+  });
+
+  return {
+    outcome,
+    error: technicalError
+  };
+}
+
 async function runAuthPreflightForEnabledSources(options = {}) {
   const enabledAuthSources = loadSources().sources.filter(
     (source) => source.enabled && isSourceAuthRequired(source.type)
@@ -1674,6 +1710,7 @@ async function runAuthPreflightForEnabledSources(options = {}) {
 
     updateOnboardingSourceCheck(source.id, result);
     if (result.status !== "pass") {
+      recordBlockedAuthPreflightAttempt(source, result, options);
       blockedSources.push({
         sourceId: source.id,
         sourceName: source.name,
@@ -2071,22 +2108,23 @@ function buildDashboardData(limit = 200) {
         ? normalizeCount(runTotals.foundCount)
         : null;
       const latestTrustedRunFoundCount =
-        latestRunDelta?.servedFrom === "live" && hasCountValue(latestRunDelta?.foundCount)
-          ? normalizeCount(latestRunDelta.foundCount)
+        latestRunDelta?.servedFrom === "live" && hasCountValue(latestRunDelta?.rawFoundCount)
+          ? normalizeCount(latestRunDelta.rawFoundCount)
           : null;
       const latestTrustedRunFilteredCount =
-        latestRunDelta?.servedFrom === "live" && hasCountValue(latestRunDelta?.filteredCount)
-          ? normalizeCount(latestRunDelta.filteredCount)
+        latestRunDelta?.servedFrom === "live" &&
+        hasCountValue(latestRunDelta?.hardFilteredCount)
+          ? normalizeCount(latestRunDelta.hardFilteredCount)
           : null;
       const latestTrustedRunDedupedCount =
         latestRunDelta?.servedFrom === "live" &&
-        hasCountValue(latestRunDelta?.dedupedCount)
-          ? normalizeCount(latestRunDelta.dedupedCount)
+        hasCountValue(latestRunDelta?.duplicateCollapsedCount)
+          ? normalizeCount(latestRunDelta.duplicateCollapsedCount)
           : null;
       const latestTrustedRunImportedCount =
         latestRunDelta?.servedFrom === "live" &&
-        hasCountValue(latestRunDelta?.importedCount)
-          ? normalizeCount(latestRunDelta.importedCount)
+        hasCountValue(latestRunDelta?.importedKeptCount)
+          ? normalizeCount(latestRunDelta.importedKeptCount)
           : null;
       const captureStatus = isFileBackedCapture ? capture.status : "ready";
       const capturedAt = pickLatestTimestamp(
@@ -3290,15 +3328,16 @@ export function renderDashboardPage(dashboard, options = {}) {
         flex: 0 0 auto;
       }
 
-      .onboarding-overflow-toggle {
+      .onboarding-overflow-menu summary {
+        list-style: none;
         cursor: pointer;
-        border: 1px solid var(--line);
+        border: 0;
         border-radius: 8px;
         width: 24px;
         height: 24px;
         padding: 0;
         color: var(--muted);
-        background: #fffdf9;
+        background: transparent;
         font-size: 16px;
         font-weight: 700;
         line-height: 1;
@@ -3308,7 +3347,11 @@ export function renderDashboardPage(dashboard, options = {}) {
         justify-content: center;
       }
 
-      .onboarding-overflow-toggle:hover {
+      .onboarding-overflow-menu summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .onboarding-overflow-menu summary:hover {
         background: rgba(27, 58, 51, 0.08);
       }
 
@@ -4677,20 +4720,6 @@ export function renderDashboardPage(dashboard, options = {}) {
         };
       }
 
-      function displaySourceLabel(source, fallbackKind = "unknown") {
-        const fallbackLabel = sourceKindLabel(fallbackKind);
-        const rawLabel = typeof source?.name === "string" ? source.name : "";
-        const firstLineLabel = rawLabel.split(/\r?\n/u, 1)[0]?.trim() || "";
-        const normalizedSourceId = String(source?.id || "").trim().toLowerCase();
-        if (!firstLineLabel) {
-          return fallbackLabel;
-        }
-        if (firstLineLabel.toLowerCase() === normalizedSourceId) {
-          return fallbackLabel;
-        }
-        return firstLineLabel;
-      }
-
       function buildSourceOverflowMenu(sourceId, disableControls, action = "disable") {
         const normalizedAction = action === "enable" ? "enable" : "disable";
         const actionLabel = normalizedAction === "enable" ? "Enable" : "Disable";
@@ -4699,15 +4728,9 @@ export function renderDashboardPage(dashboard, options = {}) {
             ? 'data-onboarding-enable-source'
             : 'data-onboarding-disable-source';
         return (
-          '<div class="onboarding-overflow-menu" data-stop-row-open="1">' +
-            '<button class="onboarding-overflow-toggle" type="button" aria-label="Source actions" title="Source actions" data-stop-row-open="1" data-overflow-menu-toggle="' +
-              escapeHtml(sourceId) +
-              '"' +
-              (disableControls ? " disabled" : "") +
-              ">&#x22EF;</button>" +
-            '<div class="onboarding-overflow-menu-items" data-stop-row-open="1" data-overflow-menu-items="' +
-              escapeHtml(sourceId) +
-              '" hidden>' +
+          '<details class="onboarding-overflow-menu" data-stop-row-open="1">' +
+            '<summary aria-label="Source actions" title="Source actions" data-stop-row-open="1">&#x22EF;</summary>' +
+            '<div class="onboarding-overflow-menu-items" data-stop-row-open="1">' +
               '<button class="secondary" ' +
                 dataAttr +
                 '="' +
@@ -4718,7 +4741,7 @@ export function renderDashboardPage(dashboard, options = {}) {
                 actionLabel +
                 "</button>" +
             "</div>" +
-          "</div>"
+          "</details>"
         );
       }
 
@@ -5805,11 +5828,10 @@ export function renderDashboardPage(dashboard, options = {}) {
               source.avgScore === null || source.avgScore === undefined
                 ? null
                 : Number(source.avgScore);
-            const sourceKind = sourceKindFromType(source.type);
             return {
               id: source.id,
-              kind: sourceKind,
-              label: displaySourceLabel(source, sourceKind),
+              kind: sourceKindFromType(source.type),
+              label: source.name || sourceKindLabel(sourceKindFromType(source.type)),
               searchUrl: source.searchUrl || "",
               enabled: source.enabled === true,
               authRequired: sourceRequiresAuth(source),
@@ -6582,16 +6604,13 @@ export function renderDashboardPage(dashboard, options = {}) {
           const rowClass = options.compact === true
             ? "onboarding-source-row compact"
             : "onboarding-source-row";
-          const safeDisplayName = escapeHtml(
-            displaySourceLabel(source, sourceKindFromType(source?.type))
-          );
 
           return (
             '<div class="' + rowClass + '">' +
             '  <div class="onboarding-source-top">' +
             '    <div class="onboarding-source-main">' +
             '      <span class="onboarding-source-name">' +
-            safeDisplayName +
+            escapeHtml(source.name) +
             "</span>" +
             "    </div>" +
             '    <div class="onboarding-source-meta">' +
@@ -6963,11 +6982,6 @@ export function renderDashboardPage(dashboard, options = {}) {
         }
 
         if (selectedTab === "searches") {
-          const hideSourceOverflowMenus = () => {
-            for (const menu of document.querySelectorAll("[data-overflow-menu-items]")) {
-              menu.hidden = true;
-            }
-          };
           const saveOnboardingConsentButton = document.getElementById("onboarding-save-consent");
           if (saveOnboardingConsentButton) {
             saveOnboardingConsentButton.addEventListener("click", saveOnboardingConsent);
@@ -6986,69 +7000,28 @@ export function renderDashboardPage(dashboard, options = {}) {
 
           for (const button of document.querySelectorAll("[data-onboarding-enable-source]")) {
             button.addEventListener("click", () => {
-              hideSourceOverflowMenus();
               void enableOnboardingSource(button.dataset.onboardingEnableSource);
             });
           }
 
           for (const button of document.querySelectorAll("[data-onboarding-disable-source]")) {
             button.addEventListener("click", () => {
-              hideSourceOverflowMenus();
               void disableOnboardingSource(button.dataset.onboardingDisableSource);
             });
           }
 
           for (const button of document.querySelectorAll("[data-onboarding-check-source]")) {
             button.addEventListener("click", () => {
-              hideSourceOverflowMenus();
               void verifySingleOnboardingSource(button.dataset.onboardingCheckSource);
             });
           }
 
-<<<<<<< Updated upstream
           for (const button of document.querySelectorAll("[data-onboarding-open-auth-source]")) {
             button.addEventListener("click", () => {
               openAuthFlowModal(
                 button.dataset.onboardingOpenAuthSource,
                 "Step 1: Open source. Step 2: Sign in. Step 3: Click I\u2019m logged in."
               );
-=======
-          for (const toggle of document.querySelectorAll("[data-overflow-menu-toggle]")) {
-            toggle.addEventListener("click", (event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              const menuId = String(toggle.dataset.overflowMenuToggle || "").trim();
-              if (!menuId) {
-                return;
-              }
-              const menus = document.querySelectorAll("[data-overflow-menu-items]");
-              let targetMenu = null;
-              for (const menu of menus) {
-                const isTarget = String(menu.dataset.overflowMenuItems || "") === menuId;
-                if (isTarget) {
-                  targetMenu = menu;
-                  continue;
-                }
-                menu.hidden = true;
-              }
-              if (!targetMenu) {
-                return;
-              }
-              targetMenu.hidden = !targetMenu.hidden;
-            });
-          }
-
-          for (const menu of document.querySelectorAll("[data-overflow-menu-items]")) {
-            menu.addEventListener("click", (event) => {
-              event.stopPropagation();
-            });
-          }
-
-          const searchesShell = document.querySelector(".searches-shell");
-          if (searchesShell) {
-            searchesShell.addEventListener("click", () => {
-              hideSourceOverflowMenus();
->>>>>>> Stashed changes
             });
           }
 

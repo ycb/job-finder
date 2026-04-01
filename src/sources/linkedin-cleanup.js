@@ -321,7 +321,7 @@ function chooseTrustedLinkedInDetail(job, externalId) {
   const detailExternalId = normalizeText(
     job?.detailExternalId || job?.detail_external_id
   );
-  if (!detailExternalId || !externalId || detailExternalId === externalId) {
+  if (detailExternalId && externalId && detailExternalId === externalId) {
     return {
       detailDescription: job?.detailDescription || job?.detail_description || "",
       detailExternalId

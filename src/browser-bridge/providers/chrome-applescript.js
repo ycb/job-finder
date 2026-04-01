@@ -230,7 +230,6 @@ const AUTH_REQUIRED_SOURCE_TYPES = new Set([
   "yc_jobs",
   "wellfound_search",
   "indeed_search",
-  "ziprecruiter_search",
   "remoteok_search"
 ]);
 

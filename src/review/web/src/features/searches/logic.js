@@ -441,19 +441,22 @@ export function presentSearchStatus(row) {
           ? "error"
           : statusLabelRaw;
 
+  const latestAttemptDetail = latestAttemptFailed
+    ? [
+        latestAttemptOutcome === "challenge"
+          ? "Additional verification needed"
+          : "Last attempt failed",
+        row?.lastAttemptError ? String(row.lastAttemptError) : null,
+        Number.isFinite(latestAttemptMs) ? formatRelativeTimestamp(latestAttemptAt) : null,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : null;
   const statusDetail = authActionRequired
-    ? "Sign in to this source to continue."
-    : latestAttemptFailed
-      ? [
-          latestAttemptOutcome === "challenge"
-            ? "Additional verification needed"
-            : "Last attempt failed",
-          row?.lastAttemptError ? String(row.lastAttemptError) : null,
-          Number.isFinite(latestAttemptMs) ? formatRelativeTimestamp(latestAttemptAt) : null,
-        ]
-          .filter(Boolean)
-          .join(" · ")
-      : null;
+    ? latestAttemptDetail
+      ? ["Sign in to this source to continue.", latestAttemptDetail].join(" · ")
+      : "Sign in to this source to continue."
+    : latestAttemptDetail;
 
   return {
     tone,

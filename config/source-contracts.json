@@ -188,10 +188,10 @@
         "includeTerms": "url",
         "excludeTerms": "post_capture",
         "location": "url",
-        "distanceMiles": "post_capture",
-        "datePosted": "post_capture",
+        "distanceMiles": "url",
+        "datePosted": "url",
         "experienceLevel": "post_capture",
-        "minSalary": "post_capture"
+        "minSalary": "url"
       },
       "extraction": {
         "requiredFields": [
