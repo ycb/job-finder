@@ -2252,7 +2252,6 @@ export default function App() {
                               <SelectItem value="12h">12h (recommended)</SelectItem>
                               <SelectItem value="daily">Daily</SelectItem>
                               <SelectItem value="weekly">Weekly</SelectItem>
-                              <SelectItem value="cached">Use cached results (dev)</SelectItem>
                             </SelectGroup>
                           </SelectContent>
                         </Select>

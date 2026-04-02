@@ -1118,6 +1118,7 @@ export function buildSourceRefreshMeta(source, options = {}) {
   const statusLabelMap = {
     eligible: "ready_live",
     force_refresh: "ready_live",
+    qa_live: "ready_live",
     cache_fresh: "cache_fresh",
     cooldown: "cooldown",
     min_interval: "throttled",
@@ -4441,23 +4442,17 @@ export function renderDashboardPage(dashboard, options = {}) {
 
       function normalizeRunCadence(value) {
         const normalized = String(value || "").trim().toLowerCase();
-        if (["12h", "daily", "weekly", "cached"].includes(normalized)) {
+        if (["12h", "daily", "weekly"].includes(normalized)) {
           return normalized;
         }
         return "12h";
       }
 
       function runCadencePayload() {
-        if (selectedSearchRunCadence === "cached") {
-          return { refreshProfile: "mock" };
+        if (selectedSearchRunCadence === "weekly" || selectedSearchRunCadence === "daily") {
+          return { refreshProfile: "safe" };
         }
-        if (selectedSearchRunCadence === "weekly") {
-          return { refreshProfile: "safe", cacheTtlHours: 168 };
-        }
-        if (selectedSearchRunCadence === "daily") {
-          return { refreshProfile: "safe", cacheTtlHours: 24 };
-        }
-        return { refreshProfile: "safe", cacheTtlHours: 12 };
+        return { refreshProfile: "safe" };
       }
 
       function formatDurationFromNow(value) {
@@ -6841,7 +6836,6 @@ export function renderDashboardPage(dashboard, options = {}) {
                   '<option value="12h"' + (selectedSearchRunCadence === "12h" ? " selected" : "") + ">12h (recommended)</option>" +
                   '<option value="daily"' + (selectedSearchRunCadence === "daily" ? " selected" : "") + ">Daily</option>" +
                   '<option value="weekly"' + (selectedSearchRunCadence === "weekly" ? " selected" : "") + ">Weekly</option>" +
-                  '<option value="cached"' + (selectedSearchRunCadence === "cached" ? " selected" : "") + ">Use cached results (dev)</option>" +
                 "</select></label>" +
               "</div>"
             : ""),
@@ -7801,10 +7795,6 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
             typeof parsedBody.refreshProfile === "string"
               ? parsedBody.refreshProfile
               : undefined,
-          cacheTtlHours:
-            Number.isFinite(Number(parsedBody.cacheTtlHours)) && Number(parsedBody.cacheTtlHours) > 0
-              ? Math.round(Number(parsedBody.cacheTtlHours))
-              : undefined,
           forceRefresh: parsedBody.forceRefresh === true
         });
         const refreshProfile =
@@ -7812,13 +7802,8 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
             ? qaRunOptions.refreshProfile
             : undefined;
         const normalizedRefreshProfile = normalizeRefreshProfile(refreshProfile || "safe");
-        const cacheTtlHours =
-          Number.isFinite(Number(qaRunOptions.cacheTtlHours)) && Number(qaRunOptions.cacheTtlHours) > 0
-            ? Math.round(Number(qaRunOptions.cacheTtlHours))
-            : undefined;
         const forceRefresh = qaRunOptions.forceRefresh === true;
-        const skipAuthPreflight =
-          parsedBody.skipAuthPreflight === true || normalizedRefreshProfile === "mock";
+        const skipAuthPreflight = parsedBody.skipAuthPreflight === true;
         if (!skipAuthPreflight) {
           const blockedSources = await runAuthPreflightForEnabledSources({
             refreshProfile: normalizedRefreshProfile
@@ -7838,8 +7823,7 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
         }
         const result = await runAllCapturesWithOptions({
           refreshProfile: normalizedRefreshProfile,
-          forceRefresh,
-          cacheTtlHours
+          forceRefresh
         });
         incrementMonthlySearchUsage();
         const settings = loadUserSettings().settings;
@@ -7980,11 +7964,6 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
             refreshProfile:
               typeof parsedBody.refreshProfile === "string"
                 ? parsedBody.refreshProfile
-                : undefined,
-            cacheTtlHours:
-              Number.isFinite(Number(parsedBody.cacheTtlHours)) &&
-              Number(parsedBody.cacheTtlHours) > 0
-                ? Math.round(Number(parsedBody.cacheTtlHours))
                 : undefined,
             forceRefresh: parsedBody.forceRefresh === true,
             skipSync: parsedBody.skipSync === true

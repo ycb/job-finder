@@ -27,7 +27,7 @@ function createGoogleSource(capturePath) {
   };
 }
 
-test("decision uses cache when capture is still fresh", () => {
+test("decision ignores fresh capture and still allows live", () => {
   const { tempDir, capturePath, statePath } = createTempPaths();
   const source = createGoogleSource(capturePath);
   const nowIso = "2026-03-06T18:00:00.000Z";
@@ -44,9 +44,9 @@ test("decision uses cache when capture is still fresh", () => {
       nowMs: Date.parse(nowIso)
     });
 
-    assert.equal(decision.servedFrom, "cache");
-    assert.equal(decision.allowLive, false);
-    assert.equal(decision.reason, "cache_fresh");
+    assert.equal(decision.servedFrom, "live");
+    assert.equal(decision.allowLive, true);
+    assert.equal(decision.reason, "eligible");
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
@@ -78,7 +78,7 @@ test("decision allows live when cache is stale and policy is eligible", () => {
   }
 });
 
-test("decision in mock profile disables live refresh", () => {
+test("decision in mock profile no longer disables live refresh", () => {
   const { tempDir, capturePath, statePath } = createTempPaths();
   const source = createGoogleSource(capturePath);
   const staleIso = "2026-03-05T00:00:00.000Z";
@@ -96,15 +96,15 @@ test("decision in mock profile disables live refresh", () => {
       nowMs: Date.parse(nowIso)
     });
 
-    assert.equal(decision.servedFrom, "cache");
-    assert.equal(decision.allowLive, false);
-    assert.equal(decision.reason, "mock_profile");
+    assert.equal(decision.servedFrom, "live");
+    assert.equal(decision.allowLive, true);
+    assert.equal(decision.reason, "eligible");
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
 
-test("probe profile can be blocked by min interval and forced to bypass", () => {
+test("probe profile still allows live and force refresh remains explicit", () => {
   const { tempDir, capturePath, statePath } = createTempPaths();
   const source = createGoogleSource(capturePath);
   const staleIso = "2026-03-05T00:00:00.000Z";
@@ -127,9 +127,9 @@ test("probe profile can be blocked by min interval and forced to bypass", () => 
       statePath,
       nowMs: Date.parse(nowIso)
     });
-    assert.equal(blocked.servedFrom, "cache");
-    assert.equal(blocked.allowLive, false);
-    assert.equal(blocked.reason, "min_interval");
+    assert.equal(blocked.servedFrom, "live");
+    assert.equal(blocked.allowLive, true);
+    assert.equal(blocked.reason, "eligible");
 
     const forced = getSourceRefreshDecision(source, {
       profile: "probe",

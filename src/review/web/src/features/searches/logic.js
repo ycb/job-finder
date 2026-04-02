@@ -2,7 +2,7 @@ export const SEARCHES_WELCOME_TOAST_SEEN_KEY = "jobFinder.searchesWelcomeToastSe
 export const SEARCH_RUN_CADENCE_KEY = "jobFinder.searchRunCadence";
 
 const SEARCH_STATE_VALUES = new Set(["enabled", "disabled"]);
-const SEARCH_RUN_CADENCE_VALUES = new Set(["12h", "daily", "weekly", "cached"]);
+const SEARCH_RUN_CADENCE_VALUES = new Set(["12h", "daily", "weekly"]);
 
 const SOURCE_KIND_ORDER = ["li", "bi", "id", "zr", "lf", "yc", "ah", "gg", "wf", "ro", "unknown"];
 

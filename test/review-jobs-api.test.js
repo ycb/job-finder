@@ -68,11 +68,11 @@ test("buildSearchCriteriaPayload normalizes comma-separated terms and numeric sa
 });
 
 test("buildRunAllPayload maps saved search cadence to backend refresh options", () => {
-  assert.deepEqual(buildRunAllPayload("cached"), { refreshProfile: "mock" });
-  assert.deepEqual(buildRunAllPayload("weekly"), { refreshProfile: "safe", cacheTtlHours: 168 });
-  assert.deepEqual(buildRunAllPayload("daily"), { refreshProfile: "safe", cacheTtlHours: 24 });
-  assert.deepEqual(buildRunAllPayload("12h"), { refreshProfile: "safe", cacheTtlHours: 12 });
-  assert.deepEqual(buildRunAllPayload("unknown"), { refreshProfile: "safe", cacheTtlHours: 12 });
+  assert.deepEqual(buildRunAllPayload("cached"), { refreshProfile: "safe" });
+  assert.deepEqual(buildRunAllPayload("weekly"), { refreshProfile: "safe" });
+  assert.deepEqual(buildRunAllPayload("daily"), { refreshProfile: "safe" });
+  assert.deepEqual(buildRunAllPayload("12h"), { refreshProfile: "safe" });
+  assert.deepEqual(buildRunAllPayload("unknown"), { refreshProfile: "safe" });
 });
 
 test("normalizeSearchCriteriaDraft maps legacy keyword/include fields into the new model", () => {
@@ -132,7 +132,7 @@ test("runAllSourcesAndSync triggers sync-score when run-all omits sync details",
     throw new Error(`unexpected path: ${pathname}`);
   };
 
-  const payload = await runAllSourcesAndSync(requestJson, { refreshProfile: "safe", cacheTtlHours: 24 });
+  const payload = await runAllSourcesAndSync(requestJson, { refreshProfile: "safe" });
 
   assert.deepEqual(calls, [
     ["/api/sources/run-all", "POST"],

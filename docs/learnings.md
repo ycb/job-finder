@@ -431,3 +431,4 @@ As of 2026-03-06.
 - When comparing live QA metrics against controller-side diagnostics, first prove both checkouts are using the same `config/source-criteria.json`. I misdiagnosed LinkedIn source-run drift because `/Users/admin/job-finder` had different scoring keywords than the controller worktree.
 - Do not conflate `bucket=reject` with `hardFiltered`. If the approved product contract says `Filtered` means hard-filter failure only, metric builders and tests must enforce that exactly.
 - Do not use `reject` as product language for rows that merely score low against current keywords. In this product, `hardFiltered` means ruled out; low-score rows are still valid opportunities and should be treated as "low signal" or similar, not true rejects.
+- For stakeholder QA of source quality, do not offer or silently use cached runs. Every QA-triggered search must execute live so run observations map directly to source query construction, extraction, and scoring behavior.
