@@ -131,6 +131,48 @@ test("loadSourcesWithPath clears stale criteriaAccountability when no criteria a
   }
 });
 
+test("loadSourcesWithPath preserves derived metadata in sources map mode", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "job-finder-map-mode-sources-"));
+  const configDir = path.join(tempDir, "config");
+  fs.mkdirSync(configDir, { recursive: true });
+  const sourcesPath = path.join(configDir, "sources.json");
+  const criteriaPath = path.join(configDir, "source-criteria.json");
+
+  fs.writeFileSync(
+    sourcesPath,
+    `${JSON.stringify({ sources: { "yc-product-jobs": true } }, null, 2)}\n`,
+    "utf8"
+  );
+  fs.writeFileSync(
+    criteriaPath,
+    `${JSON.stringify({
+      title: "Product manager",
+      hardIncludeTerms: ["ai"],
+      location: "San Francisco, CA",
+      datePosted: "3d"
+    }, null, 2)}\n`,
+    "utf8"
+  );
+
+  try {
+    const loaded = loadSourcesWithPath(sourcesPath);
+    const yc = loaded.sources.find((source) => source.id === "yc-product-jobs");
+
+    assert.ok(yc);
+    assert.match(yc.searchUrl, /^https:\/\/www\.workatastartup\.com\/jobs\/l\/product-manager\?/);
+    assert.deepEqual(yc.criteriaAccountability.appliedInUrl, ["title"]);
+    assert.equal(yc.criteriaAccountability.appliedPostCapture.includes("hardIncludeTerms"), true);
+    assert.equal(yc.criteriaAccountability.appliedPostCapture.includes("location"), true);
+    assert.equal(yc.criteriaAccountability.appliedPostCapture.includes("datePosted"), true);
+    assert.deepEqual(yc.formatterDiagnostics, {
+      unsupported: [],
+      notes: []
+    });
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("ziprecruiter criteria accountability marks hard include terms as applied in URL", () => {
   const result = buildSearchUrlForSourceType("ziprecruiter_search", {
     title: "Product manager",
