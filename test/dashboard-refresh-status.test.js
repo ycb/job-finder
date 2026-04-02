@@ -36,7 +36,7 @@ test("buildSourceRefreshMeta returns direct_fetch status for non-browser sources
   assert.equal(meta.servedFrom, "live");
 });
 
-test("buildSourceRefreshMeta reports cache_fresh for fresh browser capture", () => {
+test("buildSourceRefreshMeta reports ready_live for fresh browser capture", () => {
   const { tempDir, capturePath, statePath } = createTempPaths();
   const source = {
     id: "google-ai",
@@ -60,9 +60,9 @@ test("buildSourceRefreshMeta reports cache_fresh for fresh browser capture", () 
       nowMs: Date.parse(nowIso)
     });
 
-    assert.equal(meta.statusLabel, "cache_fresh");
-    assert.equal(meta.statusReason, "cache_fresh");
-    assert.equal(meta.servedFrom, "cache");
+    assert.equal(meta.statusLabel, "ready_live");
+    assert.equal(meta.statusReason, "eligible");
+    assert.equal(meta.servedFrom, "live");
     assert.equal(meta.nextEligibleAt, null);
     assert.equal(meta.lastLiveAt, null);
   } finally {
@@ -70,7 +70,7 @@ test("buildSourceRefreshMeta reports cache_fresh for fresh browser capture", () 
   }
 });
 
-test("buildSourceRefreshMeta reports cooldown with next eligible time", () => {
+test("buildSourceRefreshMeta keeps challenge status visible even though live refresh remains enabled", () => {
   const { tempDir, capturePath, statePath } = createTempPaths();
   const source = {
     id: "google-ai",
@@ -102,9 +102,9 @@ test("buildSourceRefreshMeta reports cooldown with next eligible time", () => {
 
     assert.equal(meta.statusLabel, "challenge");
     assert.equal(meta.statusReason, "challenge");
-    assert.equal(meta.servedFrom, "cache");
+    assert.equal(meta.servedFrom, "live");
     assert.equal(meta.cooldownUntil, "2026-03-06T13:00:00.000Z");
-    assert.equal(meta.nextEligibleAt, "2026-03-06T13:00:00.000Z");
+    assert.equal(meta.nextEligibleAt, null);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

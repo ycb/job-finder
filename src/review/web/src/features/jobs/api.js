@@ -48,7 +48,7 @@ function readCriteriaTerms(value) {
 
 function normalizeRunCadence(value) {
   const normalized = String(value || "").trim().toLowerCase();
-  if (["12h", "daily", "weekly", "cached"].includes(normalized)) {
+  if (["12h", "daily", "weekly"].includes(normalized)) {
     return normalized;
   }
   return "12h";
@@ -120,16 +120,10 @@ export function buildSearchCriteriaPayload(draft = {}) {
 
 export function buildRunAllPayload(searchRunCadence) {
   const cadence = normalizeRunCadence(searchRunCadence);
-  if (cadence === "cached") {
-    return { refreshProfile: "mock" };
+  if (cadence === "weekly" || cadence === "daily" || cadence === "12h") {
+    return { refreshProfile: "safe" };
   }
-  if (cadence === "weekly") {
-    return { refreshProfile: "safe", cacheTtlHours: 168 };
-  }
-  if (cadence === "daily") {
-    return { refreshProfile: "safe", cacheTtlHours: 24 };
-  }
-  return { refreshProfile: "safe", cacheTtlHours: 12 };
+  return { refreshProfile: "safe" };
 }
 
 export async function runAllSourcesAndSync(requestJson, payload = {}) {

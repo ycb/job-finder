@@ -2,7 +2,7 @@ export const SEARCHES_WELCOME_TOAST_SEEN_KEY = "jobFinder.searchesWelcomeToastSe
 export const SEARCH_RUN_CADENCE_KEY = "jobFinder.searchRunCadence";
 
 const SEARCH_STATE_VALUES = new Set(["enabled", "disabled"]);
-const SEARCH_RUN_CADENCE_VALUES = new Set(["12h", "daily", "weekly", "cached"]);
+const SEARCH_RUN_CADENCE_VALUES = new Set(["12h", "daily", "weekly"]);
 
 const SOURCE_KIND_ORDER = ["li", "bi", "id", "zr", "lf", "yc", "ah", "gg", "wf", "ro", "unknown"];
 
@@ -144,13 +144,6 @@ export function buildSearchRows(sources = [], checksBySourceId = {}) {
     .map((source) => {
       const kind = sourceKindFromType(source.type);
       const readiness = onboardingReadinessState(source, checksBySourceId);
-      const fallbackLabel = sourceKindLabel(kind);
-      const rawLabel = typeof source.name === "string" ? source.name : "";
-      const firstLineLabel = rawLabel.split(/\r?\n/u, 1)[0]?.trim() || "";
-      const normalizedSourceId = String(source.id || "").trim().toLowerCase();
-      const normalizedLabel = firstLineLabel.toLowerCase();
-      const sanitizedLabel =
-        firstLineLabel && normalizedLabel !== normalizedSourceId ? firstLineLabel : fallbackLabel;
       const filteredCount = normalizeOptionalCount(source.droppedByHardFilterCount);
       const dedupedCount = normalizeOptionalCount(source.droppedByDedupeCount);
       const importedCount = normalizeOptionalCount(source.importedCount);
@@ -170,7 +163,7 @@ export function buildSearchRows(sources = [], checksBySourceId = {}) {
       return {
         id: String(source.id || "").trim(),
         kind,
-        label: sanitizedLabel,
+        label: source.name || sourceKindLabel(kind),
         searchUrl: source.searchUrl || "",
         enabled: source.enabled === true,
         authRequired: source.authRequired === true,

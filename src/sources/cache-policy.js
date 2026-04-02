@@ -184,23 +184,7 @@ export function isSourceCaptureFresh(source, nowMs = Date.now()) {
 }
 
 export function getFreshCachedJobs(source, options = {}) {
-  const nowMs = Number.isFinite(options.nowMs) ? options.nowMs : Date.now();
-  const summary = readSourceCaptureSummary(source);
-  if (summary.status !== "ready" || !summary.payload) {
-    return null;
-  }
-
-  if (!isTimestampFresh(summary.payload.capturedAt, getSourceCacheTtlHours(source), nowMs)) {
-    return null;
-  }
-
-  const pageUrl = summary.payload.pageUrl;
-  const capturedAt = summary.payload.capturedAt || new Date(nowMs).toISOString();
-  return summary.payload.jobs.map((job) => ({
-    ...job,
-    retrievedAt: capturedAt,
-    pageUrl: typeof pageUrl === "string" ? pageUrl : null
-  }));
+  return null;
 }
 
 export function getSourceCaptureJobs(source) {
@@ -328,14 +312,6 @@ export function getSourceRefreshDecision(source, options = {}) {
     source?.id || "",
     nowIso
   );
-  const liveDecision = isLiveRefreshAllowed({
-    policy,
-    now: nowIso,
-    cooldownUntil: sourceState.cooldownUntil,
-    lastLiveAt: sourceState.lastLiveAt,
-    liveEventsTodayCount
-  });
-
   if (bypassRefreshGuards) {
     return {
       profile,
@@ -352,58 +328,6 @@ export function getSourceRefreshDecision(source, options = {}) {
     };
   }
 
-  if (!forceRefresh && cacheFresh) {
-    return {
-      profile,
-      policy,
-      cacheSummary,
-      cacheFresh,
-      sourceState,
-      liveEventsTodayCount,
-      servedFrom: "cache",
-      allowLive: false,
-      cached: true,
-      reason: "cache_fresh",
-      nextEligibleAt: liveDecision.nextEligibleAt
-    };
-  }
-
-  if (liveDecision.allowed) {
-    return {
-      profile,
-      policy,
-      cacheSummary,
-      cacheFresh,
-      sourceState,
-      liveEventsTodayCount,
-      servedFrom: "live",
-      allowLive: true,
-      cached: false,
-      reason: forceRefresh ? "force_refresh" : "eligible",
-      nextEligibleAt: null
-    };
-  }
-
-  if (
-    forceRefresh &&
-    liveDecision.reason === "min_interval" &&
-    policy.liveEnabled !== false
-  ) {
-    return {
-      profile,
-      policy,
-      cacheSummary,
-      cacheFresh,
-      sourceState,
-      liveEventsTodayCount,
-      servedFrom: "live",
-      allowLive: true,
-      cached: false,
-      reason: "force_refresh",
-      nextEligibleAt: null
-    };
-  }
-
   return {
     profile,
     policy,
@@ -411,10 +335,10 @@ export function getSourceRefreshDecision(source, options = {}) {
     cacheFresh,
     sourceState,
     liveEventsTodayCount,
-    servedFrom: "cache",
-    allowLive: false,
-    cached: true,
-    reason: liveDecision.reason,
-    nextEligibleAt: liveDecision.nextEligibleAt
+    servedFrom: "live",
+    allowLive: true,
+    cached: false,
+    reason: forceRefresh ? "force_refresh" : "eligible",
+    nextEligibleAt: null
   };
 }
