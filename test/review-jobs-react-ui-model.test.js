@@ -259,3 +259,46 @@ test("buildJobsPresentationalModel excludes reject-bucket jobs from active views
   assert.equal(model.controls.viewOptions.find((option) => option.value === "unread")?.count, 1);
   assert.deepEqual(model.queue.jobs.map((job) => job.id), ["job-valid"]);
 });
+
+test("buildJobsPresentationalModel maps scoring buckets to user-facing labels", () => {
+  const model = buildJobsPresentationalModel({
+    dashboard: {
+      queue: [
+        {
+          id: "job-best",
+          title: "AI Product Manager",
+          company: "Alpha",
+          location: "San Francisco, CA",
+          bucket: "high_signal",
+          status: "new",
+          isNew: true,
+          isUnread: true,
+        },
+        {
+          id: "job-possible",
+          title: "Platform Product Manager",
+          company: "Beta",
+          location: "San Francisco, CA",
+          bucket: "review_later",
+          status: "new",
+          isNew: true,
+          isUnread: true,
+        },
+        {
+          id: "job-low",
+          title: "Director of Software & Product",
+          company: "Gamma",
+          location: "San Francisco, CA",
+          bucket: "low_signal",
+          status: "new",
+          isNew: true,
+          isUnread: true,
+        },
+      ],
+    },
+  });
+
+  assert.equal(model.queue.jobs.find((job) => job.id === "job-best")?.bucketLabel, "Best match");
+  assert.equal(model.queue.jobs.find((job) => job.id === "job-possible")?.bucketLabel, "Possible match");
+  assert.equal(model.queue.jobs.find((job) => job.id === "job-low")?.bucketLabel, "Low signal");
+});

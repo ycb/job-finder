@@ -1072,6 +1072,7 @@ function isBrowserCaptureSource(source) {
     source?.type === "google_search" ||
     source?.type === "indeed_search" ||
     source?.type === "ziprecruiter_search" ||
+    source?.type === "yc_jobs" ||
     source?.type === "remoteok_search"
   );
 }
@@ -4169,7 +4170,16 @@ export function renderDashboardPage(dashboard, options = {}) {
       }
 
       function formatBucket(bucket) {
-        return bucket ? bucket.replaceAll("_", " ") : "unscored";
+        if (bucket === "high_signal") {
+          return "Best match";
+        }
+        if (bucket === "medium_signal" || bucket === "review_later") {
+          return "Possible match";
+        }
+        if (bucket === "low_signal" || bucket === "reject") {
+          return "Low signal";
+        }
+        return "Unscored";
       }
 
       function formatValue(value, fallback) {

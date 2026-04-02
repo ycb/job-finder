@@ -74,6 +74,27 @@ function extractDataPagePayload(html) {
   }
 }
 
+function parseDataPagePayload(rawValue) {
+  if (!rawValue) {
+    return null;
+  }
+
+  if (typeof rawValue === "object" && !Array.isArray(rawValue)) {
+    return rawValue;
+  }
+
+  const decoded = decodeHtmlEntities(rawValue);
+  if (!decoded) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(decoded);
+  } catch {
+    return null;
+  }
+}
+
 function findJobsArray(value) {
   if (!value || typeof value !== "object") {
     return [];
@@ -146,7 +167,112 @@ function jobUrlForId(jobId) {
 }
 
 function isProductManagerRoute(searchUrl) {
-  return /\/jobs\/l\/product-manager\/?$/i.test(String(searchUrl || "").trim());
+  const normalized = String(searchUrl || "").trim();
+  if (!normalized) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(normalized, "https://www.workatastartup.com");
+    return /^\/jobs\/l\/product-manager\/?$/i.test(parsed.pathname);
+  } catch {
+    return /\/jobs\/l\/product-manager(?:\/|\?|$)/i.test(normalized);
+  }
+}
+
+function normalizeStringArray(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const normalized = [];
+  for (const entry of value) {
+    const text = normalizeText(entry);
+    if (text && !normalized.includes(text)) {
+      normalized.push(text);
+    }
+  }
+  return normalized;
+}
+
+function parseYcSearchState(searchInput) {
+  const baseState = {
+    searchUrl: "",
+    title: "",
+    location: "",
+    hardIncludeTerms: [],
+    includeTerms: [],
+    keywordMode: "",
+    roleFamily: ""
+  };
+
+  if (!searchInput) {
+    return baseState;
+  }
+
+  if (typeof searchInput === "string") {
+    const searchUrl = normalizeText(searchInput);
+    const next = {
+      ...baseState,
+      searchUrl
+    };
+
+    try {
+      const parsed = new URL(searchUrl);
+      next.title = normalizeText(parsed.searchParams.get("search"));
+      next.location = normalizeText(parsed.searchParams.get("location"));
+      next.keywordMode = normalizeText(parsed.searchParams.get("keywordMode")).toLowerCase();
+      next.hardIncludeTerms = normalizeStringArray(
+        String(parsed.searchParams.get("hardIncludeTerms") || "")
+          .split(",")
+          .map((term) => term.trim())
+          .filter(Boolean)
+      );
+      next.includeTerms = normalizeStringArray(
+        String(parsed.searchParams.get("includeTerms") || "")
+          .split(",")
+          .map((term) => term.trim())
+          .filter(Boolean)
+      );
+      if (isProductManagerRoute(searchUrl)) {
+        next.roleFamily = "product";
+      }
+    } catch {
+      if (isProductManagerRoute(searchUrl)) {
+        next.roleFamily = "product";
+      }
+    }
+
+    return next;
+  }
+
+  if (typeof searchInput === "object" && !Array.isArray(searchInput)) {
+    const criteria =
+      searchInput.criteria && typeof searchInput.criteria === "object"
+        ? searchInput.criteria
+        : searchInput;
+    const searchUrl = normalizeText(searchInput.searchUrl || criteria.searchUrl || "");
+    const title = normalizeText(criteria.title);
+    const location = normalizeText(criteria.location);
+    const hardIncludeTerms = normalizeStringArray(criteria.hardIncludeTerms);
+    const includeTerms = normalizeStringArray(criteria.includeTerms);
+    const keywordMode = normalizeText(criteria.keywordMode).toLowerCase();
+    const roleFamily =
+      normalizeText(criteria.roleFamily).toLowerCase() ||
+      (isProductManagerRoute(searchUrl) ? "product" : title.toLowerCase().includes("product") ? "product" : "");
+
+    return {
+      searchUrl,
+      title,
+      location,
+      hardIncludeTerms,
+      includeTerms,
+      keywordMode,
+      roleFamily
+    };
+  }
+
+  return baseState;
 }
 
 function isRelevantProductRole(title) {
@@ -190,6 +316,62 @@ function buildSummary(job) {
   return parts.join(" · ");
 }
 
+function buildSearchableYcText(rawJob) {
+  return normalizeText(
+    [
+      rawJob?.title,
+      rawJob?.companyName,
+      rawJob?.companyOneLiner,
+      rawJob?.location,
+      rawJob?.roleType,
+      rawJob?.companyBatch
+    ]
+      .filter(Boolean)
+      .join(" ")
+  ).toLowerCase();
+}
+
+function matchesAllTerms(text, terms) {
+  if (!terms.length) {
+    return true;
+  }
+  return terms.every((term) => text.includes(String(term || "").toLowerCase()));
+}
+
+function matchesLocation(rawJob, location) {
+  const normalizedLocation = normalizeText(location).toLowerCase();
+  if (!normalizedLocation) {
+    return true;
+  }
+  return normalizeText(rawJob?.location).toLowerCase().includes(normalizedLocation);
+}
+
+function shouldIncludeYcJob(rawJob, searchState) {
+  const text = buildSearchableYcText(rawJob);
+
+  if (searchState.roleFamily === "product" && !isRelevantProductRole(rawJob?.title)) {
+    return false;
+  }
+
+  if (!matchesLocation(rawJob, searchState.location)) {
+    return false;
+  }
+
+  const hardTerms = normalizeStringArray(searchState.hardIncludeTerms);
+  if (!matchesAllTerms(text, hardTerms)) {
+    return false;
+  }
+
+  if (
+    searchState.keywordMode === "and" &&
+    !matchesAllTerms(text, normalizeStringArray(searchState.includeTerms))
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
 function toJobRecord(rawJob, searchUrl) {
   const title = normalizeText(rawJob?.title);
   const company = normalizeText(rawJob?.companyName);
@@ -229,8 +411,8 @@ function toJobRecord(rawJob, searchUrl) {
   };
 }
 
-export function parseYcJobsHtml(html, searchUrl) {
-  const payload = extractDataPagePayload(html);
+export function parseYcJobsPayload(rawPayload, searchInput) {
+  const payload = parseDataPagePayload(rawPayload);
   if (!payload) {
     return [];
   }
@@ -240,16 +422,16 @@ export function parseYcJobsHtml(html, searchUrl) {
     return [];
   }
 
-  const filterProductRoles = isProductManagerRoute(searchUrl);
+  const searchState = parseYcSearchState(searchInput);
   const jobs = [];
 
   for (const rawJob of rawJobs) {
-    const job = toJobRecord(rawJob, searchUrl);
-    if (!job) {
+    if (!shouldIncludeYcJob(rawJob, searchState)) {
       continue;
     }
 
-    if (filterProductRoles && !isRelevantProductRole(job.title)) {
+    const job = toJobRecord(rawJob, searchState.searchUrl);
+    if (!job) {
       continue;
     }
 
@@ -257,6 +439,11 @@ export function parseYcJobsHtml(html, searchUrl) {
   }
 
   return jobs;
+}
+
+export function parseYcJobsHtml(html, searchInput) {
+  const payload = extractDataPagePayload(html);
+  return parseYcJobsPayload(payload, searchInput);
 }
 
 function fetchYcJobsHtml(searchUrl, timeoutMs = 30_000) {

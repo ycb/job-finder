@@ -185,7 +185,7 @@ test("levelsfyi builder returns a real URL and truthful accountability", () => {
   assert.equal(result.criteriaAccountability.unsupported.includes("distanceMiles"), true);
 });
 
-test("yc jobs builder returns fixed route and marks dynamic criteria unsupported", () => {
+test("yc jobs builder carries browser bootstrap state and only leaves unsupported fields truly unsupported", () => {
   const result = buildSearchUrlForSourceType("yc_jobs", {
     title: "Product manager",
     hardIncludeTerms: ["ai"],
@@ -193,12 +193,11 @@ test("yc jobs builder returns fixed route and marks dynamic criteria unsupported
     datePosted: "3d"
   });
 
-  assert.equal(
-    result.url,
-    "https://www.workatastartup.com/jobs/l/product-manager"
-  );
-  assert.deepEqual(
-    result.criteriaAccountability.unsupported.sort(),
-    ["datePosted", "hardIncludeTerms", "location", "title"].sort()
-  );
+  assert.match(result.url, /^https:\/\/www\.workatastartup\.com\/jobs\/l\/product-manager\?/);
+  assert.equal(result.criteriaAccountability.appliedInUrl.includes("title"), true);
+  assert.equal(result.criteriaAccountability.appliedPostCapture.includes("hardIncludeTerms"), true);
+  assert.equal(result.criteriaAccountability.appliedPostCapture.includes("location"), true);
+  assert.equal(result.criteriaAccountability.appliedPostCapture.includes("datePosted"), true);
+  assert.equal(result.criteriaAccountability.unsupported.includes("title"), false);
+  assert.equal(result.criteriaAccountability.unsupported.includes("distanceMiles"), false);
 });

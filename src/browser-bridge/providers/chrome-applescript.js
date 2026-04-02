@@ -13,6 +13,7 @@ import { extractLinkedInStructuredPageFromResponseBody } from "../../sources/lin
 import { writeLinkedInCaptureFile } from "../../sources/linkedin-saved-search.js";
 import { writeRemoteOkCaptureFile } from "../../sources/remoteok-jobs.js";
 import { writeWellfoundCaptureFile } from "../../sources/wellfound-jobs.js";
+import { parseYcJobsPayload, writeYcCaptureFile } from "../../sources/yc-jobs.js";
 import { writeZipRecruiterCaptureFile } from "../../sources/ziprecruiter-jobs.js";
 import { enrichJobsWithDetailPages } from "../../sources/detail-enrichment.js";
 
@@ -3961,6 +3962,53 @@ function readAshbyJobsFromChrome(searchUrl, options = {}) {
   throw new Error("Could not extract Ashby jobs from the active Chrome tab.");
 }
 
+function buildYcExtractionScript() {
+  return `
+(() => {
+  const dataPage = document.querySelector("[data-page]")?.getAttribute("data-page") || "";
+  return JSON.stringify({
+    href: String(location.href || ""),
+    title: String(document.title || ""),
+    dataPage
+  });
+})()
+`;
+}
+
+function readYcJobsFromChrome(searchUrl, options = {}) {
+  navigateAutomationTab(searchUrl, "Refreshing YC Jobs source...");
+
+  const settleMs = Number(options.settleMs) > 0 ? Number(options.settleMs) : 2500;
+  const maxAttempts = Number(options.maxAttempts) > 0 ? Number(options.maxAttempts) : 5;
+  const attemptDelayMs =
+    Number(options.attemptDelayMs) > 0 ? Number(options.attemptDelayMs) : 1200;
+  const timeoutMs =
+    Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 20_000;
+  const extractionScript = buildYcExtractionScript();
+
+  sleepSync(settleMs);
+
+  let lastPayload = null;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const payload = parseBridgeJsonPayload(executeInAutomationTab(extractionScript, timeoutMs));
+    lastPayload = payload;
+    if (String(payload?.dataPage || "").trim()) {
+      const jobs = parseYcJobsPayload(payload.dataPage, searchUrl);
+      return {
+        pageUrl: String(payload?.href || searchUrl),
+        capturedAt: new Date().toISOString(),
+        expectedCount: jobs.length,
+        jobs
+      };
+    }
+    sleepSync(attemptDelayMs);
+  }
+
+  throw new Error(
+    `Could not extract YC jobs from the active Chrome tab.${lastPayload?.title ? ` Last title: ${lastPayload.title}` : ""}`
+  );
+}
+
 export function captureLinkedInSourceWithChromeAppleScript(
   source,
   _snapshotPath,
@@ -3996,6 +4044,29 @@ export function captureLinkedInSourceWithChromeAppleScript(
       pageUrl: payload.pageUrl,
       expectedCount: payload.expectedCount,
       captureDiagnostics: payload.captureDiagnostics
+    }),
+    provider: "chrome_applescript",
+    status: "completed"
+  };
+}
+
+export function captureYcSourceWithChromeAppleScript(
+  source,
+  _snapshotPath,
+  options = {}
+) {
+  if (!source || source.type !== "yc_jobs") {
+    throw new Error("Chrome AppleScript capture requires a yc_jobs source.");
+  }
+
+  const payload = readYcJobsFromChrome(source.searchUrl, options);
+  const enrichedJobs = applySearchFilterInferences(source, payload.jobs);
+
+  return {
+    ...writeYcCaptureFile(source, enrichedJobs, {
+      capturedAt: payload.capturedAt,
+      pageUrl: payload.pageUrl,
+      expectedCount: payload.expectedCount
     }),
     provider: "chrome_applescript",
     status: "completed"
@@ -4194,11 +4265,15 @@ export function captureSourceWithChromeAppleScript(source, snapshotPath, options
     return captureZipRecruiterSourceWithChromeAppleScript(source, snapshotPath, options);
   }
 
+  if (source?.type === "yc_jobs") {
+    return captureYcSourceWithChromeAppleScript(source, snapshotPath, options);
+  }
+
   if (source?.type === "remoteok_search") {
     return captureRemoteOkSourceWithChromeAppleScript(source, snapshotPath, options);
   }
 
   throw new Error(
-    `Chrome AppleScript provider currently supports linkedin_capture_file, wellfound_search, ashby_search, google_search, indeed_search, ziprecruiter_search, and remoteok_search. "${source?.name || "unknown"}" is ${source?.type || "unknown"}.`
+    `Chrome AppleScript provider currently supports linkedin_capture_file, wellfound_search, ashby_search, google_search, indeed_search, ziprecruiter_search, yc_jobs, and remoteok_search. "${source?.name || "unknown"}" is ${source?.type || "unknown"}.`
   );
 }
