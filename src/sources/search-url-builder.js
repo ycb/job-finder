@@ -815,35 +815,14 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
 
     if (criteria.distanceMiles) {
       criteriaAccountability.markAppliedPostCapture("distanceMiles");
-    } else {
-      const existingRadius = normalizePositiveInt(parsed.searchParams.get("radius"));
-      if (existingRadius) {
-        nextParams.set("radius", String(existingRadius));
-      }
     }
 
     if (criteria.minSalary) {
-      nextParams.set("salaryType", formatUsdAmount(criteria.minSalary));
-      criteriaAccountability.markAppliedInUrl("minSalary");
-    } else {
-      const existingSalary = normalizeText(parsed.searchParams.get("salaryType"));
-      if (existingSalary) {
-        nextParams.set("salaryType", existingSalary);
-      }
+      criteriaAccountability.markAppliedPostCapture("minSalary");
     }
 
     if (criteria.datePosted) {
-      if (criteria.datePosted === "any") {
-        criteriaAccountability.markAppliedInUrl("datePosted");
-      } else {
-        const days = DATE_POSTED_TO_DAYS.get(criteria.datePosted);
-        if (days) {
-          nextParams.set("fromage", String(days));
-          criteriaAccountability.markAppliedInUrl("datePosted");
-        } else {
-          criteriaAccountability.markUnsupported("datePosted");
-        }
-      }
+      criteriaAccountability.markAppliedPostCapture("datePosted");
     }
 
     if (criteria.experienceLevel) {

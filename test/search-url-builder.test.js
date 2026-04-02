@@ -143,8 +143,8 @@ test("buildSearchUrlForSourceType formats Indeed criteria", () => {
   assert.equal(parsed.searchParams.get("q"), "senior product manager fintech payments");
   assert.equal(parsed.searchParams.get("l"), "San Francisco, CA");
   assert.equal(parsed.searchParams.get("radius"), null);
-  assert.equal(parsed.searchParams.get("salaryType"), "$195,000");
-  assert.equal(parsed.searchParams.get("fromage"), "3");
+  assert.equal(parsed.searchParams.get("salaryType"), null);
+  assert.equal(parsed.searchParams.get("fromage"), null);
   assert.ok(result.unsupported.includes("experienceLevel"));
 });
 
@@ -219,12 +219,14 @@ test("buildSearchUrlForSourceType returns accountability buckets for Indeed crit
 
   assert.ok(result.criteriaAccountability);
   assert.deepEqual(result.criteriaAccountability.appliedInUiBootstrap, []);
-  assert.deepEqual(result.criteriaAccountability.appliedPostCapture, ["distanceMiles"]);
-  assert.deepEqual(result.criteriaAccountability.appliedInUrl.sort(), [
+  assert.deepEqual(result.criteriaAccountability.appliedPostCapture.sort(), [
     "datePosted",
+    "distanceMiles",
+    "minSalary"
+  ]);
+  assert.deepEqual(result.criteriaAccountability.appliedInUrl.sort(), [
     "keywords",
     "location",
-    "minSalary",
     "title"
   ]);
   assert.deepEqual(result.criteriaAccountability.unsupported, ["experienceLevel"]);

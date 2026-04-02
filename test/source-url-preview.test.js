@@ -54,19 +54,13 @@ test("previewNormalizedSourceSearchUrls reports URL changes without mutating fil
     const parsed = new URL(preview.sources[0].nextSearchUrl);
     assert.equal(parsed.searchParams.get("q"), "product manager ai");
     assert.equal(parsed.searchParams.get("l"), "San Francisco, CA");
-    assert.equal(parsed.searchParams.get("radius"), "25");
-    assert.equal(parsed.searchParams.get("salaryType"), "$195,000");
-    assert.equal(parsed.searchParams.get("fromage"), "7");
+    assert.equal(parsed.searchParams.get("radius"), null);
+    assert.equal(parsed.searchParams.get("salaryType"), null);
+    assert.equal(parsed.searchParams.get("fromage"), null);
     assert.deepEqual(preview.sources[0].criteriaAccountability, {
-      appliedInUrl: [
-        "keywords",
-        "location",
-        "distanceMiles",
-        "datePosted",
-        "minSalary"
-      ],
+      appliedInUrl: ["keywords", "location"],
       appliedInUiBootstrap: [],
-      appliedPostCapture: [],
+      appliedPostCapture: ["distanceMiles", "datePosted", "minSalary"],
       unsupported: []
     });
 

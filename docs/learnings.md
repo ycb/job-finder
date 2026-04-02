@@ -168,6 +168,12 @@ As of 2026-03-06.
 - Render `Connect your sources` as its own top-level section on the Searches tab (below page tabs), not nested inside `My Job Searches`.
 - Treat explicit source configuration as its own persisted state (`sourcesConfiguredAt`), separate from selected-count. Without this, first-run defaults can overwrite intentional disables (especially when the user disables all sources).
 
+## Source Query Parity
+
+- Do not smuggle unrequested or unverified source-native filters into the generated URL just because the source currently supports them or an existing URL carried them.
+- For parity debugging, the first comparison point is the user's manual baseline search. Preserve the core query semantics (`q` + `location`, or source equivalent) before layering on extra filters.
+- If adding native filter params makes the source ignore or dilute the core query, move those filters back to `appliedPostCapture` until a verified native mapping exists.
+
 ## Direct Source Filter Mapping
 
 - Do not assume a source lacks a URL strategy just because its `initialFilters` or SSR payload looks thin.
