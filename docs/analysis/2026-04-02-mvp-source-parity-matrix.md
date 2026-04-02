@@ -139,12 +139,11 @@ Representative persisted rows for direct sources:
   - source runs live
   - extractor returns stable rows
 - Broken against the product promise:
-  - current source type ignores dynamic criteria entirely and uses the fixed jobs route
+  - current source type still uses a direct-fetch adapter and ignores the logged-in browser app-state filter surface
   - persisted rows are dominated by `Founding Engineer` / engineering roles rather than PM+AI roles
   - current builder explicitly marks `title`, `hardIncludeTerms`, `location`, `datePosted`, and `minSalary` unsupported
 - Conclusion:
-  - extraction works
-  - query construction is not aligned with the JobFinder contract
+  - recovery should now be browser/app-state-driven: the live page exposes `data-page.props.jobs`, `currentRole`, and role links such as `/jobs/l/product-manager`, so fixing YC means moving it into the browser-capture family rather than patching the direct-fetch URL builder alone
 
 ## Recommendation
 
