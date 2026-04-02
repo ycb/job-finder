@@ -45,6 +45,22 @@ test("isIndeedJobUrl rejects known synthetic placeholder viewjob ids", () => {
     isIndeedJobUrl("https://www.indeed.com/viewjob?jk=123456789abcdef0"),
     false
   );
+  assert.equal(
+    isIndeedJobUrl("https://www.indeed.com/viewjob?jk=456789abcdef0123"),
+    false
+  );
+  assert.equal(
+    isIndeedJobUrl("https://www.indeed.com/viewjob?jk=890abcdef0123456"),
+    false
+  );
+  assert.equal(
+    isIndeedJobUrl("https://www.indeed.com/viewjob?jk=cdef0123456789ab"),
+    false
+  );
+  assert.equal(
+    isIndeedJobUrl("https://www.indeed.com/viewjob?jk=f1e2d3c4b5a67890"),
+    false
+  );
 });
 
 test("filterIndeedCapturedJobs removes salary and career rows from a mixed capture fixture", () => {

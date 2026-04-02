@@ -32,7 +32,11 @@ const INDEED_BLOCKED_URL_PATTERNS = Object.freeze([
 
 const INDEED_BLOCKED_JOB_IDS = new Set([
   "a1b2c3d4e5f67890",
-  "123456789abcdef0"
+  "123456789abcdef0",
+  "456789abcdef0123",
+  "890abcdef0123456",
+  "cdef0123456789ab",
+  "f1e2d3c4b5a67890"
 ]);
 
 function assertIndeedSource(source) {
