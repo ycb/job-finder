@@ -230,3 +230,23 @@ test("buildSearchUrlForSourceType returns accountability buckets for Indeed crit
   assert.deepEqual(result.criteriaAccountability.unsupported, ["experienceLevel"]);
   assert.deepEqual(result.unsupported, result.criteriaAccountability.unsupported);
 });
+
+test("buildSearchUrlForSourceType encodes YC browser search state in a deterministic product route", () => {
+  const result = buildSearchUrlForSourceType("yc_jobs", {
+    title: "product manager",
+    hardIncludeTerms: ["ai"],
+    location: "San Francisco, CA",
+    datePosted: "3d",
+    minSalary: 200000
+  });
+
+  const parsed = new URL(result.url);
+  assert.equal(parsed.origin, "https://www.workatastartup.com");
+  assert.equal(parsed.pathname, "/jobs/l/product-manager");
+  assert.equal(parsed.searchParams.get("search"), "product manager ai");
+  assert.equal(parsed.searchParams.get("location"), "San Francisco, CA");
+  assert.equal(parsed.searchParams.get("datePosted"), "3d");
+  assert.equal(parsed.searchParams.get("minSalary"), "200000");
+  assert.equal(result.criteriaAccountability.appliedInUrl.includes("title"), true);
+  assert.equal(result.criteriaAccountability.appliedPostCapture.includes("hardIncludeTerms"), true);
+});

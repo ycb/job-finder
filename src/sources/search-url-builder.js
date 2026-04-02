@@ -435,6 +435,19 @@ function combineTitleAndKeywords(criteria) {
   return [title, positiveQuery].filter(Boolean).join(" ").trim();
 }
 
+function buildYcRoleRoute(criteria) {
+  const title = normalizeText(criteria?.title).toLowerCase();
+  if (!title) {
+    return "/jobs";
+  }
+
+  if (/\b(product manager|head of product|director of product|vp product)\b/.test(title)) {
+    return "/jobs/l/product-manager";
+  }
+
+  return "/jobs";
+}
+
 function toLinkedInSalaryBucket(minSalary) {
   const normalized = normalizePositiveInt(minSalary);
   if (!normalized) {
@@ -987,27 +1000,52 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
   }
 
   if (sourceType === "yc_jobs") {
-    const providedFields = [
-      "title",
-      "keywords",
-      "keywordMode",
-      "hardIncludeTerms",
-      "includeTerms",
-      "location",
-      "distanceMiles",
-      "datePosted",
-      "experienceLevel",
-      "minSalary"
-    ];
-    for (const field of providedFields) {
-      if (criteria[field] !== undefined) {
-        criteriaAccountability.markUnsupported(field);
+    parsed.pathname = buildYcRoleRoute(criteria);
+    parsed.search = "";
+    parsed.hash = "";
+
+    if (criteria.title) {
+      criteriaAccountability.markAppliedInUrl("title");
+    }
+
+    const searchText = combineTitleAndKeywords(criteria);
+    if (searchText) {
+      parsed.searchParams.set("search", searchText);
+      if (criteria.keywords) criteriaAccountability.markAppliedPostCapture("keywords");
+      if (criteria.hardIncludeTerms) {
+        criteriaAccountability.markAppliedPostCapture("hardIncludeTerms");
+      }
+      if (criteria.includeTerms) {
+        criteriaAccountability.markAppliedPostCapture("includeTerms");
+      }
+      if (criteria.keywordMode) {
+        criteriaAccountability.markAppliedPostCapture("keywordMode");
       }
     }
 
-    notes.push(
-      "YC Jobs currently uses the fixed product-manager route; dynamic product criteria are not yet modeled."
-    );
+    if (criteria.location) {
+      parsed.searchParams.set("location", criteria.location);
+      criteriaAccountability.markAppliedPostCapture("location");
+    }
+
+    if (criteria.datePosted) {
+      parsed.searchParams.set("datePosted", criteria.datePosted);
+      criteriaAccountability.markAppliedPostCapture("datePosted");
+    }
+
+    if (criteria.minSalary) {
+      parsed.searchParams.set("minSalary", String(criteria.minSalary));
+      criteriaAccountability.markAppliedPostCapture("minSalary");
+    }
+
+    if (criteria.experienceLevel) {
+      parsed.searchParams.set("experienceLevel", criteria.experienceLevel);
+      criteriaAccountability.markAppliedPostCapture("experienceLevel");
+    }
+
+    if (criteria.distanceMiles) {
+      criteriaAccountability.markUnsupported("distanceMiles");
+    }
 
     const finalized = criteriaAccountability.finalize();
     return {

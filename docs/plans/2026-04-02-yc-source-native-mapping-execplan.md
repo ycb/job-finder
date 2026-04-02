@@ -14,11 +14,11 @@ This document is governed by `/Users/admin/job-finder/PLANS.md` and must be main
 - [x] (2026-04-02 19:41Z) Recorded the corrected design premise from stakeholder feedback in `docs/learnings.md`: source mapping must start from a complete source-native query/data inventory and split parameters into `universal` and `non-universal`, not ad hoc route shortcuts.
 - [x] (2026-04-02 23:57Z) Verified the logged-in YC browser page exposes authoritative app state in `data-page`, including `props.jobs`, `props.currentRole = "product"`, and `roleLinks` such as `/jobs/l/product-manager`.
 - [x] (2026-04-03 00:06Z) Verified direct `curl` probes ignore richer search params like `?query=`/`?search=` and that the current adapter architecture is therefore wrong for native YC parity.
-- [ ] Revise this plan and the source-regression parity matrix to reflect the browser/app-state recovery path instead of the old direct-fetch assumption.
-- [ ] Add failing tests for YC browser-capture dispatch, source contract accountability, and parser narrowing from explicit mapped search state.
-- [ ] Implement YC browser-capture support in the CLI/server/browser provider.
-- [ ] Implement native YC browser bootstrap + `data-page` extraction in `src/browser-bridge/providers/chrome-applescript.js` and `src/sources/yc-jobs.js`.
-- [ ] Update `config/source-contracts.json` to reflect the real native/post-capture split for YC.
+- [x] (2026-04-03 00:18Z) Revised this plan and the source-regression parity matrix to reflect the browser/app-state recovery path instead of the old direct-fetch assumption.
+- [x] (2026-04-03 00:28Z) Added failing tests for YC search-state parsing/accountability and contract behavior; old direct-fetch assumptions failed as expected.
+- [x] (2026-04-03 00:42Z) Implemented YC browser-capture support in the CLI/server/browser provider.
+- [x] (2026-04-03 00:42Z) Implemented browser/app-state extraction via `data-page.props.jobs` in `src/browser-bridge/providers/chrome-applescript.js` and explicit search-state filtering in `src/sources/yc-jobs.js`.
+- [x] (2026-04-03 00:32Z) Updated `config/source-contracts.json` to reflect the real native/post-capture split for YC.
 - [ ] Verify live YC behavior in QA and update roadmap/progress docs with evidence.
 
 ## Surprises & Discoveries
@@ -51,7 +51,7 @@ This document is governed by `/Users/admin/job-finder/PLANS.md` and must be main
 
 ## Outcomes & Retrospective
 
-This plan is revised after live YC inspection. The immediate outcome of this planning pass is a corrected design target: recover `YC Jobs` by honoring the source’s native logged-in search surface and extracting from browser app state, not by hiding behind a simplified route-family approximation or a direct-fetch builder patch.
+This plan is revised after live YC inspection. The immediate outcome of this planning pass is a corrected design target: recover `YC Jobs` by honoring the source’s native logged-in search surface and extracting from browser app state, not by hiding behind a simplified route-family approximation or a direct-fetch builder patch. As of 2026-04-03 00:42Z, the controller worktree implements that browser/app-state path and a synthetic canonical search produces a tight three-job PM-shaped set (`Staff Product Manager, Growth`, `Staff Product Manager, Identity Risk Solutions`, `Product Lead`) instead of a generic engineer/founder feed. The remaining work is QA-branch validation and source-row evidence.
 
 ## Context and Orientation
 
