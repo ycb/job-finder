@@ -438,3 +438,4 @@ As of 2026-03-06.
 - Do not conflate `bucket=reject` with `hardFiltered`. If the approved product contract says `Filtered` means hard-filter failure only, metric builders and tests must enforce that exactly.
 - Do not use `reject` as product language for rows that merely score low against current keywords. In this product, `hardFiltered` means ruled out; low-score rows are still valid opportunities and should be treated as "low signal" or similar, not true rejects.
 - For stakeholder QA of source quality, do not offer or silently use cached runs. Every QA-triggered search must execute live so run observations map directly to source query construction, extraction, and scoring behavior.
+- For Indeed MVP capture, do not run generic detail-page enrichment after search extraction. The product requirement is search, scroll, extract, and paginate only; fetching `viewjob` pages reintroduces bogus URLs and page-not-found failures that are outside MVP scope.

@@ -20,8 +20,7 @@ const INDEED_EXPECTED_COUNT_PATTERNS = Object.freeze([
 
 const INDEED_JOB_URL_PATTERNS = Object.freeze([
   /\/viewjob(?:[/?#]|$)/i,
-  /\/rc\/clk(?:[/?#]|$)/i,
-  /\/pagead\/clk(?:[/?#]|$)/i
+  /\/rc\/clk(?:[/?#]|$)/i
 ]);
 
 const INDEED_BLOCKED_URL_PATTERNS = Object.freeze([
@@ -29,6 +28,11 @@ const INDEED_BLOCKED_URL_PATTERNS = Object.freeze([
   /\/companies(?:[/?#]|$)/i,
   /\/career-advice(?:[/?#]|$)/i,
   /\/career(?:[/?#]|$)/i
+]);
+
+const INDEED_BLOCKED_JOB_IDS = new Set([
+  "a1b2c3d4e5f67890",
+  "123456789abcdef0"
 ]);
 
 function assertIndeedSource(source) {
@@ -64,6 +68,16 @@ export function parseIndeedExpectedCountText(text) {
 export function isIndeedJobUrl(url) {
   const normalized = String(url || "").trim();
   if (!normalized) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(normalized);
+    const jk = String(parsed.searchParams.get("jk") || "").trim().toLowerCase();
+    if (jk && INDEED_BLOCKED_JOB_IDS.has(jk)) {
+      return false;
+    }
+  } catch {
     return false;
   }
 

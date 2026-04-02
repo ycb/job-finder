@@ -318,7 +318,6 @@ export function enrichJobsWithDetailPages(sourceType, jobs, options = {}) {
     "builtin_search",
     "ashby_search",
     "google_search",
-    "indeed_search",
     "ziprecruiter_search"
   ]);
   if (!allowed.has(source)) {

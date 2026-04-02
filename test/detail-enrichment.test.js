@@ -90,3 +90,30 @@ test("enrichJobsWithDetailPages fills missing fields and sets provenance", () =>
   assert.equal(enriched[0].extractorProvenance.employmentType, "detail");
   assert.equal(enriched[0].extractorProvenance.location, "detail");
 });
+
+test("enrichJobsWithDetailPages skips detail fetches for Indeed MVP capture", () => {
+  const jobs = [
+    {
+      title: "Product Manager, Business AI",
+      company: "Example Co",
+      location: "San Francisco, CA",
+      postedAt: null,
+      salaryText: "$200,000 - $250,000",
+      employmentType: "Full-time",
+      description: "Card summary only",
+      url: "https://www.indeed.com/viewjob?jk=realjobid123"
+    }
+  ];
+
+  let fetchCount = 0;
+  const enriched = enrichJobsWithDetailPages("indeed_search", jobs, {
+    maxJobs: 1,
+    fetchHtml: () => {
+      fetchCount += 1;
+      return "<html></html>";
+    }
+  });
+
+  assert.equal(fetchCount, 0);
+  assert.deepEqual(enriched, jobs);
+});
