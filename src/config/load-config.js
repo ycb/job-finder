@@ -581,6 +581,25 @@ export function loadSourcesWithPath(
     searchCriteria
   );
   const validated = validateSources({ sources: normalized.sources });
+  const preserveDerivedMapModeFields =
+    normalized.mode !== "array"
+      ? validated.sources.map((source, index) => ({
+          ...source,
+          searchUrl:
+            String(normalized.sources[index]?.searchUrl || "").trim() ||
+            String(source.searchUrl || "").trim(),
+          criteriaAccountability:
+            normalized.sources[index]?.criteriaAccountability ??
+            source.criteriaAccountability,
+          formatterDiagnostics:
+            normalized.sources[index]?.formatterDiagnostics ??
+            source.formatterDiagnostics,
+          recencyWindow:
+            normalized.sources[index]?.recencyWindow ?? source.recencyWindow,
+          capturePath:
+            normalized.sources[index]?.capturePath ?? source.capturePath
+        }))
+      : validated.sources;
 
   if (changed && normalized.mode === "array") {
     fs.writeFileSync(resolvedPath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
@@ -588,7 +607,7 @@ export function loadSourcesWithPath(
 
   return {
     path: resolvedPath,
-    sources: validated.sources
+    sources: preserveDerivedMapModeFields
   };
 }
 
@@ -720,6 +739,8 @@ function ensureDerivedSourceMetadata(sources, resolvedPath, globalSearchCriteria
       source.type !== "ashby_search" &&
       source.type !== "indeed_search" &&
       source.type !== "ziprecruiter_search" &&
+      source.type !== "yc_jobs" &&
+      source.type !== "levelsfyi_search" &&
       source.type !== "remoteok_search"
     ) {
       continue;
@@ -932,6 +953,8 @@ function syncCaptureFileMetadata(source) {
       source.type !== "ashby_search" &&
       source.type !== "indeed_search" &&
       source.type !== "ziprecruiter_search" &&
+      source.type !== "yc_jobs" &&
+      source.type !== "levelsfyi_search" &&
       source.type !== "remoteok_search")
   ) {
     return;
