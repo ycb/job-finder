@@ -184,6 +184,7 @@ export function buildSourceRunSemanticMetrics({
 
   const seenIncomingHashes = new Set();
   const keptNormalizedHashes = new Set();
+  const importedKeptJobIds = [];
   let rawFoundCount = 0;
   let hardFilteredCount = 0;
   let duplicateCollapsedCount = 0;
@@ -208,6 +209,9 @@ export function buildSourceRunSemanticMetrics({
     }
 
     importedKeptCount += 1;
+    if (job?.id !== null && job?.id !== undefined && String(job.id).trim()) {
+      importedKeptJobIds.push(String(job.id).trim());
+    }
 
     if (normalizedHash) {
       seenIncomingHashes.add(normalizedHash);
@@ -220,6 +224,7 @@ export function buildSourceRunSemanticMetrics({
     hardFilteredCount,
     duplicateCollapsedCount,
     importedKeptCount,
+    importedKeptJobIds,
     keptNormalizedHashes
   };
 }

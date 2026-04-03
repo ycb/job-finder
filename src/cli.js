@@ -694,6 +694,9 @@ function runSync(options = {}) {
       evaluations: sourceEvaluations,
       knownDuplicateHashes
     });
+    const importedKeptJobIds = new Set(semanticMetrics.importedKeptJobIds);
+    const importedKeptJobs = normalizedJobs.filter((job) => importedKeptJobIds.has(String(job.id)));
+    const nonImportedJobs = normalizedJobs.filter((job) => !importedKeptJobIds.has(String(job.id)));
     const refreshContext = buildSourceRefreshContext(source, {
       ...options,
       currentCapturedAt: capturePayload.capturedAt,
@@ -701,7 +704,8 @@ function runSync(options = {}) {
     });
 
     totalCollected += normalizedJobs.length;
-    totalUpserted += upsertJobs(db, normalizedJobs, { lastImportBatchId: runId });
+    totalUpserted += upsertJobs(db, importedKeptJobs, { lastImportBatchId: runId });
+    totalUpserted += upsertJobs(db, nonImportedJobs, { lastImportBatchId: null });
     totalPruned += pruneSourceJobs(
       db,
       source.id,

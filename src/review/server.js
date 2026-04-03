@@ -1391,13 +1391,17 @@ function runSyncAndScore(options = {}) {
         evaluations: sourceEvaluations,
         knownDuplicateHashes
       });
+      const importedKeptJobIds = new Set(semanticMetrics.importedKeptJobIds);
+      const importedKeptJobs = normalizedJobs.filter((job) => importedKeptJobIds.has(String(job.id)));
+      const nonImportedJobs = normalizedJobs.filter((job) => !importedKeptJobIds.has(String(job.id)));
       const refreshMeta = buildSourceRefreshMeta(source, {
         currentCapturedAt: capturePayload.capturedAt,
         recordedAt: runRecordedAt
       });
 
       totalCollected += normalizedJobs.length;
-      totalUpserted += upsertJobs(db, normalizedJobs, { lastImportBatchId: runId });
+      totalUpserted += upsertJobs(db, importedKeptJobs, { lastImportBatchId: runId });
+      totalUpserted += upsertJobs(db, nonImportedJobs, { lastImportBatchId: null });
       totalPruned += pruneSourceJobs(
         db,
         source.id,
@@ -1742,6 +1746,35 @@ async function runAuthPreflightForEnabledSources(options = {}) {
 
 async function runAllCaptures() {
   return runAllCapturesWithOptions({});
+}
+
+export async function handleRunAllSourcesRequest(parsedBody = {}, overrides = {}) {
+  const applySourceQaOverridesFn =
+    overrides.applySourceQaOverridesFn || applySourceQaOverrides;
+  const normalizeRefreshProfileFn =
+    overrides.normalizeRefreshProfileFn || normalizeRefreshProfile;
+  const runAllCapturesWithOptionsFn =
+    overrides.runAllCapturesWithOptionsFn || runAllCapturesWithOptions;
+
+  const qaRunOptions = applySourceQaOverridesFn({
+    refreshProfile:
+      typeof parsedBody.refreshProfile === "string"
+        ? parsedBody.refreshProfile
+        : undefined,
+    forceRefresh: parsedBody.forceRefresh === true
+  });
+  const refreshProfile =
+    typeof qaRunOptions.refreshProfile === "string"
+      ? qaRunOptions.refreshProfile
+      : undefined;
+  const normalizedRefreshProfile = normalizeRefreshProfileFn(refreshProfile || "safe");
+  const forceRefresh = qaRunOptions.forceRefresh === true;
+  const result = await runAllCapturesWithOptionsFn({
+    refreshProfile: normalizedRefreshProfile,
+    forceRefresh
+  });
+
+  return { ok: true, ...result };
 }
 
 export async function runAllCapturesWithOptions(options = {}, overrides = {}) {
@@ -7802,41 +7835,7 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
       if (request.method === "POST" && url.pathname === "/api/sources/run-all") {
         const rawBody = await readRequestBody(request);
         const parsedBody = rawBody ? JSON.parse(rawBody) : {};
-        const qaRunOptions = applySourceQaOverrides({
-          refreshProfile:
-            typeof parsedBody.refreshProfile === "string"
-              ? parsedBody.refreshProfile
-              : undefined,
-          forceRefresh: parsedBody.forceRefresh === true
-        });
-        const refreshProfile =
-          typeof qaRunOptions.refreshProfile === "string"
-            ? qaRunOptions.refreshProfile
-            : undefined;
-        const normalizedRefreshProfile = normalizeRefreshProfile(refreshProfile || "safe");
-        const forceRefresh = qaRunOptions.forceRefresh === true;
-        const skipAuthPreflight = parsedBody.skipAuthPreflight === true;
-        if (!skipAuthPreflight) {
-          const blockedSources = await runAuthPreflightForEnabledSources({
-            refreshProfile: normalizedRefreshProfile
-          });
-          if (blockedSources.length > 0) {
-            response.writeHead(409, { "Content-Type": "application/json; charset=utf-8" });
-            response.end(
-              JSON.stringify({
-                error:
-                  "Sign-in is required for one or more enabled sources before running searches.",
-                requiresAuthCheck: true,
-                authSources: blockedSources
-              })
-            );
-            return;
-          }
-        }
-        const result = await runAllCapturesWithOptions({
-          refreshProfile: normalizedRefreshProfile,
-          forceRefresh
-        });
+        const result = await handleRunAllSourcesRequest(parsedBody);
         incrementMonthlySearchUsage();
         const settings = loadUserSettings().settings;
         const effectiveChannel = getEffectiveOnboardingChannel(settings);
@@ -7845,7 +7844,7 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
             "sources_run_all",
             {
               captureCount: Array.isArray(result?.captures) ? result.captures.length : 0,
-              forceRefresh
+              forceRefresh: parsedBody.forceRefresh === true
             },
             {
               installId: settings.installId,
@@ -7857,7 +7856,7 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
           }
         );
         response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
-        response.end(JSON.stringify({ ok: true, ...result }));
+        response.end(JSON.stringify(result));
         return;
       }
 

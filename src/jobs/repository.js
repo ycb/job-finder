@@ -12,6 +12,10 @@ function sourceRunPreferenceSql(alias) {
 }
 
 export function upsertJobs(db, jobs, options = {}) {
+  const hasExplicitLastImportBatchId = Object.prototype.hasOwnProperty.call(
+    options || {},
+    "lastImportBatchId"
+  );
   const lastImportBatchId =
     typeof options?.lastImportBatchId === "string" && options.lastImportBatchId.trim()
       ? options.lastImportBatchId.trim()
@@ -53,7 +57,10 @@ export function upsertJobs(db, jobs, options = {}) {
       structured_meta = excluded.structured_meta,
       metadata_quality_score = excluded.metadata_quality_score,
       missing_required_fields = excluded.missing_required_fields,
-      last_import_batch_id = COALESCE(excluded.last_import_batch_id, jobs.last_import_batch_id),
+      last_import_batch_id = CASE
+        WHEN ? = 1 THEN excluded.last_import_batch_id
+        ELSE COALESCE(excluded.last_import_batch_id, jobs.last_import_batch_id)
+      END,
       updated_at = excluded.updated_at;
   `);
 
@@ -85,7 +92,8 @@ export function upsertJobs(db, jobs, options = {}) {
         : null,
       lastImportBatchId,
       job.createdAt,
-      job.updatedAt
+      job.updatedAt,
+      hasExplicitLastImportBatchId ? 1 : 0
     );
 
     if (result.changes > 0) {
