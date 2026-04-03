@@ -2234,6 +2234,18 @@ function buildDashboardData(limit = 200) {
         captureExpectedCount: foundCount,
         importVerification,
         pageUrl: capture.pageUrl,
+        captureDiagnostics:
+          capture.payload?.captureDiagnostics &&
+          typeof capture.payload.captureDiagnostics === "object" &&
+          !Array.isArray(capture.payload.captureDiagnostics)
+            ? capture.payload.captureDiagnostics
+            : null,
+        captureTelemetry:
+          capture.payload?.captureTelemetry &&
+          typeof capture.payload.captureTelemetry === "object" &&
+          !Array.isArray(capture.payload.captureTelemetry)
+            ? capture.payload.captureTelemetry
+            : null,
         captureStatus,
         totalCount: counts.totalCount,
         activeCount: counts.activeCount,

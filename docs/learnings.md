@@ -218,6 +218,11 @@ As of 2026-03-06.
 - Do not surface cache internals in user-facing status labels. Cache behavior is controlled by the toggle; status UI should stay focused on readiness/attention only.
 - Treat "z-index-looking" overlay bugs in the React UI as potential token/class mismatches first (for example `bg-popover` without a defined `popover` token can render transparent and mimic stacking issues).
 - When defaulting users to `Enabled` for orientation, add concise guidance that points to `Disabled` for auth-required enablement.
+
+## Source QA Closeout Discipline
+
+- When QA feedback spans multiple sources plus shared orchestration/accounting defects, stop handling issues piecemeal and create one closeout ExecPlan. Otherwise the team can "fix" individual sources while the shared run behavior remains misleading.
+- Treat "fixed pending QA" as a real status for source work that has code/test evidence but has not yet been validated in a fresh end-to-end QA run. Do not promote those fixes to closed until the live run proves them.
 - In `Disabled`, `Enable` must be a prominent primary row action; do not hide primary source actions inside overflow.
 - Remove overflow menus from `Disabled` rows entirely to reduce duplicate affordances; keep overflow for `Enabled` row secondary actions only.
 - For auth-required source enablement, enforce one-source-at-a-time with a guided modal flow (`Open source` -> user signs in -> `I'm logged in` auth probe).

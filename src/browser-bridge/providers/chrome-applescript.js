@@ -229,6 +229,93 @@ function readAutomationTabInfo() {
   };
 }
 
+function uniqueOrderedStrings(values = []) {
+  const seen = new Set();
+  const output = [];
+  for (const value of values) {
+    const normalized = String(value || "").trim();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    output.push(normalized);
+  }
+  return output;
+}
+
+function pickDetectedFilterState(sourceType, captureDiagnostics) {
+  const diagnostics =
+    captureDiagnostics &&
+    typeof captureDiagnostics === "object" &&
+    !Array.isArray(captureDiagnostics)
+      ? captureDiagnostics
+      : null;
+  if (!diagnostics) {
+    return null;
+  }
+
+  if (sourceType === "indeed_search") {
+    const filterState = {
+      queryValue: String(diagnostics.queryValue || "").trim() || null,
+      locationValue: String(diagnostics.locationValue || "").trim() || null,
+      appliedPayFilter: String(diagnostics.appliedPayFilter || "").trim() || null,
+      appliedDatePostedFilter:
+        String(diagnostics.appliedDatePostedFilter || "").trim() || null,
+      appliedDistanceFilter:
+        String(diagnostics.appliedDistanceFilter || "").trim() || null
+    };
+    return Object.values(filterState).some(Boolean) ? filterState : null;
+  }
+
+  return null;
+}
+
+function buildCaptureTelemetry(source, payload = {}, options = {}) {
+  const startedAt =
+    typeof options.startedAt === "string" && options.startedAt.trim()
+      ? options.startedAt
+      : new Date().toISOString();
+  const finishedAt = new Date().toISOString();
+  const tabInfo = options.tabInfo && typeof options.tabInfo === "object" ? options.tabInfo : {};
+  const finalUrl = String(tabInfo.url || payload.pageUrl || source?.searchUrl || "").trim() || null;
+  const visitedUrls = uniqueOrderedStrings([
+    source?.searchUrl,
+    payload?.pageUrl,
+    ...(Array.isArray(payload?.visitedUrls) ? payload.visitedUrls : []),
+    finalUrl
+  ]);
+  const pageTitlesVisited = uniqueOrderedStrings([
+    ...(Array.isArray(payload?.pageTitlesVisited) ? payload.pageTitlesVisited : []),
+    tabInfo.title
+  ]);
+  const pageCountVisited = Number(
+    payload?.captureDiagnostics?.pageCountVisited ?? payload?.pageCountVisited ?? 1
+  );
+  const stopReason = String(
+    payload?.captureDiagnostics?.stopReason || payload?.stopReason || "completed"
+  ).trim();
+
+  return {
+    sourceId: String(source?.id || "").trim() || null,
+    provider: "chrome_applescript",
+    status: String(options.status || "live_success"),
+    triggeredAt: startedAt,
+    finishedAt,
+    initialUrl: String(source?.searchUrl || "").trim() || null,
+    visitedUrls,
+    finalUrl,
+    pageTitlesVisited,
+    pageCountVisited: Number.isFinite(pageCountVisited) && pageCountVisited > 0
+      ? Math.round(pageCountVisited)
+      : null,
+    captureCountByPage: Array.isArray(payload?.captureCountByPage)
+      ? payload.captureCountByPage
+      : null,
+    stopReason: stopReason || null,
+    detectedFilterState: pickDetectedFilterState(source?.type, payload?.captureDiagnostics)
+  };
+}
+
 const AUTH_REQUIRED_SOURCE_TYPES = new Set([
   "linkedin_capture_file",
   "yc_jobs",
@@ -4221,6 +4308,7 @@ export function captureLinkedInSourceWithChromeAppleScript(
     throw new Error("Chrome AppleScript capture requires a linkedin_capture_file source.");
   }
 
+  const startedAt = new Date().toISOString();
   const payload = readLinkedInJobsFromChrome(source.searchUrl, {
     ...options,
     timeoutMs:
@@ -4240,13 +4328,18 @@ export function captureLinkedInSourceWithChromeAppleScript(
         : options.maxIdleScrollSteps
   });
   const enrichedJobs = applySearchFilterInferences(source, payload.jobs);
+  const telemetry = buildCaptureTelemetry(source, payload, {
+    startedAt,
+    tabInfo: readAutomationTabInfo()
+  });
 
   return {
     ...writeLinkedInCaptureFile(source, enrichedJobs, {
       capturedAt: payload.capturedAt,
       pageUrl: payload.pageUrl,
       expectedCount: payload.expectedCount,
-      captureDiagnostics: payload.captureDiagnostics
+      captureDiagnostics: payload.captureDiagnostics,
+      captureTelemetry: telemetry
     }),
     provider: "chrome_applescript",
     status: "completed"
@@ -4262,14 +4355,20 @@ export function captureYcSourceWithChromeAppleScript(
     throw new Error("Chrome AppleScript capture requires a yc_jobs source.");
   }
 
+  const startedAt = new Date().toISOString();
   const payload = readYcJobsFromChrome(source.searchUrl, options);
   const enrichedJobs = applySearchFilterInferences(source, payload.jobs);
+  const telemetry = buildCaptureTelemetry(source, payload, {
+    startedAt,
+    tabInfo: readAutomationTabInfo()
+  });
 
   return {
     ...writeYcCaptureFile(source, enrichedJobs, {
       capturedAt: payload.capturedAt,
       pageUrl: payload.pageUrl,
-      expectedCount: payload.expectedCount
+      expectedCount: payload.expectedCount,
+      captureTelemetry: telemetry
     }),
     provider: "chrome_applescript",
     status: "completed"
@@ -4285,17 +4384,23 @@ export function captureWellfoundSourceWithChromeAppleScript(
     throw new Error("Chrome AppleScript capture requires a wellfound_search source.");
   }
 
+  const startedAt = new Date().toISOString();
   const payload = readWellfoundJobsFromChrome(source.searchUrl, options);
   const enrichedJobs = applySearchFilterInferences(
     source,
     runDetailEnrichment(source, payload.jobs, options)
   );
+  const telemetry = buildCaptureTelemetry(source, payload, {
+    startedAt,
+    tabInfo: readAutomationTabInfo()
+  });
 
   return {
     ...writeWellfoundCaptureFile(source, enrichedJobs, {
       capturedAt: payload.capturedAt,
       pageUrl: payload.pageUrl,
-      expectedCount: payload.expectedCount
+      expectedCount: payload.expectedCount,
+      captureTelemetry: telemetry
     }),
     provider: "chrome_applescript",
     status: "completed"
@@ -4311,6 +4416,7 @@ export function captureAshbySourceWithChromeAppleScript(
     throw new Error("Chrome AppleScript capture requires an ashby_search source.");
   }
 
+  const startedAt = new Date().toISOString();
   const payload = readAshbyJobsFromChrome(source.searchUrl, {
     ...options,
     maxBoards: Number(source.maxBoards) > 0 ? Number(source.maxBoards) : options.maxBoards
@@ -4319,12 +4425,17 @@ export function captureAshbySourceWithChromeAppleScript(
     source,
     runDetailEnrichment(source, payload.jobs, options)
   );
+  const telemetry = buildCaptureTelemetry(source, payload, {
+    startedAt,
+    tabInfo: readAutomationTabInfo()
+  });
 
   return {
     ...writeAshbyCaptureFile(source, enrichedJobs, {
       capturedAt: payload.capturedAt,
       pageUrl: payload.pageUrl,
-      expectedCount: payload.expectedCount
+      expectedCount: payload.expectedCount,
+      captureTelemetry: telemetry
     }),
     provider: "chrome_applescript",
     status: "completed"
@@ -4341,6 +4452,7 @@ export function captureIndeedSourceWithChromeAppleScript(
   }
 
   const nativeFilterState = getIndeedNativeFilterState(source);
+  const startedAt = new Date().toISOString();
   const payload = readIndeedJobsFromChrome(source.searchUrl, {
     ...options,
     nativeFilterState,
@@ -4352,13 +4464,18 @@ export function captureIndeedSourceWithChromeAppleScript(
       runDetailEnrichment(source, payload.jobs, options)
     )
   );
+  const telemetry = buildCaptureTelemetry(source, payload, {
+    startedAt,
+    tabInfo: readAutomationTabInfo()
+  });
 
   return {
     ...writeIndeedCaptureFile(source, enrichedJobs, {
       capturedAt: payload.capturedAt,
       pageUrl: payload.pageUrl,
       expectedCount: payload.expectedCount,
-      captureDiagnostics: payload.captureDiagnostics || nativeFilterState
+      captureDiagnostics: payload.captureDiagnostics || nativeFilterState,
+      captureTelemetry: telemetry
     }),
     provider: "chrome_applescript",
     status: "completed"
@@ -4374,17 +4491,23 @@ export function captureGoogleSourceWithChromeAppleScript(
     throw new Error("Chrome AppleScript capture requires a google_search source.");
   }
 
+  const startedAt = new Date().toISOString();
   const payload = readGoogleJobsFromChrome(source.searchUrl, options);
   const enrichedJobs = applySearchFilterInferences(
     source,
     runDetailEnrichment(source, payload.jobs, options)
   );
+  const telemetry = buildCaptureTelemetry(source, payload, {
+    startedAt,
+    tabInfo: readAutomationTabInfo()
+  });
 
   return {
     ...writeGoogleCaptureFile(source, enrichedJobs, {
       capturedAt: payload.capturedAt,
       pageUrl: payload.pageUrl,
-      expectedCount: payload.expectedCount
+      expectedCount: payload.expectedCount,
+      captureTelemetry: telemetry
     }),
     provider: "chrome_applescript",
     status: "completed"
@@ -4400,6 +4523,7 @@ export function captureZipRecruiterSourceWithChromeAppleScript(
     throw new Error("Chrome AppleScript capture requires a ziprecruiter_search source.");
   }
 
+  const startedAt = new Date().toISOString();
   const payload = readZipRecruiterJobsFromChrome(source.searchUrl, {
     ...options,
     timeoutMs:
@@ -4414,12 +4538,17 @@ export function captureZipRecruiterSourceWithChromeAppleScript(
     source,
     runDetailEnrichment(source, payload.jobs, options)
   );
+  const telemetry = buildCaptureTelemetry(source, payload, {
+    startedAt,
+    tabInfo: readAutomationTabInfo()
+  });
 
   return {
     ...writeZipRecruiterCaptureFile(source, enrichedJobs, {
       capturedAt: payload.capturedAt,
       pageUrl: payload.pageUrl,
-      expectedCount: payload.expectedCount
+      expectedCount: payload.expectedCount,
+      captureTelemetry: telemetry
     }),
     provider: "chrome_applescript",
     status: "completed"
@@ -4435,13 +4564,19 @@ export function captureRemoteOkSourceWithChromeAppleScript(
     throw new Error("Chrome AppleScript capture requires a remoteok_search source.");
   }
 
+  const startedAt = new Date().toISOString();
   const payload = readRemoteOkJobsFromChrome(source.searchUrl, options);
+  const telemetry = buildCaptureTelemetry(source, payload, {
+    startedAt,
+    tabInfo: readAutomationTabInfo()
+  });
 
   return {
     ...writeRemoteOkCaptureFile(source, payload.jobs, {
       capturedAt: payload.capturedAt,
       pageUrl: payload.pageUrl,
-      expectedCount: payload.expectedCount
+      expectedCount: payload.expectedCount,
+      captureTelemetry: telemetry
     }),
     provider: "chrome_applescript",
     status: "completed"
