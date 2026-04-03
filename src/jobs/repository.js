@@ -317,6 +317,35 @@ export function countSourceJobsInBatch(db, sourceId, batchId) {
   return Math.max(0, Math.round(Number(row?.count) || 0));
 }
 
+export function countActiveJobsByIds(db, jobIds = []) {
+  const normalizedJobIds = Array.from(
+    new Set(
+      (Array.isArray(jobIds) ? jobIds : [])
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+    )
+  );
+
+  if (normalizedJobIds.length === 0) {
+    return 0;
+  }
+
+  const placeholders = normalizedJobIds.map(() => "?").join(", ");
+  const row = db
+    .prepare(
+      `
+      SELECT COUNT(*) AS count
+      FROM jobs j
+      LEFT JOIN applications a ON a.job_id = j.id
+      WHERE j.id IN (${placeholders})
+        AND COALESCE(a.status, 'new') IN ('new', 'viewed');
+    `
+    )
+    .get(...normalizedJobIds);
+
+  return Math.max(0, Math.round(Number(row?.count) || 0));
+}
+
 export function listAllNormalizedHashes(db) {
   return db
     .prepare(

@@ -222,7 +222,7 @@ test("buildJobsPresentationalModel separates new and unread cohorts", () => {
   );
 });
 
-test("buildJobsPresentationalModel excludes reject-bucket jobs from active views", () => {
+test("buildJobsPresentationalModel keeps low-signal jobs in active views unless hard-filtered", () => {
   const model = buildJobsPresentationalModel({
     dashboard: {
       queue: [
@@ -242,7 +242,7 @@ test("buildJobsPresentationalModel excludes reject-bucket jobs from active views
           company: "Beta",
           location: "San Francisco, CA",
           bucket: "reject",
-          hardFiltered: 1,
+          hardFiltered: 0,
           status: "new",
           isNew: true,
           isUnread: true,
@@ -254,10 +254,10 @@ test("buildJobsPresentationalModel excludes reject-bucket jobs from active views
     },
   });
 
-  assert.equal(model.controls.viewOptions.find((option) => option.value === "all")?.count, 1);
-  assert.equal(model.controls.viewOptions.find((option) => option.value === "new")?.count, 1);
-  assert.equal(model.controls.viewOptions.find((option) => option.value === "unread")?.count, 1);
-  assert.deepEqual(model.queue.jobs.map((job) => job.id), ["job-valid"]);
+  assert.equal(model.controls.viewOptions.find((option) => option.value === "all")?.count, 2);
+  assert.equal(model.controls.viewOptions.find((option) => option.value === "new")?.count, 2);
+  assert.equal(model.controls.viewOptions.find((option) => option.value === "unread")?.count, 2);
+  assert.deepEqual(model.queue.jobs.map((job) => job.id), ["job-valid", "job-reject"]);
 });
 
 test("buildJobsPresentationalModel maps scoring buckets to user-facing labels", () => {

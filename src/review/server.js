@@ -45,6 +45,7 @@ import { filterActiveQueueJobs, isActiveQueueJob } from "../jobs/active-queue.js
 import { normalizeJobRecord } from "../jobs/normalize.js";
 import { applyRetentionPolicyCleanup, writeRetentionCleanupAudit } from "../jobs/retention.js";
 import {
+  countActiveJobsByIds,
   getLatestImportedRunId,
   listAllJobs,
   listAllJobsWithStatus,
@@ -1423,7 +1424,7 @@ function runSyncAndScore(options = {}) {
         newCount: deltas.newCount,
         updatedCount: deltas.updatedCount,
         unchangedCount: deltas.unchangedCount,
-        importedCount: semanticMetrics.importedKeptCount,
+        importedCount: countActiveJobsByIds(db, semanticMetrics.importedKeptJobIds),
         refreshMode: refreshMeta.refreshMode,
         servedFrom: refreshMeta.servedFrom,
         statusReason: refreshMeta.statusReason,
@@ -2181,8 +2182,8 @@ function buildDashboardData(limit = 200) {
           : null;
       const latestTrustedRunImportedCount =
         latestRunDelta?.servedFrom === "live" &&
-        hasCountValue(latestRunDelta?.importedKeptCount)
-          ? normalizeCount(latestRunDelta.importedKeptCount)
+        hasCountValue(latestRunDelta?.importedCount)
+          ? normalizeCount(latestRunDelta.importedCount)
           : null;
       const captureStatus = isFileBackedCapture ? capture.status : "ready";
       const capturedAt = pickLatestTimestamp(

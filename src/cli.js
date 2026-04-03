@@ -44,6 +44,7 @@ import { runMigrations } from "./db/migrations.js";
 import { normalizeJobRecord } from "./jobs/normalize.js";
 import { applyRetentionPolicyCleanup, writeRetentionCleanupAudit } from "./jobs/retention.js";
 import {
+  countActiveJobsByIds,
   listAllJobs,
   listNormalizedHashesOutsideSources,
   listSourceJobsForDelta,
@@ -727,7 +728,7 @@ function runSync(options = {}) {
       newCount: deltas.newCount,
       updatedCount: deltas.updatedCount,
       unchangedCount: deltas.unchangedCount,
-      importedCount: semanticMetrics.importedKeptCount,
+      importedCount: countActiveJobsByIds(db, semanticMetrics.importedKeptJobIds),
       refreshMode: refreshContext.refreshMode,
       servedFrom: refreshContext.servedFrom,
       statusReason: refreshContext.statusReason,

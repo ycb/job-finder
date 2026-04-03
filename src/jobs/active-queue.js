@@ -16,7 +16,7 @@ export function isActiveQueueJob(job) {
     return false;
   }
 
-  return normalizeBucket(job?.bucket) !== "reject";
+  return true;
 }
 
 export function filterActiveQueueJobs(jobs = []) {
