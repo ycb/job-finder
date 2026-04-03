@@ -45,6 +45,7 @@ import { normalizeJobRecord } from "./jobs/normalize.js";
 import { applyRetentionPolicyCleanup, writeRetentionCleanupAudit } from "./jobs/retention.js";
 import {
   countActiveJobsByIds,
+  finalizeSourceRunDeltasForBatch,
   listAllJobs,
   listNormalizedHashesOutsideSources,
   listSourceJobsForDelta,
@@ -802,14 +803,18 @@ function runSync(options = {}) {
       rejected_count: skippedByQuality
     });
   }
+  return runId;
 }
 
-function runScore() {
+function runScore(runId = null) {
   const { criteria } = loadSearchCriteria();
   const { db } = withDatabase();
   const jobs = listAllJobs(db);
   const evaluations = evaluateJobsFromSearchCriteria(criteria, jobs);
   upsertEvaluations(db, evaluations);
+  if (runId) {
+    finalizeSourceRunDeltasForBatch(db, runId);
+  }
   const bucketCounts = summarizeBuckets(evaluations);
 
   db.close();
@@ -2022,11 +2027,11 @@ async function runPipeline(options = {}) {
     console.log("No enabled browser-capture sources. Skipping browser capture.");
   }
 
-  runSync({
+  const runId = runSync({
     allowQuarantined: options.allowQuarantined,
     sourceIds: syncSourceIds
   });
-  runScore();
+  runScore(runId);
   runShortlist();
   runList(10);
   console.log("Pipeline complete. Start the dashboard with: npm run review");

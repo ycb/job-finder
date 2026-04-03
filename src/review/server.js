@@ -46,6 +46,7 @@ import { normalizeJobRecord } from "../jobs/normalize.js";
 import { applyRetentionPolicyCleanup, writeRetentionCleanupAudit } from "../jobs/retention.js";
 import {
   countActiveJobsByIds,
+  finalizeSourceRunDeltasForBatch,
   getLatestImportedRunId,
   listAllJobs,
   listAllJobsWithStatus,
@@ -1445,6 +1446,7 @@ function runSyncAndScore(options = {}) {
     const jobs = listAllJobs(db);
     const evaluations = evaluateJobsFromSearchCriteria(criteria, jobs);
     upsertEvaluations(db, evaluations);
+    finalizeSourceRunDeltasForBatch(db, runId);
 
     return {
       runId,

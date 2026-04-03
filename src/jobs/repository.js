@@ -337,13 +337,84 @@ export function countActiveJobsByIds(db, jobIds = []) {
       SELECT COUNT(*) AS count
       FROM jobs j
       LEFT JOIN applications a ON a.job_id = j.id
+      LEFT JOIN evaluations e ON e.job_id = j.id
       WHERE j.id IN (${placeholders})
-        AND COALESCE(a.status, 'new') IN ('new', 'viewed');
+        AND COALESCE(a.status, 'new') IN ('new', 'viewed')
+        AND COALESCE(e.hard_filtered, 0) = 0;
     `
     )
     .get(...normalizedJobIds);
 
   return Math.max(0, Math.round(Number(row?.count) || 0));
+}
+
+export function finalizeSourceRunDeltasForBatch(db, runId) {
+  const normalizedRunId = String(runId || "").trim();
+  if (!normalizedRunId) {
+    return 0;
+  }
+
+  const rows = db
+    .prepare(
+      `
+      SELECT DISTINCT source_id AS sourceId
+      FROM source_run_deltas
+      WHERE run_id = ?;
+    `
+    )
+    .all(normalizedRunId);
+
+  if (!rows.length) {
+    return 0;
+  }
+
+  const summarizeSourceBatch = db.prepare(`
+    SELECT
+      COUNT(*) AS importedKeptCount,
+      SUM(CASE WHEN COALESCE(e.hard_filtered, 0) = 1 THEN 1 ELSE 0 END) AS hardFilteredCount,
+      SUM(
+        CASE
+          WHEN COALESCE(a.status, 'new') IN ('new', 'viewed')
+            AND COALESCE(e.hard_filtered, 0) = 0
+          THEN 1
+          ELSE 0
+        END
+      ) AS importedCount
+    FROM jobs j
+    LEFT JOIN evaluations e ON e.job_id = j.id
+    LEFT JOIN applications a ON a.job_id = j.id
+    WHERE j.last_import_batch_id = ?
+      AND j.source_id = ?;
+  `);
+
+  const updateDelta = db.prepare(`
+    UPDATE source_run_deltas
+    SET
+      hard_filtered_count = ?,
+      imported_kept_count = ?,
+      imported_count = ?
+    WHERE run_id = ?
+      AND source_id = ?;
+  `);
+
+  let updated = 0;
+  for (const row of rows) {
+    const sourceId = String(row?.sourceId || "").trim();
+    if (!sourceId) {
+      continue;
+    }
+    const summary = summarizeSourceBatch.get(normalizedRunId, sourceId);
+    updateDelta.run(
+      Math.max(0, Math.round(Number(summary?.hardFilteredCount) || 0)),
+      Math.max(0, Math.round(Number(summary?.importedKeptCount) || 0)),
+      Math.max(0, Math.round(Number(summary?.importedCount) || 0)),
+      normalizedRunId,
+      sourceId
+    );
+    updated += 1;
+  }
+
+  return updated;
 }
 
 export function listAllNormalizedHashes(db) {
