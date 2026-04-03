@@ -232,6 +232,14 @@ export function writeSourceCapturePayload(source, jobs, options = {}) {
     payload.expectedCount = expectedCount;
   }
 
+  if (
+    options.captureDiagnostics &&
+    typeof options.captureDiagnostics === "object" &&
+    !Array.isArray(options.captureDiagnostics)
+  ) {
+    payload.captureDiagnostics = options.captureDiagnostics;
+  }
+
   const rawFunnel = options.captureFunnel;
   if (rawFunnel && typeof rawFunnel === "object" && !Array.isArray(rawFunnel)) {
     const normalizeCount = (value) => {

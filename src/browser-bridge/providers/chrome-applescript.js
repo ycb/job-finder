@@ -5,6 +5,7 @@ import { writeAshbyCaptureFile } from "../../sources/ashby-jobs.js";
 import { writeGoogleCaptureFile } from "../../sources/google-jobs.js";
 import {
   filterIndeedCapturedJobs,
+  getIndeedNativeFilterState,
   INDEED_EXPECTED_COUNT_SELECTORS,
   writeIndeedCaptureFile
 } from "../../sources/indeed-jobs.js";
@@ -2652,10 +2653,11 @@ function readGenericBoardJobsFromChrome(searchUrl, extractionScript, options = {
   );
 }
 
-function buildIndeedExtractionScript() {
+function buildIndeedExtractionScript(nativeFilterState = null) {
   return `
 (() => {
   try {
+    const nativeFilterState = ${JSON.stringify(nativeFilterState || null)};
     const normalize = (value) =>
       typeof value === "string" ? value.replace(/\\s+/g, " ").trim() : "";
     const toAbsoluteUrl = (href) => {
@@ -2712,6 +2714,33 @@ function buildIndeedExtractionScript() {
         const node = root?.querySelector(selector);
         const text = normalize(node?.innerText || node?.textContent || "");
         if (text) {
+          return text;
+        }
+      }
+      return "";
+    };
+    const findInputValue = (selectors) => {
+      for (const selector of selectors) {
+        const node = document.querySelector(selector);
+        const value = normalize(
+          node?.value ||
+          node?.getAttribute?.("value") ||
+          node?.innerText ||
+          node?.textContent ||
+          ""
+        );
+        if (value) {
+          return value;
+        }
+      }
+      return "";
+    };
+    const findFilterButtonText = (label) => {
+      const lowered = String(label || "").toLowerCase();
+      const nodes = Array.from(document.querySelectorAll("button, [role='button']"));
+      for (const node of nodes) {
+        const text = normalize(node.innerText || node.textContent || "");
+        if (text && text.toLowerCase().includes(lowered)) {
           return text;
         }
       }
@@ -2795,6 +2824,29 @@ function buildIndeedExtractionScript() {
       capturedAt: new Date().toISOString(),
       jobs,
       expectedCount: extractExpectedCount(),
+      captureDiagnostics: {
+        queryValue: findInputValue([
+          'input[name="q"]',
+          'input[placeholder*="Job title"]',
+          'input[placeholder*="keywords"]'
+        ]),
+        locationValue: findInputValue([
+          'input[name="l"]',
+          'input[placeholder*="City, state"]',
+          'input[placeholder*="Search location"]'
+        ]),
+        appliedPayFilter:
+          normalize(findFilterButtonText("Pay")) ||
+          normalize(nativeFilterState?.appliedPayFilter || ""),
+        appliedDatePostedFilter:
+          normalize(findFilterButtonText("Date posted")) ||
+          normalize(nativeFilterState?.appliedDatePostedFilter || ""),
+        appliedDistanceFilter:
+          normalize(findFilterButtonText("Distance")) ||
+          normalize(nativeFilterState?.appliedDistanceFilter || ""),
+        pageTitle: normalize(document.title || ""),
+        expectedState: nativeFilterState
+      },
       debug: {
         cards: cards.length,
         jobs: jobs.length
@@ -2815,7 +2867,7 @@ function buildIndeedExtractionScript() {
 }
 
 function readIndeedJobsFromChrome(searchUrl, options = {}) {
-  const extractionScript = buildIndeedExtractionScript();
+  const extractionScript = buildIndeedExtractionScript(options.nativeFilterState);
   const maxPages = Number(options.maxPages) > 0 ? Number(options.maxPages) : 8;
   const payload = capturePaginatedGenericBoardJobs({
     searchUrl,
@@ -4288,8 +4340,10 @@ export function captureIndeedSourceWithChromeAppleScript(
     throw new Error("Chrome AppleScript capture requires an indeed_search source.");
   }
 
+  const nativeFilterState = getIndeedNativeFilterState(source);
   const payload = readIndeedJobsFromChrome(source.searchUrl, {
     ...options,
+    nativeFilterState,
     maxPages: Number(source.maxPages) > 0 ? Number(source.maxPages) : options.maxPages
   });
   const enrichedJobs = filterIndeedCapturedJobs(
@@ -4303,7 +4357,8 @@ export function captureIndeedSourceWithChromeAppleScript(
     ...writeIndeedCaptureFile(source, enrichedJobs, {
       capturedAt: payload.capturedAt,
       pageUrl: payload.pageUrl,
-      expectedCount: payload.expectedCount
+      expectedCount: payload.expectedCount,
+      captureDiagnostics: payload.captureDiagnostics || nativeFilterState
     }),
     provider: "chrome_applescript",
     status: "completed"

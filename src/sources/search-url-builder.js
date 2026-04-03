@@ -223,6 +223,11 @@ function formatUsdAmount(value) {
   return `$${amount.toLocaleString("en-US")}`;
 }
 
+function formatIndeedSalaryType(value) {
+  const formatted = formatUsdAmount(value);
+  return formatted ? `${formatted}+` : "";
+}
+
 function resolvePreferredLocation(criteriaLocation, existingLocation = "") {
   const requested = normalizeText(criteriaLocation);
   const existing = normalizeText(existingLocation);
@@ -814,15 +819,43 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
     }
 
     if (criteria.distanceMiles) {
-      criteriaAccountability.markAppliedPostCapture("distanceMiles");
+      nextParams.set("radius", String(Math.max(0, criteria.distanceMiles)));
+      criteriaAccountability.markAppliedInUrl("distanceMiles");
+    } else if (criteria.location) {
+      nextParams.set("radius", "0");
+    } else {
+      const existingRadius = normalizePositiveInt(parsed.searchParams.get("radius"));
+      if (existingRadius !== null) {
+        nextParams.set("radius", String(existingRadius));
+      }
     }
 
     if (criteria.minSalary) {
-      criteriaAccountability.markAppliedPostCapture("minSalary");
+      const salaryType = formatIndeedSalaryType(criteria.minSalary);
+      if (salaryType) {
+        nextParams.set("salaryType", salaryType);
+        criteriaAccountability.markAppliedInUrl("minSalary");
+      }
+    } else {
+      const existingSalaryType = normalizeText(parsed.searchParams.get("salaryType"));
+      if (existingSalaryType) {
+        nextParams.set("salaryType", existingSalaryType);
+      }
     }
 
     if (criteria.datePosted) {
-      criteriaAccountability.markAppliedPostCapture("datePosted");
+      const fromageDays = DATE_POSTED_TO_DAYS.get(criteria.datePosted);
+      if (fromageDays) {
+        nextParams.set("fromage", String(fromageDays));
+        criteriaAccountability.markAppliedInUrl("datePosted");
+      } else {
+        criteriaAccountability.markUnsupported("datePosted");
+      }
+    } else {
+      const existingFromage = normalizePositiveInt(parsed.searchParams.get("fromage"));
+      if (existingFromage) {
+        nextParams.set("fromage", String(existingFromage));
+      }
     }
 
     if (criteria.experienceLevel) {

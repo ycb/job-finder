@@ -51,7 +51,7 @@ test("loadSourcesWithPath derives URL for Indeed source with searchCriteria", ()
     assert.equal(parsed.searchParams.get("q"), "senior product manager fintech payments");
     assert.equal(parsed.searchParams.get("l"), "San Francisco, CA");
     assert.equal(parsed.searchParams.get("radius"), "25");
-    assert.equal(parsed.searchParams.get("salaryType"), "$195,000");
+    assert.equal(parsed.searchParams.get("salaryType"), "$195,000+");
     assert.equal(parsed.searchParams.get("fromage"), "7");
     assert.deepEqual(source.criteriaAccountability, {
       appliedInUrl: [

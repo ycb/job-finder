@@ -45,6 +45,35 @@ function assertIndeedSource(source) {
   }
 }
 
+export function getIndeedNativeFilterState(source) {
+  try {
+    const parsed = new URL(String(source?.searchUrl || "").trim());
+    const queryValue = String(parsed.searchParams.get("q") || "").trim();
+    const locationValue = String(parsed.searchParams.get("l") || "").trim();
+    const salaryType = String(parsed.searchParams.get("salaryType") || "").trim();
+    const fromage = Number(parsed.searchParams.get("fromage"));
+    const radius = String(parsed.searchParams.get("radius") || "").trim();
+
+    return {
+      queryValue,
+      locationValue,
+      appliedPayFilter: salaryType || "",
+      appliedDatePostedFilter:
+        Number.isFinite(fromage) && fromage > 0 ? `last ${Math.round(fromage)} days` : "",
+      appliedDistanceFilter:
+        radius === "0" ? "exact location only" : radius ? `${radius} miles` : ""
+    };
+  } catch {
+    return {
+      queryValue: "",
+      locationValue: "",
+      appliedPayFilter: "",
+      appliedDatePostedFilter: "",
+      appliedDistanceFilter: ""
+    };
+  }
+}
+
 export function parseIndeedExpectedCountText(text) {
   const normalized = String(text || "")
     .replace(/\s+/g, " ")
