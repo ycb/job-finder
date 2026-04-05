@@ -43,4 +43,5 @@ test("normalizeAuditResult applies classification when inputType missing", () =>
 test("renderAuditMarkdown returns a markdown summary", () => {
   const md = renderAuditMarkdown([{ sourceId: "yc-product-jobs", filters: [] }]);
   assert.match(md, /yc-product-jobs/);
+  assert.match(md, /Source Filter Input Audit/);
 });

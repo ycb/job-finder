@@ -63,8 +63,22 @@ export function normalizeAuditResult(raw) {
 }
 
 export function renderAuditMarkdown(rows) {
-  return rows
-    .map((row) => `- ${row.sourceId}: ${row.filters.length} filters`)
+  const lines = [
+    "# Source Filter Input Audit",
+    "",
+    "Run `node scripts/audit-source-filter-inputs.js` to regenerate.",
+    ""
+  ];
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    lines.push("- no rows captured");
+    return lines.join("\n");
+  }
+
+  return lines
+    .concat(
+      rows.map((row) => `- ${row.sourceId}: ${row.filters.length} filters`)
+    )
     .join("\n");
 }
 
