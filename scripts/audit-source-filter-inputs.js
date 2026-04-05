@@ -1,12 +1,33 @@
-export function normalizeAuditResult(raw) {
+function normalizeFilterEntry(entry) {
+  if (!entry || typeof entry !== "object") {
+    return null;
+  }
+
   return {
-    sourceId: String(raw.sourceId || ""),
-    sourceType: String(raw.sourceType || ""),
-    searchUrl: String(raw.searchUrl || ""),
-    pageTitle: String(raw.pageTitle || ""),
-    finalUrl: String(raw.finalUrl || ""),
-    status: String(raw.status || "ok"),
-    errorMessage: raw.errorMessage ? String(raw.errorMessage) : null,
-    filters: Array.isArray(raw.filters) ? raw.filters : []
+    inputType: String(entry.inputType || "unknown"),
+    label: String(entry.label || ""),
+    placeholder: entry.placeholder ? String(entry.placeholder) : "",
+    ariaAutocomplete: entry.ariaAutocomplete ? String(entry.ariaAutocomplete) : "",
+    role: entry.role ? String(entry.role) : "",
+    selector: entry.selector ? String(entry.selector) : ""
+  };
+}
+
+export function normalizeAuditResult(raw) {
+  const safe = raw && typeof raw === "object" ? raw : {};
+  const filters = Array.isArray(safe.filters)
+    ? safe.filters
+        .map((entry) => normalizeFilterEntry(entry))
+        .filter(Boolean)
+    : [];
+  return {
+    sourceId: String(safe.sourceId || ""),
+    sourceType: String(safe.sourceType || ""),
+    searchUrl: String(safe.searchUrl || ""),
+    pageTitle: String(safe.pageTitle || ""),
+    finalUrl: String(safe.finalUrl || ""),
+    status: String(safe.status || "ok"),
+    errorMessage: safe.errorMessage ? String(safe.errorMessage) : null,
+    filters
   };
 }
