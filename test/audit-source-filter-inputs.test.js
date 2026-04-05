@@ -28,3 +28,13 @@ test("classifyFilterElement tags typeahead inputs", () => {
   const el = { role: "combobox", ariaAutocomplete: "list" };
   assert.equal(classifyFilterElement(el), "typeahead");
 });
+
+test("normalizeAuditResult applies classification when inputType missing", () => {
+  const result = normalizeAuditResult({
+    sourceId: "yc-product-jobs",
+    filters: [{ role: "combobox", ariaAutocomplete: "list" }]
+  });
+
+  assert.equal(result.filters.length, 1);
+  assert.equal(result.filters[0].inputType, "typeahead");
+});

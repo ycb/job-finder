@@ -3,8 +3,12 @@ function normalizeFilterEntry(entry) {
     return null;
   }
 
+  const computedInputType = entry.inputType
+    ? String(entry.inputType)
+    : classifyFilterElement(entry);
+
   return {
-    inputType: String(entry.inputType || "unknown"),
+    inputType: computedInputType || "unknown",
     label: String(entry.label || ""),
     placeholder: entry.placeholder ? String(entry.placeholder) : "",
     ariaAutocomplete: entry.ariaAutocomplete ? String(entry.ariaAutocomplete) : "",
