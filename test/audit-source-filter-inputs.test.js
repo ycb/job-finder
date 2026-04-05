@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   classifyFilterElement,
-  normalizeAuditResult
+  normalizeAuditResult,
+  renderAuditMarkdown
 } from "../scripts/audit-source-filter-inputs.js";
 
 test("normalizeAuditResult returns stable filter map shape", () => {
@@ -37,4 +38,9 @@ test("normalizeAuditResult applies classification when inputType missing", () =>
 
   assert.equal(result.filters.length, 1);
   assert.equal(result.filters[0].inputType, "typeahead");
+});
+
+test("renderAuditMarkdown returns a markdown summary", () => {
+  const md = renderAuditMarkdown([{ sourceId: "yc-product-jobs", filters: [] }]);
+  assert.match(md, /yc-product-jobs/);
 });
