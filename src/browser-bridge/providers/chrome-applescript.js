@@ -5080,7 +5080,7 @@ export function captureLinkedInSourceWithChromeAppleScript(
   const enrichedJobs = applySearchFilterInferences(source, payload.jobs);
   const telemetry = buildCaptureTelemetry(source, payload, {
     startedAt,
-    tabInfo: readTabInfoByUrlSubstring("workatastartup.com/companies")
+    tabInfo: readAutomationTabInfo()
   });
   if (payload.captureDiagnostics) {
     telemetry.captureDiagnostics = payload.captureDiagnostics;
