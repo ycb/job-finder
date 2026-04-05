@@ -14,7 +14,12 @@ import { extractLinkedInStructuredPageFromResponseBody } from "../../sources/lin
 import { writeLinkedInCaptureFile } from "../../sources/linkedin-saved-search.js";
 import { writeRemoteOkCaptureFile } from "../../sources/remoteok-jobs.js";
 import { writeWellfoundCaptureFile } from "../../sources/wellfound-jobs.js";
-import { parseYcJobsPayload, writeYcCaptureFile } from "../../sources/yc-jobs.js";
+import {
+  parseYcJobsPayload,
+  resolveYcRecencyFraction,
+  writeYcCaptureFile
+} from "../../sources/yc-jobs.js";
+import { loadSearchCriteria } from "../../config/load-config.js";
 import { writeZipRecruiterCaptureFile } from "../../sources/ziprecruiter-jobs.js";
 import { enrichJobsWithDetailPages } from "../../sources/detail-enrichment.js";
 
@@ -60,6 +65,87 @@ function runAppleScript(script, timeoutMs = 15_000) {
 }
 
 let automationWindowId = null;
+
+function createChromeProbeWindow(url, timeoutMs) {
+  const escapedUrl = escapeAppleScriptString(url);
+  const rawId = runAppleScript(
+    [
+      'tell application "Google Chrome"',
+      "set _window to make new window",
+      `set URL of active tab of _window to "${escapedUrl}"`,
+      "return id of _window",
+      "end tell"
+    ].join("\n"),
+    timeoutMs
+  );
+
+  const parsedId = Number(String(rawId || "").trim());
+  if (!Number.isInteger(parsedId)) {
+    throw new Error("Could not create probe Chrome window.");
+  }
+  return parsedId;
+}
+
+function closeChromeWindow(windowId) {
+  if (!Number.isInteger(windowId)) {
+    return;
+  }
+
+  try {
+    runAppleScript(
+      [
+        'tell application "Google Chrome"',
+        `set _window to window id ${windowId}`,
+        "if _window is not missing value then close _window",
+        "end tell"
+      ].join("\n")
+    );
+  } catch {
+    // no-op
+  }
+}
+
+function executeInChromeWindow(windowId, javaScript, timeoutMs) {
+  if (!Number.isInteger(windowId)) {
+    throw new Error("executeInChromeWindow requires a valid window id.");
+  }
+
+  return runAppleScript(
+    [
+      'tell application "Google Chrome"',
+      `set _window to window id ${windowId}`,
+      'tell active tab of _window',
+      `set resultText to execute javascript "${escapeAppleScriptString(javaScript)}"`,
+      "end tell",
+      "return resultText",
+      "end tell"
+    ].join("\n"),
+    timeoutMs
+  );
+}
+
+function readChromeWindowTabInfo(windowId) {
+  if (!Number.isInteger(windowId)) {
+    return { url: "", title: "" };
+  }
+
+  const raw = runAppleScript(
+    [
+      'tell application "Google Chrome"',
+      `set _window to window id ${windowId}`,
+      "set tabUrl to URL of active tab of _window",
+      "set tabTitle to title of active tab of _window",
+      "return tabUrl & \"\\n\" & tabTitle",
+      "end tell"
+    ].join("\n")
+  );
+
+  const [url = "", title = ""] = String(raw || "").split(/\r?\n/, 2);
+  return {
+    url: String(url || "").trim(),
+    title: String(title || "").trim()
+  };
+}
 
 function buildAutomationStatusUrl(message) {
   const content = `
@@ -198,7 +284,28 @@ function executeInAutomationTab(javaScript, timeoutMs) {
   return runAppleScript(
     [
       'tell application "Google Chrome"',
+      "set _previousWindow to front window",
       `set _window to window id ${windowId}`,
+      "set index of _window to 1",
+      'tell active tab of _window',
+      `set resultText to execute javascript "${escapeAppleScriptString(javaScript)}"`,
+      "end tell",
+      "set index of _previousWindow to 1",
+      "return resultText",
+      "end tell"
+    ].join("\n"),
+    timeoutMs
+  );
+}
+
+function executeInAutomationWindowFront(javaScript, timeoutMs) {
+  const windowId = ensureAutomationWindow("Refreshing sources...");
+  return runAppleScript(
+    [
+      'tell application "Google Chrome"',
+      "activate",
+      `set _window to window id ${windowId}`,
+      "set index of _window to 1",
       'tell active tab of _window',
       `set resultText to execute javascript "${escapeAppleScriptString(javaScript)}"`,
       "end tell",
@@ -207,6 +314,125 @@ function executeInAutomationTab(javaScript, timeoutMs) {
     ].join("\n"),
     timeoutMs
   );
+}
+
+function executeInFrontWindow(javaScript, timeoutMs) {
+  return runAppleScript(
+    [
+      'tell application "Google Chrome"',
+      'set _window to front window',
+      'tell active tab of _window',
+      `set resultText to execute javascript "${escapeAppleScriptString(javaScript)}"`,
+      "end tell",
+      "return resultText",
+      "end tell"
+    ].join("\n"),
+    timeoutMs
+  );
+}
+
+function executeInWindowMatchingUrl(javaScript, urlSubstring, timeoutMs) {
+  const needle = escapeAppleScriptString(String(urlSubstring || "").trim());
+  if (!needle) {
+    throw new Error("executeInWindowMatchingUrl requires a URL substring.");
+  }
+
+  return runAppleScript(
+    [
+      'tell application "Google Chrome"',
+      "set _targetTab to missing value",
+      "repeat with _window in windows",
+      "repeat with _tab in tabs of _window",
+      "set _tabUrl to URL of _tab",
+      `if _tabUrl contains "${needle}" then`,
+      "set _targetTab to _tab",
+      "exit repeat",
+      "end if",
+      "end repeat",
+      "if _targetTab is not missing value then exit repeat",
+      "end repeat",
+      "if _targetTab is missing value then error \"No matching Chrome window found\"",
+      "tell _targetTab",
+      `set resultText to execute javascript "${escapeAppleScriptString(javaScript)}"`,
+      "end tell",
+      "return resultText",
+      "end tell"
+    ].join("\n"),
+    timeoutMs
+  );
+}
+
+function executeInMatchingTabWithActivation(javaScript, urlSubstring, timeoutMs) {
+  const needle = escapeAppleScriptString(String(urlSubstring || "").trim());
+  if (!needle) {
+    throw new Error("executeInMatchingTabWithActivation requires a URL substring.");
+  }
+
+  return runAppleScript(
+    [
+      'tell application "Google Chrome"',
+      "set _targetWindowIndex to 0",
+      "set _targetTabIndex to 0",
+      "set _windowIndex to 1",
+      "repeat with _window in windows",
+      "set _tabIndex to 1",
+      "repeat with _tab in tabs of _window",
+      "set _tabUrl to URL of _tab",
+      `if _tabUrl contains "${needle}" then`,
+      "set _targetWindowIndex to _windowIndex",
+      "set _targetTabIndex to _tabIndex",
+      "exit repeat",
+      "end if",
+      "set _tabIndex to _tabIndex + 1",
+      "end repeat",
+      "if _targetWindowIndex is not 0 then exit repeat",
+      "set _windowIndex to _windowIndex + 1",
+      "end repeat",
+      "if _targetWindowIndex is 0 then error \"No matching Chrome tab found\"",
+      "set _targetWindowId to id of window _targetWindowIndex",
+      "tell tab _targetTabIndex of window id _targetWindowId",
+      `set resultText to execute javascript "${escapeAppleScriptString(javaScript)}"`,
+      "end tell",
+      "return resultText",
+      "end tell"
+    ].join("\n"),
+    timeoutMs
+  );
+}
+
+function listTabUrlsMatchingSubstring(urlSubstring, maxUrls = 12) {
+  const needle = escapeAppleScriptString(String(urlSubstring || "").trim());
+  const limit = Number(maxUrls) > 0 ? Math.floor(Number(maxUrls)) : 12;
+  if (!needle) {
+    return [];
+  }
+
+  const raw = runAppleScript(
+    [
+      'tell application "Google Chrome"',
+      "set _matches to {}",
+      "repeat with _window in windows",
+      "repeat with _tab in tabs of _window",
+      "set _tabUrl to URL of _tab",
+      `if _tabUrl contains "${needle}" then`,
+      "set end of _matches to _tabUrl",
+      "end if",
+      "end repeat",
+      "end repeat",
+      "set _output to \"\"",
+      "repeat with _url in _matches",
+      "set _output to _output & _url & \"\\n\"",
+      "end repeat",
+      "return _output",
+      "end tell"
+    ].join("\n")
+  );
+
+  return String(raw || "")
+    .split(/\r?\n/)
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .slice(0, limit);
 }
 
 function readAutomationTabInfo() {
@@ -218,6 +444,58 @@ function readAutomationTabInfo() {
       "set tabUrl to URL of active tab of _window",
       "set tabTitle to title of active tab of _window",
       "return tabUrl & \"\\n\" & tabTitle",
+      "end tell"
+    ].join("\n")
+  );
+
+  const [url = "", title = ""] = String(raw || "").split(/\r?\n/, 2);
+  return {
+    url: String(url || "").trim(),
+    title: String(title || "").trim()
+  };
+}
+
+function readFrontTabInfo() {
+  const raw = runAppleScript(
+    [
+      'tell application "Google Chrome"',
+      "set tabUrl to URL of active tab of front window",
+      "set tabTitle to title of active tab of front window",
+      "return tabUrl & \"\\n\" & tabTitle",
+      "end tell"
+    ].join("\n")
+  );
+
+  const [url = "", title = ""] = String(raw || "").split(/\r?\n/, 2);
+  return {
+    url: String(url || "").trim(),
+    title: String(title || "").trim()
+  };
+}
+
+function readTabInfoByUrlSubstring(urlSubstring) {
+  const needle = escapeAppleScriptString(String(urlSubstring || "").trim());
+  if (!needle) {
+    throw new Error("readTabInfoByUrlSubstring requires a URL substring.");
+  }
+
+  const raw = runAppleScript(
+    [
+      'tell application "Google Chrome"',
+      "set _targetUrl to \"\"",
+      "set _targetTitle to \"\"",
+      "repeat with _window in windows",
+      "repeat with _tab in tabs of _window",
+      "set _tabUrl to URL of _tab",
+      `if _tabUrl contains "${needle}" then`,
+      "set _targetUrl to _tabUrl",
+      "set _targetTitle to title of _tab",
+      "exit repeat",
+      "end if",
+      "end repeat",
+      "if _targetUrl is not \"\" then exit repeat",
+      "end repeat",
+      "return _targetUrl & \"\\n\" & _targetTitle",
       "end tell"
     ].join("\n")
   );
@@ -341,6 +619,115 @@ function buildAuthProbeScript() {
 `;
 }
 
+function buildFilterInputProbeScript() {
+  return `
+(() => {
+  const normalize = (value) => typeof value === "string"
+    ? value.replace(/\\s+/g, " ").trim()
+    : "";
+
+  const cssEscape = (value) => String(value || "")
+    .replace(/\\/g, "\\\\")
+    .replace(/\"/g, "\\\"");
+
+  const textFromIds = (value) => {
+    const ids = String(value || "").trim();
+    if (!ids) return "";
+    return ids.split(/\\s+/)
+      .map((id) => document.getElementById(id))
+      .filter(Boolean)
+      .map((node) => normalize(node.textContent || ""))
+      .filter(Boolean)
+      .join(" ");
+  };
+
+  const pickLabel = (element) => {
+    const ariaLabel = normalize(element.getAttribute("aria-label"));
+    if (ariaLabel) return ariaLabel;
+    const ariaLabelled = textFromIds(element.getAttribute("aria-labelledby"));
+    if (ariaLabelled) return ariaLabelled;
+    if (element.labels && element.labels.length) {
+      const labels = Array.from(element.labels)
+        .map((label) => normalize(label.textContent || ""))
+        .filter(Boolean);
+      if (labels.length) return labels.join(" ");
+    }
+    const parentLabel = element.closest("label");
+    if (parentLabel) {
+      const labelText = normalize(parentLabel.textContent || "");
+      if (labelText) return labelText;
+    }
+    const placeholder = normalize(element.getAttribute("placeholder"));
+    if (placeholder) return placeholder;
+    const name = normalize(element.getAttribute("name"));
+    if (name) return name;
+    const id = normalize(element.getAttribute("id"));
+    return id;
+  };
+
+  const buildSelector = (element) => {
+    const tag = String(element.tagName || "").toLowerCase();
+    const id = normalize(element.getAttribute("id"));
+    if (id) return "#" + cssEscape(id);
+    const testId = normalize(element.getAttribute("data-testid"));
+    if (testId) return tag + "[data-testid=\\"" + cssEscape(testId) + "\\"]";
+    const name = normalize(element.getAttribute("name"));
+    if (name) return tag + "[name=\\"" + cssEscape(name) + "\\"]";
+    const placeholder = normalize(element.getAttribute("placeholder"));
+    if (placeholder) return tag + "[placeholder=\\"" + cssEscape(placeholder) + "\\"]";
+    return "";
+  };
+
+  const rawCandidates = Array.from(
+    document.querySelectorAll("input, select, textarea, [role='combobox'], [role='listbox']")
+  );
+
+  const filtered = rawCandidates.filter((element) => {
+    const tag = String(element.tagName || "");
+    if (tag === "INPUT") {
+      const type = normalize(element.getAttribute("type") || element.type || "text").toLowerCase();
+      if (["hidden", "password", "submit", "button", "reset"].includes(type)) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  const seen = new Set();
+  const filters = [];
+  for (const element of filtered) {
+    const tag = String(element.tagName || "");
+    const type = normalize(element.getAttribute("type") || element.type || "");
+    const role = normalize(element.getAttribute("role"));
+    const ariaAutocomplete = normalize(element.getAttribute("aria-autocomplete"));
+    const placeholder = normalize(element.getAttribute("placeholder"));
+    const label = normalize(pickLabel(element));
+    const selector = normalize(buildSelector(element));
+    const key = [tag, type, role, ariaAutocomplete, placeholder, label, selector].join("|");
+    if (!key || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    filters.push({
+      tag,
+      type,
+      role,
+      ariaAutocomplete,
+      placeholder,
+      label,
+      selector
+    });
+  }
+
+  return JSON.stringify({
+    finalUrl: String(location.href || ""),
+    pageTitle: String(document.title || ""),
+    filters
+  });
+})()
+`;
+}
+
 export function authProbeLooksUnauthorized(sourceType, probe) {
   const href = String(probe?.href || "").toLowerCase();
   const title = String(probe?.title || "").toLowerCase();
@@ -423,6 +810,83 @@ export function probeSourceAccessWithChromeAppleScript(source, options = {}) {
   } finally {
     if (closeWindowAfterProbe) {
       closeAutomationWindow();
+    }
+  }
+}
+
+export function probeSourceFilterInputsWithChromeAppleScript(source, options = {}) {
+  const sourceId = String(source?.id || "");
+  const sourceType = String(source?.type || "");
+  const searchUrl = String(source?.searchUrl || "");
+
+  if (!searchUrl) {
+    return {
+      sourceId,
+      sourceType,
+      searchUrl,
+      pageTitle: "",
+      finalUrl: "",
+      status: "error",
+      errorMessage: "Filter input probe requires a source with searchUrl.",
+      filters: []
+    };
+  }
+
+  const settleMs = Number(options.settleMs) > 0 ? Number(options.settleMs) : 1500;
+  const readyStateWaitMs =
+    Number(options.readyStateWaitMs) > 0 ? Number(options.readyStateWaitMs) : 1200;
+  const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 15_000;
+
+  let windowId = null;
+  let pageTitle = "";
+  let finalUrl = "";
+
+  try {
+    windowId = createChromeProbeWindow(searchUrl, timeoutMs);
+    sleepSync(settleMs);
+
+    try {
+      const readyState = executeInChromeWindow(windowId, "document.readyState", timeoutMs);
+      if (String(readyState || "").trim() !== "complete") {
+        sleepSync(readyStateWaitMs);
+      }
+    } catch {
+      // Best-effort: continue after initial settle delay.
+    }
+
+    const tabInfo = readChromeWindowTabInfo(windowId);
+    pageTitle = tabInfo.title || pageTitle;
+    finalUrl = tabInfo.url || finalUrl;
+
+    const raw = executeInChromeWindow(windowId, buildFilterInputProbeScript(), timeoutMs);
+    const parsed = JSON.parse(String(raw || "{}"));
+    const filters = Array.isArray(parsed?.filters) ? parsed.filters : [];
+
+    return {
+      sourceId,
+      sourceType,
+      searchUrl,
+      pageTitle: String(parsed?.pageTitle || pageTitle || ""),
+      finalUrl: String(parsed?.finalUrl || finalUrl || ""),
+      status: "ok",
+      errorMessage: null,
+      filters
+    };
+  } catch (error) {
+    const message = error?.message ? String(error.message) : String(error || "Probe failed.");
+    return {
+      sourceId,
+      sourceType,
+      searchUrl,
+      pageTitle,
+      finalUrl,
+      status: "error",
+      errorMessage: message,
+      filters: []
+    };
+  } finally {
+    if (Number.isInteger(windowId)) {
+      closeChromeWindow(windowId);
     }
   }
 }
@@ -1884,10 +2348,10 @@ function readLinkedInResourcePage({ pageUrl, startOffset = 0, timeoutMs = 60_000
 
 function readLinkedInJobsFromChrome(searchUrl, options = {}) {
   const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 60_000;
-  const settleMs = Number(options.settleMs) > 0 ? Number(options.settleMs) : 2500;
-  const maxAttempts = Number(options.maxAttempts) > 0 ? Number(options.maxAttempts) : 5;
+  const settleMs = Number(options.settleMs) > 0 ? Number(options.settleMs) : 6000;
+  const maxAttempts = Number(options.maxAttempts) > 0 ? Number(options.maxAttempts) : 10;
   const attemptDelayMs =
-    Number(options.attemptDelayMs) > 0 ? Number(options.attemptDelayMs) : 1200;
+    Number(options.attemptDelayMs) > 0 ? Number(options.attemptDelayMs) : 1500;
   const maxPages = Number(options.maxPages) > 0 ? Number(options.maxPages) : 4;
   const maxScrollSteps = Number(options.maxScrollSteps) > 0
     ? Number(options.maxScrollSteps)
@@ -4255,43 +4719,329 @@ function readAshbyJobsFromChrome(searchUrl, options = {}) {
 function buildYcExtractionScript() {
   return `
 (() => {
-  const dataPage = document.querySelector("[data-page]")?.getAttribute("data-page") || "";
-  return JSON.stringify({
-    href: String(location.href || ""),
-    title: String(document.title || ""),
-    dataPage
-  });
+  try {
+    const jobCards = (() => {
+      const anchors = Array.from(document.querySelectorAll("a[href]"));
+      const jobs = new Map();
+      const jobIds = [];
+      for (const anchor of anchors) {
+        const href = anchor.getAttribute("href");
+        if (!href || !href.includes("/jobs/")) continue;
+        const match = href.match(/\\/jobs\\/(\\d+)/);
+        if (!match) continue;
+        const jobId = match[1];
+        const absolute = href.startsWith("http") ? href : String(location.origin || "") + href;
+        if (jobs.has(absolute)) continue;
+        if (jobId) jobIds.push(jobId);
+        let card =
+          anchor.closest("div.w-full") ||
+          anchor.closest("div.job-card") ||
+          anchor.closest("div");
+        if (card) {
+          let parent = card.parentElement;
+          for (let i = 0; i < 6 && parent; i += 1) {
+            const hasJob = parent.querySelector("a[href*='/jobs/']");
+            const hasCompany = parent.querySelector(
+              "a[href^='/companies/'], a[href^='https://www.workatastartup.com/companies/']"
+            );
+            if (hasJob && hasCompany) {
+              card = parent;
+              break;
+            }
+            parent = parent.parentElement;
+          }
+        }
+        const companyEl =
+          card?.querySelector("a[href^='/companies/']") ||
+          card?.querySelector("a[href^='https://www.workatastartup.com/companies/']");
+        jobs.set(absolute, {
+          href: absolute,
+          title: String(anchor.textContent || "").trim(),
+          company: String(companyEl?.textContent || "").trim(),
+          companyUrl: String(companyEl?.getAttribute("href") || ""),
+          cardText: String(card?.innerText || anchor.textContent || "").trim()
+        });
+      }
+      return {
+        cards: Array.from(jobs.values()),
+        jobIds: Array.from(new Set(jobIds))
+      };
+    })();
+    const matchingCount = (() => {
+      const text = String(document.body?.innerText || "");
+      const match = text.match(/showing\\s+(\\d+)\\s+matching startups/i);
+      if (!match) return null;
+      const parsed = Number.parseInt(match[1], 10);
+      return Number.isFinite(parsed) ? parsed : null;
+    })();
+    return JSON.stringify({
+      href: String(location.href || ""),
+      title: String(document.title || ""),
+      jobCards: jobCards.cards,
+      jobIds: jobCards.jobIds,
+      jobCardsCount: jobCards.cards.length,
+      jobCardsSample: jobCards.cards.slice(0, 3),
+      jobCardsJobsSample: jobCards.cards
+        .filter((card) => /jobs/i.test(String(card?.title || "")))
+        .slice(0, 3),
+      matchingCount
+    });
+  } catch (error) {
+    return JSON.stringify({
+      error: String(error || "unknown"),
+      href: String(location?.href || ""),
+      title: String(document?.title || "")
+    });
+  }
 })()
 `;
 }
 
 function readYcJobsFromChrome(searchUrl, options = {}) {
-  navigateAutomationTab(searchUrl, "Refreshing YC Jobs source...");
-
   const settleMs = Number(options.settleMs) > 0 ? Number(options.settleMs) : 2500;
   const maxAttempts = Number(options.maxAttempts) > 0 ? Number(options.maxAttempts) : 5;
   const attemptDelayMs =
     Number(options.attemptDelayMs) > 0 ? Number(options.attemptDelayMs) : 1200;
   const timeoutMs =
     Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 20_000;
+  const maxScrollPasses =
+    Number(options.maxScrollPasses) > 0 ? Number(options.maxScrollPasses) : 12;
+  const maxJobs = Number(options.maxJobs) > 0 ? Number(options.maxJobs) : null;
+  const recencyFraction =
+    Number(options.recencyFraction) > 0 ? Number(options.recencyFraction) : 1;
+  let targetCount =
+    Number(options.targetCount) > 0 ? Number(options.targetCount) : null;
   const extractionScript = buildYcExtractionScript();
+  const scrollScript = `
+(() => {
+  const el = document.scrollingElement || document.documentElement || document.body;
+  const before = el ? el.scrollTop : 0;
+  if (el) {
+    el.scrollBy(0, Math.max(window.innerHeight * 0.9, 600));
+  }
+  const after = el ? el.scrollTop : 0;
+  return JSON.stringify({
+    before,
+    after,
+    height: el ? el.scrollHeight : 0
+  });
+})()
+`;
+  const ycUrlNeedle = "workatastartup.com/companies";
+  const matchingTabs = listTabUrlsMatchingSubstring(ycUrlNeedle, 12);
+  const shouldUseAutomationWindow = true;
+
+  if (shouldUseAutomationWindow) {
+    navigateAutomationTab(searchUrl, "Refreshing YC Jobs source...");
+  }
 
   sleepSync(settleMs);
 
   let lastPayload = null;
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const payload = parseBridgeJsonPayload(executeInAutomationTab(extractionScript, timeoutMs));
-    lastPayload = payload;
-    if (String(payload?.dataPage || "").trim()) {
-      const jobs = parseYcJobsPayload(payload.dataPage, searchUrl);
+  let lastResult = null;
+  let lastJobIdsCount = 0;
+  let noGrowthPasses = 0;
+  let matchingCount = null;
+  let scrollPasses = 0;
+  let stopReason = "maxScrollPasses";
+
+  const runExtractionOnce = () => {
+    let rawPayload = null;
+    try {
+      rawPayload = shouldUseAutomationWindow
+        ? executeInAutomationWindowFront(extractionScript, timeoutMs)
+        : executeInMatchingTabWithActivation(
+            extractionScript,
+            ycUrlNeedle,
+            timeoutMs
+          );
+    } catch (error) {
+      const diagnostics = {
+        jobCardsCount: null,
+        jobCardsSample: null,
+        jobCardsJobsSample: null,
+        jobIdsCount: null,
+        matchingCount: null,
+        dataPagePresent: false,
+        dataPageSize: null,
+        isLoggedIn: null,
+        error: String(error || "execute_failed"),
+        domStats: null,
+        parseFailed: true,
+        rawLength: null,
+        rawSample: null,
+        matchingTabsCount: matchingTabs.length,
+        matchingTabsSample: matchingTabs.slice(0, 5),
+        usedAutomationWindow: shouldUseAutomationWindow,
+        recencyFraction,
+        targetCount,
+        scrollPasses
+      };
       return {
-        pageUrl: String(payload?.href || searchUrl),
-        capturedAt: new Date().toISOString(),
-        expectedCount: jobs.length,
-        jobs
+        payload: null,
+        result: {
+          pageUrl: searchUrl,
+          capturedAt: new Date().toISOString(),
+          expectedCount: 0,
+          jobs: [],
+          captureDiagnostics: diagnostics
+        },
+        jobs: [],
+        diagnostics
       };
     }
+    const payload = parseBridgeJsonPayload(rawPayload);
+    const jobIdsCount = Array.isArray(payload?.jobIds) ? payload.jobIds.length : 0;
+    const diagnostics = {
+      jobCardsCount: payload?.jobCardsCount ?? null,
+      jobCardsSample: payload?.jobCardsSample ?? null,
+      jobCardsJobsSample: payload?.jobCardsJobsSample ?? null,
+      jobIdsCount,
+      matchingCount: payload?.matchingCount ?? null,
+      dataPagePresent: Boolean(String(payload?.dataPage || "").trim()),
+      dataPageSize: payload?.dataPageSize ?? null,
+      isLoggedIn: payload?.isLoggedIn ?? null,
+      error: payload?.error ?? null,
+      domStats: payload?.domStats ?? null,
+      parseFailed: !payload,
+      rawLength: typeof rawPayload === "string" ? rawPayload.length : null,
+      rawSample:
+        typeof rawPayload === "string" ? rawPayload.slice(0, 400) : null,
+      matchingTabsCount: matchingTabs.length,
+      matchingTabsSample: matchingTabs.slice(0, 5),
+      usedAutomationWindow: shouldUseAutomationWindow,
+      recencyFraction,
+      targetCount,
+      scrollPasses
+    };
+    const pageUrl = String(payload?.href || searchUrl);
+    const capturedAt = new Date().toISOString();
+
+    let jobs = [];
+    if (String(payload?.dataPage || "").trim()) {
+      jobs = parseYcJobsPayload(payload.dataPage, searchUrl);
+    }
+
+    if (Array.isArray(payload?.jobCards) && payload.jobCards.length > 0) {
+      jobs = parseYcJobsPayload(payload.jobCards, { searchUrl, domCards: true });
+    }
+
+    const result = {
+      pageUrl,
+      capturedAt,
+      expectedCount: jobs.length,
+      jobs,
+      captureDiagnostics: diagnostics,
+      jobCardsCount: diagnostics.jobCardsCount,
+      dataPagePresent: diagnostics.dataPagePresent,
+      domStats: diagnostics.domStats,
+      isLoggedIn: diagnostics.isLoggedIn,
+      parseFailed: diagnostics.parseFailed,
+      rawLength: diagnostics.rawLength,
+      rawSample: diagnostics.rawSample
+    };
+
+    return { payload, result, jobs, diagnostics };
+  };
+
+  for (let pass = 0; pass < maxScrollPasses; pass += 1) {
+    let attemptResult = null;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      attemptResult = runExtractionOnce();
+      if (attemptResult.jobs.length > 0 || attempt === maxAttempts - 1) {
+        break;
+      }
+      sleepSync(attemptDelayMs);
+    }
+
+    if (!attemptResult) {
+      break;
+    }
+
+    const payload = attemptResult.payload;
+    const jobs = attemptResult.jobs;
+    const diagnostics = attemptResult.diagnostics;
+    lastPayload = payload;
+    lastResult = attemptResult.result;
+
+    if (process.env.JOB_FINDER_DEBUG_YC) {
+      console.log("YC diagnostics", JSON.stringify(diagnostics, null, 2));
+    }
+
+    if (matchingCount === null && Number.isFinite(payload?.matchingCount)) {
+      matchingCount = payload.matchingCount;
+    }
+
+    if (!targetCount && Number.isFinite(matchingCount) && matchingCount > 0) {
+      targetCount = Math.ceil(matchingCount * recencyFraction);
+      if (maxJobs && maxJobs > 0) {
+        targetCount = Math.min(targetCount, maxJobs);
+      }
+    } else if (!targetCount && maxJobs && maxJobs > 0) {
+      targetCount = maxJobs;
+    }
+
+    const jobIdsCount = diagnostics.jobIdsCount ?? jobs.length;
+    if (targetCount && jobIdsCount >= targetCount) {
+      stopReason = "targetReached";
+      lastResult.captureDiagnostics.targetCount = targetCount;
+      lastResult.captureDiagnostics.recencyFraction = recencyFraction;
+      lastResult.captureDiagnostics.matchingCount = matchingCount;
+      lastResult.captureDiagnostics.jobIdsCount = jobIdsCount;
+      lastResult.captureDiagnostics.scrollPasses = scrollPasses;
+      lastResult.captureDiagnostics.stopReason = stopReason;
+      return lastResult;
+    }
+
+    if (jobIdsCount <= lastJobIdsCount) {
+      noGrowthPasses += 1;
+    } else {
+      noGrowthPasses = 0;
+      lastJobIdsCount = jobIdsCount;
+    }
+
+    if (noGrowthPasses >= 2) {
+      stopReason = "noGrowth";
+      break;
+    }
+
+    scrollPasses += 1;
+    try {
+      if (shouldUseAutomationWindow) {
+        executeInAutomationWindowFront(scrollScript, timeoutMs);
+      } else {
+        executeInMatchingTabWithActivation(scrollScript, ycUrlNeedle, timeoutMs);
+      }
+    } catch {}
     sleepSync(attemptDelayMs);
+  }
+
+  if (lastResult) {
+    const diagnostics = lastResult.captureDiagnostics;
+    if (
+      diagnostics &&
+      diagnostics.isLoggedIn === false
+    ) {
+      throw new Error(
+        "YC Jobs requires a logged-in Work at a Startup session in the automation window."
+      );
+    }
+    if (
+      diagnostics &&
+      diagnostics.dataPagePresent &&
+      Number(diagnostics.jobCardsCount || 0) === 0
+    ) {
+      throw new Error(
+        "YC Jobs page loaded but no job links were found. The automation window may not be logged in to Work at a Startup."
+      );
+    }
+    diagnostics.targetCount = targetCount;
+    diagnostics.recencyFraction = recencyFraction;
+    diagnostics.matchingCount = matchingCount;
+    diagnostics.jobIdsCount = diagnostics.jobIdsCount ?? lastJobIdsCount;
+    diagnostics.scrollPasses = scrollPasses;
+    diagnostics.stopReason = stopReason;
+    return lastResult;
   }
 
   throw new Error(
@@ -4330,8 +5080,11 @@ export function captureLinkedInSourceWithChromeAppleScript(
   const enrichedJobs = applySearchFilterInferences(source, payload.jobs);
   const telemetry = buildCaptureTelemetry(source, payload, {
     startedAt,
-    tabInfo: readAutomationTabInfo()
+    tabInfo: readTabInfoByUrlSubstring("workatastartup.com/companies")
   });
+  if (payload.captureDiagnostics) {
+    telemetry.captureDiagnostics = payload.captureDiagnostics;
+  }
 
   return {
     ...writeLinkedInCaptureFile(source, enrichedJobs, {
@@ -4356,18 +5109,53 @@ export function captureYcSourceWithChromeAppleScript(
   }
 
   const startedAt = new Date().toISOString();
-  const payload = readYcJobsFromChrome(source.searchUrl, options);
+  const globalCriteria = loadSearchCriteria().criteria;
+  const recencyFraction = resolveYcRecencyFraction(source, globalCriteria);
+  const payload = readYcJobsFromChrome(source.searchUrl, {
+    ...options,
+    maxJobs: Number(source.maxJobs) > 0 ? Number(source.maxJobs) : options.maxJobs,
+    recencyFraction
+  });
+  if (process.env.JOB_FINDER_DEBUG_YC) {
+    console.log(
+      "YC payload debug",
+      JSON.stringify(
+        {
+          jobCardsCount: payload.jobCardsCount,
+          dataPagePresent: payload.dataPagePresent,
+          captureDiagnostics: payload.captureDiagnostics
+        },
+        null,
+        2
+      )
+    );
+  }
   const enrichedJobs = applySearchFilterInferences(source, payload.jobs);
+  const captureDiagnostics =
+    payload.captureDiagnostics || {
+      jobCardsCount: payload.jobCardsCount ?? null,
+      dataPagePresent: payload.dataPagePresent ?? null,
+      domStats: payload.domStats ?? null,
+      isLoggedIn: payload.isLoggedIn ?? null,
+      error: payload.error ?? null,
+      parseFailed: payload.parseFailed ?? null,
+      rawLength: payload.rawLength ?? null,
+      rawSample: payload.rawSample ?? null
+    };
   const telemetry = buildCaptureTelemetry(source, payload, {
     startedAt,
     tabInfo: readAutomationTabInfo()
   });
+  if (captureDiagnostics) {
+    telemetry.captureDiagnostics = captureDiagnostics;
+  }
 
   return {
     ...writeYcCaptureFile(source, enrichedJobs, {
       capturedAt: payload.capturedAt,
       pageUrl: payload.pageUrl,
       expectedCount: payload.expectedCount,
+      captureDiagnostics,
       captureTelemetry: telemetry
     }),
     provider: "chrome_applescript",
