@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { normalizeAuditResult } from "../scripts/audit-source-filter-inputs.js";
+import {
+  classifyFilterElement,
+  normalizeAuditResult
+} from "../scripts/audit-source-filter-inputs.js";
 
 test("normalizeAuditResult returns stable filter map shape", () => {
   const result = normalizeAuditResult({
@@ -19,4 +22,9 @@ test("normalizeAuditResult handles null input safely", () => {
   assert.equal(result.sourceId, "");
   assert.equal(Array.isArray(result.filters), true);
   assert.equal(result.filters.length, 0);
+});
+
+test("classifyFilterElement tags typeahead inputs", () => {
+  const el = { role: "combobox", ariaAutocomplete: "list" };
+  assert.equal(classifyFilterElement(el), "typeahead");
 });

@@ -13,6 +13,22 @@ function normalizeFilterEntry(entry) {
   };
 }
 
+export function classifyFilterElement(meta) {
+  if (!meta || typeof meta !== "object") {
+    return "text";
+  }
+  if (meta.role === "combobox" || meta.ariaAutocomplete === "list") {
+    return "typeahead";
+  }
+  if (meta.type === "checkbox") {
+    return "checkbox";
+  }
+  if (meta.tag === "SELECT") {
+    return "select";
+  }
+  return "text";
+}
+
 export function normalizeAuditResult(raw) {
   const safe = raw && typeof raw === "object" ? raw : {};
   const filters = Array.isArray(safe.filters)
