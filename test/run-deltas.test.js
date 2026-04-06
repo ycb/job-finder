@@ -11,6 +11,7 @@ import {
   countActiveJobsByIds,
   CURRENT_SOURCE_RUN_SEMANTICS_VERSION,
   countSourceJobsInBatch,
+  finalizeSourceRunDeltasForBatch,
   getLatestImportedRunId,
   listSourceRunTotals,
   listLatestSourceRunDeltas,
@@ -868,7 +869,7 @@ test("upsertJobs clears last import batch id when explicitly passed null", () =>
   }
 });
 
-test("countActiveJobsByIds counts only non-terminal imported jobs", () => {
+test("countActiveJobsByIds counts only queue-eligible imported jobs", () => {
   const { db, dir } = createTempDb();
 
   try {
@@ -944,8 +945,117 @@ test("countActiveJobsByIds counts only non-terminal imported jobs", () => {
     db.prepare(
       `INSERT INTO applications (job_id, status, notes, submitted_at, last_action_at) VALUES (?, ?, '', NULL, ?)`
     ).run("job-3", "rejected", "2026-03-02T00:00:00.000Z");
+    db.prepare(
+      `INSERT INTO evaluations (job_id, score, bucket, summary, reasons, confidence, freshness_days, hard_filtered, evaluated_at)
+       VALUES (?, ?, ?, ?, '[]', ?, ?, ?, ?)`
+    ).run(
+      "job-1",
+      25,
+      "review_later",
+      "Role",
+      75,
+      1,
+      1,
+      "2026-03-02T00:00:00.000Z"
+    );
 
-    assert.equal(countActiveJobsByIds(db, ["job-1", "job-2", "job-3"]), 1);
+    assert.equal(countActiveJobsByIds(db, ["job-1", "job-2", "job-3"]), 0);
+  } finally {
+    cleanupTempDb(db, dir);
+  }
+});
+
+test("finalizeSourceRunDeltasForBatch refreshes imported counts from scored batch state", () => {
+  const { db, dir } = createTempDb();
+
+  try {
+    upsertJobs(
+      db,
+      [
+        {
+          id: "job-1",
+          source: "builtin_search",
+          sourceId: "builtin-sf-ai-pm",
+          sourceUrl: "https://example.com/jobs/1",
+          externalId: "1",
+          title: "Senior Product Manager",
+          company: "Example",
+          location: "San Francisco, CA",
+          postedAt: null,
+          employmentType: null,
+          easyApply: false,
+          salaryText: null,
+          description: "Role",
+          normalizedHash: "hash-1",
+          structuredMeta: null,
+          metadataQualityScore: null,
+          missingRequiredFields: null,
+          createdAt: "2026-03-01T00:00:00.000Z",
+          updatedAt: "2026-03-01T00:00:00.000Z"
+        },
+        {
+          id: "job-2",
+          source: "builtin_search",
+          sourceId: "builtin-sf-ai-pm",
+          sourceUrl: "https://example.com/jobs/2",
+          externalId: "2",
+          title: "Staff Product Manager",
+          company: "Example",
+          location: "San Francisco, CA",
+          postedAt: null,
+          employmentType: null,
+          easyApply: false,
+          salaryText: null,
+          description: "Role",
+          normalizedHash: "hash-2",
+          structuredMeta: null,
+          metadataQualityScore: null,
+          missingRequiredFields: null,
+          createdAt: "2026-03-01T00:00:00.000Z",
+          updatedAt: "2026-03-01T00:00:00.000Z"
+        }
+      ],
+      { lastImportBatchId: "run-1" }
+    );
+
+    recordSourceRunDeltas(db, [
+      {
+        runId: "run-1",
+        sourceId: "builtin-sf-ai-pm",
+        rawFoundCount: 2,
+        hardFilteredCount: 0,
+        duplicateCollapsedCount: 0,
+        importedKeptCount: 2,
+        importedCount: 2,
+        recordedAt: "2026-03-02T00:00:00.000Z"
+      }
+    ]);
+
+    db.prepare(
+      `INSERT INTO evaluations (job_id, score, bucket, summary, reasons, confidence, freshness_days, hard_filtered, evaluated_at)
+       VALUES (?, ?, ?, ?, '[]', ?, ?, ?, ?)`
+    ).run("job-1", 25, "review_later", "Role", 75, 1, 1, "2026-03-02T00:00:00.000Z");
+    db.prepare(
+      `INSERT INTO applications (job_id, status, notes, submitted_at, last_action_at) VALUES (?, ?, '', NULL, ?)`
+    ).run("job-2", "applied", "2026-03-02T00:00:00.000Z");
+
+    finalizeSourceRunDeltasForBatch(db, "run-1");
+
+    const row = db
+      .prepare(
+        `SELECT hard_filtered_count AS hardFilteredCount, imported_kept_count AS importedKeptCount, imported_count AS importedCount
+         FROM source_run_deltas
+         WHERE run_id = 'run-1' AND source_id = 'builtin-sf-ai-pm'`
+      )
+      .get();
+
+    assert.equal(row.hardFilteredCount, 1);
+    assert.equal(row.importedKeptCount, 2);
+    // importedCount = jobs in batch that are NOT hard-filtered (regardless of application
+    // status). job-1 is hard_filtered → excluded. job-2 is "applied" but not
+    // hard-filtered → counted. This matches the delta invariant:
+    //   rawFoundCount(2) = hardFilteredCount(1) + duplicateCollapsed(0) + importedCount(1)
+    assert.equal(row.importedCount, 1);
   } finally {
     cleanupTempDb(db, dir);
   }

@@ -372,17 +372,15 @@ export function finalizeSourceRunDeltasForBatch(db, runId) {
     SELECT
       COUNT(*) AS importedKeptCount,
       SUM(CASE WHEN COALESCE(e.hard_filtered, 0) = 1 THEN 1 ELSE 0 END) AS hardFilteredCount,
-      SUM(
-        CASE
-          WHEN COALESCE(a.status, 'new') IN ('new', 'viewed')
-            AND COALESCE(e.hard_filtered, 0) = 0
-          THEN 1
-          ELSE 0
-        END
-      ) AS importedCount
+      -- importedCount = jobs in this batch that are NOT hard-filtered. In normal
+      -- flow hard-filtered jobs receive lastImportBatchId=null and are never in the
+      -- batch, so this equals importedKeptCount. The distinction matters only in the
+      -- reconciliation path where scoring runs after upsert.
+      -- This definition makes the delta invariant hold:
+      --   rawFoundCount = hardFilteredCount + duplicateCollapsedCount + importedCount
+      SUM(CASE WHEN COALESCE(e.hard_filtered, 0) = 0 THEN 1 ELSE 0 END) AS importedCount
     FROM jobs j
     LEFT JOIN evaluations e ON e.job_id = j.id
-    LEFT JOIN applications a ON a.job_id = j.id
     WHERE j.last_import_batch_id = ?
       AND j.source_id = ?;
   `);
@@ -407,6 +405,10 @@ export function finalizeSourceRunDeltasForBatch(db, runId) {
     updateDelta.run(
       Math.max(0, Math.round(Number(summary?.hardFilteredCount) || 0)),
       Math.max(0, Math.round(Number(summary?.importedKeptCount) || 0)),
+      // summary.importedCount = NOT-hard-filtered count (see SQL above). This equals
+      // importedKeptCount in normal flow (no hard-filtered jobs in batch) and equals
+      // importedKeptCount - hardFilteredCount in the scoring-reconciliation edge case.
+      // Using this definition ensures: rawFoundCount = hardFiltered + dupes + importedCount.
       Math.max(0, Math.round(Number(summary?.importedCount) || 0)),
       normalizedRunId,
       sourceId

@@ -1426,7 +1426,8 @@ function runSyncAndScore(options = {}) {
         newCount: deltas.newCount,
         updatedCount: deltas.updatedCount,
         unchangedCount: deltas.unchangedCount,
-        importedCount: countActiveJobsByIds(db, semanticMetrics.importedKeptJobIds),
+        // Initial value; overwritten by finalizeSourceRunDeltasForBatch after scoring.
+        importedCount: semanticMetrics.importedKeptCount,
         refreshMode: refreshMeta.refreshMode,
         servedFrom: refreshMeta.servedFrom,
         statusReason: refreshMeta.statusReason,
