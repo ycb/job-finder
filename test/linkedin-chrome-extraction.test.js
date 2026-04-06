@@ -305,7 +305,16 @@ test("writeLinkedInCaptureFile sanitizes polluted LinkedIn jobs before persistin
       url: "https://www.linkedin.com/jobs/view/4388130875/?trackingId=abc123",
       externalId: ""
     }
-  ]);
+  ], {
+    captureTelemetry: {
+      sourceId: source.id,
+      status: "live_success",
+      initialUrl: source.searchUrl,
+      visitedUrls: [source.searchUrl, "https://www.linkedin.com/jobs/view/4388130875/"],
+      finalUrl: "https://www.linkedin.com/jobs/view/4388130875/",
+      stopReason: "completed"
+    }
+  });
 
   const payload = JSON.parse(fs.readFileSync(source.capturePath, "utf8"));
   assert.equal(payload.jobs[0].title, "Principal Product Manager");
@@ -317,6 +326,14 @@ test("writeLinkedInCaptureFile sanitizes polluted LinkedIn jobs before persistin
   );
   assert.equal(payload.jobs[0].url, "https://www.linkedin.com/jobs/view/4388130875/");
   assert.equal(payload.jobs[0].externalId, "4388130875");
+  assert.deepEqual(payload.captureTelemetry, {
+    sourceId: source.id,
+    status: "live_success",
+    initialUrl: source.searchUrl,
+    visitedUrls: [source.searchUrl, "https://www.linkedin.com/jobs/view/4388130875/"],
+    finalUrl: "https://www.linkedin.com/jobs/view/4388130875/",
+    stopReason: "completed"
+  });
 });
 
 test("collectLinkedInCaptureFile repairs polluted persisted LinkedIn rows on read", () => {

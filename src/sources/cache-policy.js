@@ -144,6 +144,18 @@ export function readSourceCaptureSummary(source) {
               importedCount: normalizeCount(rawCaptureFunnel.importedCount)
             }
           : null,
+        captureDiagnostics:
+          payload?.captureDiagnostics &&
+          typeof payload.captureDiagnostics === "object" &&
+          !Array.isArray(payload.captureDiagnostics)
+            ? payload.captureDiagnostics
+            : null,
+        captureTelemetry:
+          payload?.captureTelemetry &&
+          typeof payload.captureTelemetry === "object" &&
+          !Array.isArray(payload.captureTelemetry)
+            ? payload.captureTelemetry
+            : null,
         pageUrl: typeof payload?.pageUrl === "string" ? payload.pageUrl : null
       }
     };
@@ -230,6 +242,22 @@ export function writeSourceCapturePayload(source, jobs, options = {}) {
 
   if (expectedCount !== null) {
     payload.expectedCount = expectedCount;
+  }
+
+  if (
+    options.captureDiagnostics &&
+    typeof options.captureDiagnostics === "object" &&
+    !Array.isArray(options.captureDiagnostics)
+  ) {
+    payload.captureDiagnostics = options.captureDiagnostics;
+  }
+
+  if (
+    options.captureTelemetry &&
+    typeof options.captureTelemetry === "object" &&
+    !Array.isArray(options.captureTelemetry)
+  ) {
+    payload.captureTelemetry = options.captureTelemetry;
   }
 
   const rawFunnel = options.captureFunnel;

@@ -3,6 +3,33 @@ import assert from "node:assert/strict";
 
 import * as reviewServer from "../src/review/server.js";
 
+test("run-all request handler executes capture without separate auth preflight", async () => {
+  assert.equal(typeof reviewServer.handleRunAllSourcesRequest, "function");
+
+  const preflightCalls = [];
+  const captureCalls = [];
+
+  const result = await reviewServer.handleRunAllSourcesRequest(
+    {},
+    {
+      applySourceQaOverridesFn: (options) => options,
+      normalizeRefreshProfileFn: (profile) => profile || "safe",
+      runAuthPreflightForEnabledSourcesFn: async () => {
+        preflightCalls.push("called");
+        return [{ sourceId: "linkedin-live-capture" }];
+      },
+      runAllCapturesWithOptionsFn: async (options) => {
+        captureCalls.push(options);
+        return { captures: [], sync: { collected: 0 } };
+      }
+    }
+  );
+
+  assert.deepEqual(preflightCalls, []);
+  assert.deepEqual(captureCalls, [{ refreshProfile: "safe", forceRefresh: false }]);
+  assert.deepEqual(result, { ok: true, captures: [], sync: { collected: 0 } });
+});
+
 test("runAllCapturesWithOptions continues after a browser source fails and still syncs completed sources", async () => {
   const bridgeCalls = [];
   const refreshEvents = [];

@@ -45,6 +45,9 @@ import { filterActiveQueueJobs, isActiveQueueJob } from "../jobs/active-queue.js
 import { normalizeJobRecord } from "../jobs/normalize.js";
 import { applyRetentionPolicyCleanup, writeRetentionCleanupAudit } from "../jobs/retention.js";
 import {
+  countActiveJobsByIds,
+  countDeduplicatedQueueJobsForRun,
+  finalizeSourceRunDeltasForBatch,
   getLatestImportedRunId,
   listAllJobs,
   listAllJobsWithStatus,
@@ -1391,13 +1394,17 @@ function runSyncAndScore(options = {}) {
         evaluations: sourceEvaluations,
         knownDuplicateHashes
       });
+      const importedKeptJobIds = new Set(semanticMetrics.importedKeptJobIds);
+      const importedKeptJobs = normalizedJobs.filter((job) => importedKeptJobIds.has(String(job.id)));
+      const nonImportedJobs = normalizedJobs.filter((job) => !importedKeptJobIds.has(String(job.id)));
       const refreshMeta = buildSourceRefreshMeta(source, {
         currentCapturedAt: capturePayload.capturedAt,
         recordedAt: runRecordedAt
       });
 
       totalCollected += normalizedJobs.length;
-      totalUpserted += upsertJobs(db, normalizedJobs, { lastImportBatchId: runId });
+      totalUpserted += upsertJobs(db, importedKeptJobs, { lastImportBatchId: runId });
+      totalUpserted += upsertJobs(db, nonImportedJobs, { lastImportBatchId: null });
       totalPruned += pruneSourceJobs(
         db,
         source.id,
@@ -1419,7 +1426,7 @@ function runSyncAndScore(options = {}) {
         newCount: deltas.newCount,
         updatedCount: deltas.updatedCount,
         unchangedCount: deltas.unchangedCount,
-        importedCount: semanticMetrics.importedKeptCount,
+        importedCount: countActiveJobsByIds(db, semanticMetrics.importedKeptJobIds),
         refreshMode: refreshMeta.refreshMode,
         servedFrom: refreshMeta.servedFrom,
         statusReason: refreshMeta.statusReason,
@@ -1440,6 +1447,14 @@ function runSyncAndScore(options = {}) {
     const jobs = listAllJobs(db);
     const evaluations = evaluateJobsFromSearchCriteria(criteria, jobs);
     upsertEvaluations(db, evaluations);
+    finalizeSourceRunDeltasForBatch(db, runId);
+
+    // Compute the run-level imported count deduplicated across sources.
+    // Per-source importedCount values overcount when the same job is imported
+    // by multiple sources (each source counts its own copy). This single query
+    // counts distinct normalizedHash values from the current batch so it matches
+    // what the user sees as "New" in the Jobs-tab queue.
+    const deduplicatedQueueImportedCount = countDeduplicatedQueueJobsForRun(db, runId);
 
     return {
       runId,
@@ -1449,6 +1464,7 @@ function runSyncAndScore(options = {}) {
       newCount: totalNew,
       updatedCount: totalUpdated,
       unchangedCount: totalUnchanged,
+      importedCount: deduplicatedQueueImportedCount,
       skippedByQuality,
       qualityMessages,
       retentionCleanup,
@@ -1742,6 +1758,35 @@ async function runAuthPreflightForEnabledSources(options = {}) {
 
 async function runAllCaptures() {
   return runAllCapturesWithOptions({});
+}
+
+export async function handleRunAllSourcesRequest(parsedBody = {}, overrides = {}) {
+  const applySourceQaOverridesFn =
+    overrides.applySourceQaOverridesFn || applySourceQaOverrides;
+  const normalizeRefreshProfileFn =
+    overrides.normalizeRefreshProfileFn || normalizeRefreshProfile;
+  const runAllCapturesWithOptionsFn =
+    overrides.runAllCapturesWithOptionsFn || runAllCapturesWithOptions;
+
+  const qaRunOptions = applySourceQaOverridesFn({
+    refreshProfile:
+      typeof parsedBody.refreshProfile === "string"
+        ? parsedBody.refreshProfile
+        : undefined,
+    forceRefresh: parsedBody.forceRefresh === true
+  });
+  const refreshProfile =
+    typeof qaRunOptions.refreshProfile === "string"
+      ? qaRunOptions.refreshProfile
+      : undefined;
+  const normalizedRefreshProfile = normalizeRefreshProfileFn(refreshProfile || "safe");
+  const forceRefresh = qaRunOptions.forceRefresh === true;
+  const result = await runAllCapturesWithOptionsFn({
+    refreshProfile: normalizedRefreshProfile,
+    forceRefresh
+  });
+
+  return { ok: true, ...result };
 }
 
 export async function runAllCapturesWithOptions(options = {}, overrides = {}) {
@@ -2148,8 +2193,8 @@ function buildDashboardData(limit = 200) {
           : null;
       const latestTrustedRunImportedCount =
         latestRunDelta?.servedFrom === "live" &&
-        hasCountValue(latestRunDelta?.importedKeptCount)
-          ? normalizeCount(latestRunDelta.importedKeptCount)
+        hasCountValue(latestRunDelta?.importedCount)
+          ? normalizeCount(latestRunDelta.importedCount)
           : null;
       const captureStatus = isFileBackedCapture ? capture.status : "ready";
       const capturedAt = pickLatestTimestamp(
@@ -2234,6 +2279,18 @@ function buildDashboardData(limit = 200) {
         captureExpectedCount: foundCount,
         importVerification,
         pageUrl: capture.pageUrl,
+        captureDiagnostics:
+          capture.payload?.captureDiagnostics &&
+          typeof capture.payload.captureDiagnostics === "object" &&
+          !Array.isArray(capture.payload.captureDiagnostics)
+            ? capture.payload.captureDiagnostics
+            : null,
+        captureTelemetry:
+          capture.payload?.captureTelemetry &&
+          typeof capture.payload.captureTelemetry === "object" &&
+          !Array.isArray(capture.payload.captureTelemetry)
+            ? capture.payload.captureTelemetry
+            : null,
         captureStatus,
         totalCount: counts.totalCount,
         activeCount: counts.activeCount,
@@ -2315,7 +2372,15 @@ function buildDashboardData(limit = 200) {
     skippedQueue,
     rejectedQueue,
     queueMeta: {
-      currentImportBatchId
+      currentImportBatchId,
+      // Deduplicated count of active-queue-eligible jobs from the latest run,
+      // counted once per unique normalizedHash across all sources. Use this as
+      // the "Imported" aggregate delta so it matches the Jobs-tab "New" count
+      // rather than the sum of per-source importedCount values (which overcounts
+      // when the same job is captured by multiple sources).
+      latestRunImportedCount: currentImportBatchId
+        ? withDatabase((db) => countDeduplicatedQueueJobsForRun(db, currentImportBatchId))
+        : null
     }
   };
 }
@@ -7790,41 +7855,7 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
       if (request.method === "POST" && url.pathname === "/api/sources/run-all") {
         const rawBody = await readRequestBody(request);
         const parsedBody = rawBody ? JSON.parse(rawBody) : {};
-        const qaRunOptions = applySourceQaOverrides({
-          refreshProfile:
-            typeof parsedBody.refreshProfile === "string"
-              ? parsedBody.refreshProfile
-              : undefined,
-          forceRefresh: parsedBody.forceRefresh === true
-        });
-        const refreshProfile =
-          typeof qaRunOptions.refreshProfile === "string"
-            ? qaRunOptions.refreshProfile
-            : undefined;
-        const normalizedRefreshProfile = normalizeRefreshProfile(refreshProfile || "safe");
-        const forceRefresh = qaRunOptions.forceRefresh === true;
-        const skipAuthPreflight = parsedBody.skipAuthPreflight === true;
-        if (!skipAuthPreflight) {
-          const blockedSources = await runAuthPreflightForEnabledSources({
-            refreshProfile: normalizedRefreshProfile
-          });
-          if (blockedSources.length > 0) {
-            response.writeHead(409, { "Content-Type": "application/json; charset=utf-8" });
-            response.end(
-              JSON.stringify({
-                error:
-                  "Sign-in is required for one or more enabled sources before running searches.",
-                requiresAuthCheck: true,
-                authSources: blockedSources
-              })
-            );
-            return;
-          }
-        }
-        const result = await runAllCapturesWithOptions({
-          refreshProfile: normalizedRefreshProfile,
-          forceRefresh
-        });
+        const result = await handleRunAllSourcesRequest(parsedBody);
         incrementMonthlySearchUsage();
         const settings = loadUserSettings().settings;
         const effectiveChannel = getEffectiveOnboardingChannel(settings);
@@ -7833,7 +7864,7 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
             "sources_run_all",
             {
               captureCount: Array.isArray(result?.captures) ? result.captures.length : 0,
-              forceRefresh
+              forceRefresh: parsedBody.forceRefresh === true
             },
             {
               installId: settings.installId,
@@ -7845,7 +7876,7 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
           }
         );
         response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
-        response.end(JSON.stringify({ ok: true, ...result }));
+        response.end(JSON.stringify(result));
         return;
       }
 

@@ -232,7 +232,7 @@ test("loadSourcesWithPath applies global search criteria and allows per-source o
     assert.equal(globalUrl.searchParams.get("q"), "senior product manager fintech payments");
     assert.equal(globalUrl.searchParams.get("l"), "San Francisco, CA");
     assert.equal(globalUrl.searchParams.get("radius"), "25");
-    assert.equal(globalUrl.searchParams.get("salaryType"), "$195,000");
+    assert.equal(globalUrl.searchParams.get("salaryType"), "$195,000+");
     assert.equal(globalUrl.searchParams.get("fromage"), "7");
 
     const overrideSource = loaded.sources.find((source) => source.id === "indeed-override");

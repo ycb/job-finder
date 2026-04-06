@@ -25,7 +25,7 @@ const SOURCE_LIBRARY = Object.freeze([
     type: "indeed_search",
     legacySourceIds: ["indeed-main", "indeed-ai-pm-sf"],
     enabled: false,
-    searchUrl: "https://www.indeed.com/jobs?l=San+Francisco%2C+CA&radius=25",
+    searchUrl: "https://www.indeed.com/jobs?l=San+Francisco%2C+CA",
     cacheTtlHours: 24
   },
   {

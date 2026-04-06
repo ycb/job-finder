@@ -44,6 +44,7 @@ import { runMigrations } from "./db/migrations.js";
 import { normalizeJobRecord } from "./jobs/normalize.js";
 import { applyRetentionPolicyCleanup, writeRetentionCleanupAudit } from "./jobs/retention.js";
 import {
+  countActiveJobsByIds,
   listAllJobs,
   listNormalizedHashesOutsideSources,
   listSourceJobsForDelta,
@@ -694,6 +695,9 @@ function runSync(options = {}) {
       evaluations: sourceEvaluations,
       knownDuplicateHashes
     });
+    const importedKeptJobIds = new Set(semanticMetrics.importedKeptJobIds);
+    const importedKeptJobs = normalizedJobs.filter((job) => importedKeptJobIds.has(String(job.id)));
+    const nonImportedJobs = normalizedJobs.filter((job) => !importedKeptJobIds.has(String(job.id)));
     const refreshContext = buildSourceRefreshContext(source, {
       ...options,
       currentCapturedAt: capturePayload.capturedAt,
@@ -701,7 +705,8 @@ function runSync(options = {}) {
     });
 
     totalCollected += normalizedJobs.length;
-    totalUpserted += upsertJobs(db, normalizedJobs, { lastImportBatchId: runId });
+    totalUpserted += upsertJobs(db, importedKeptJobs, { lastImportBatchId: runId });
+    totalUpserted += upsertJobs(db, nonImportedJobs, { lastImportBatchId: null });
     totalPruned += pruneSourceJobs(
       db,
       source.id,
@@ -723,7 +728,7 @@ function runSync(options = {}) {
       newCount: deltas.newCount,
       updatedCount: deltas.updatedCount,
       unchangedCount: deltas.unchangedCount,
-      importedCount: semanticMetrics.importedKeptCount,
+      importedCount: countActiveJobsByIds(db, semanticMetrics.importedKeptJobIds),
       refreshMode: refreshContext.refreshMode,
       servedFrom: refreshContext.servedFrom,
       statusReason: refreshContext.statusReason,

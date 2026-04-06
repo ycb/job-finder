@@ -5,6 +5,7 @@ import { writeAshbyCaptureFile } from "../../sources/ashby-jobs.js";
 import { writeGoogleCaptureFile } from "../../sources/google-jobs.js";
 import {
   filterIndeedCapturedJobs,
+  getIndeedNativeFilterState,
   INDEED_EXPECTED_COUNT_SELECTORS,
   writeIndeedCaptureFile
 } from "../../sources/indeed-jobs.js";
@@ -225,6 +226,93 @@ function readAutomationTabInfo() {
   return {
     url: String(url || "").trim(),
     title: String(title || "").trim()
+  };
+}
+
+function uniqueOrderedStrings(values = []) {
+  const seen = new Set();
+  const output = [];
+  for (const value of values) {
+    const normalized = String(value || "").trim();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    output.push(normalized);
+  }
+  return output;
+}
+
+function pickDetectedFilterState(sourceType, captureDiagnostics) {
+  const diagnostics =
+    captureDiagnostics &&
+    typeof captureDiagnostics === "object" &&
+    !Array.isArray(captureDiagnostics)
+      ? captureDiagnostics
+      : null;
+  if (!diagnostics) {
+    return null;
+  }
+
+  if (sourceType === "indeed_search") {
+    const filterState = {
+      queryValue: String(diagnostics.queryValue || "").trim() || null,
+      locationValue: String(diagnostics.locationValue || "").trim() || null,
+      appliedPayFilter: String(diagnostics.appliedPayFilter || "").trim() || null,
+      appliedDatePostedFilter:
+        String(diagnostics.appliedDatePostedFilter || "").trim() || null,
+      appliedDistanceFilter:
+        String(diagnostics.appliedDistanceFilter || "").trim() || null
+    };
+    return Object.values(filterState).some(Boolean) ? filterState : null;
+  }
+
+  return null;
+}
+
+function buildCaptureTelemetry(source, payload = {}, options = {}) {
+  const startedAt =
+    typeof options.startedAt === "string" && options.startedAt.trim()
+      ? options.startedAt
+      : new Date().toISOString();
+  const finishedAt = new Date().toISOString();
+  const tabInfo = options.tabInfo && typeof options.tabInfo === "object" ? options.tabInfo : {};
+  const finalUrl = String(tabInfo.url || payload.pageUrl || source?.searchUrl || "").trim() || null;
+  const visitedUrls = uniqueOrderedStrings([
+    source?.searchUrl,
+    payload?.pageUrl,
+    ...(Array.isArray(payload?.visitedUrls) ? payload.visitedUrls : []),
+    finalUrl
+  ]);
+  const pageTitlesVisited = uniqueOrderedStrings([
+    ...(Array.isArray(payload?.pageTitlesVisited) ? payload.pageTitlesVisited : []),
+    tabInfo.title
+  ]);
+  const pageCountVisited = Number(
+    payload?.captureDiagnostics?.pageCountVisited ?? payload?.pageCountVisited ?? 1
+  );
+  const stopReason = String(
+    payload?.captureDiagnostics?.stopReason || payload?.stopReason || "completed"
+  ).trim();
+
+  return {
+    sourceId: String(source?.id || "").trim() || null,
+    provider: "chrome_applescript",
+    status: String(options.status || "live_success"),
+    triggeredAt: startedAt,
+    finishedAt,
+    initialUrl: String(source?.searchUrl || "").trim() || null,
+    visitedUrls,
+    finalUrl,
+    pageTitlesVisited,
+    pageCountVisited: Number.isFinite(pageCountVisited) && pageCountVisited > 0
+      ? Math.round(pageCountVisited)
+      : null,
+    captureCountByPage: Array.isArray(payload?.captureCountByPage)
+      ? payload.captureCountByPage
+      : null,
+    stopReason: stopReason || null,
+    detectedFilterState: pickDetectedFilterState(source?.type, payload?.captureDiagnostics)
   };
 }
 
@@ -2652,19 +2740,221 @@ function readGenericBoardJobsFromChrome(searchUrl, extractionScript, options = {
   );
 }
 
+function buildIndeedExtractionScript(nativeFilterState = null) {
+  return `
+(() => {
+  try {
+    const nativeFilterState = ${JSON.stringify(nativeFilterState || null)};
+    const normalize = (value) =>
+      typeof value === "string" ? value.replace(/\\s+/g, " ").trim() : "";
+    const toAbsoluteUrl = (href) => {
+      const value = normalize(href);
+      if (!value) return "";
+      try {
+        return new URL(value, location.origin).toString();
+      } catch {
+        return value;
+      }
+    };
+    const parseExpectedCountFromText = (text) => {
+      const normalized = normalize(text).toLowerCase();
+      if (!normalized) {
+        return null;
+      }
+      const patterns = [
+        /page\\s+\\d+\\s+of\\s+([\\d,]+)\\s+jobs?\\b/i,
+        /showing\\s+\\d+\\s*[-–]\\s*\\d+\\s+of\\s+([\\d,]+)\\s+jobs?\\b/i
+      ];
+      for (const pattern of patterns) {
+        const match = normalized.match(pattern);
+        if (!match?.[1]) continue;
+        const parsed = Number(String(match[1]).replace(/,/g, ""));
+        if (Number.isFinite(parsed) && parsed > 0) {
+          return Math.round(parsed);
+        }
+      }
+      return null;
+    };
+    const extractExpectedCount = () => {
+      const selectors = ${JSON.stringify(INDEED_EXPECTED_COUNT_SELECTORS)};
+      let best = null;
+      for (const selector of selectors) {
+        for (const node of document.querySelectorAll(selector)) {
+          const parsed = parseExpectedCountFromText(node?.innerText || node?.textContent || "");
+          if (Number.isFinite(parsed) && parsed > 0 && (best === null || parsed > best)) {
+            best = parsed;
+          }
+        }
+      }
+      return best;
+    };
+    const parseExternalId = (url) => {
+      try {
+        const parsed = new URL(url);
+        return normalize(parsed.searchParams.get("jk") || parsed.searchParams.get("jobId") || "");
+      } catch {
+        return "";
+      }
+    };
+    const findText = (root, selectors) => {
+      for (const selector of selectors) {
+        const node = root?.querySelector(selector);
+        const text = normalize(node?.innerText || node?.textContent || "");
+        if (text) {
+          return text;
+        }
+      }
+      return "";
+    };
+    const findInputValue = (selectors) => {
+      for (const selector of selectors) {
+        const node = document.querySelector(selector);
+        const value = normalize(
+          node?.value ||
+          node?.getAttribute?.("value") ||
+          node?.innerText ||
+          node?.textContent ||
+          ""
+        );
+        if (value) {
+          return value;
+        }
+      }
+      return "";
+    };
+    const findFilterButtonText = (label) => {
+      const lowered = String(label || "").toLowerCase();
+      const nodes = Array.from(document.querySelectorAll("button, [role='button']"));
+      for (const node of nodes) {
+        const text = normalize(node.innerText || node.textContent || "");
+        if (text && text.toLowerCase().includes(lowered)) {
+          return text;
+        }
+      }
+      return "";
+    };
+    const parseCardLines = (root) =>
+      String(root?.innerText || root?.textContent || "")
+        .split(/\\n+/)
+        .map((line) => normalize(line))
+        .filter(Boolean)
+        .slice(0, 24);
+    const findLocation = (root, lines) =>
+      findText(root, ['[data-testid*="text-location"]', '[data-testid*="company-location"]', '[class*="location"]']) ||
+      lines.find((line) => /(remote|hybrid|on-site|onsite|san francisco|oakland|berkeley|walnut creek|pleasanton|milpitas|san jose|california|united states)/i.test(line)) ||
+      "";
+    const findSalary = (root, lines) =>
+      findText(root, ['[data-testid*="attribute_snippet_testid"]', '[class*="salary"]']) ||
+      lines.find((line) => /(?:[$€£]\\s*\\d[\\d,]*(?:\\.\\d+)?(?:[kKmM])?(?:\\s*[-–]\\s*[$€£]?\\s*\\d[\\d,]*(?:\\.\\d+)?(?:[kKmM])?)?|\\b\\d{2,3}\\s*[Kk]\\s*[-–]\\s*\\d{2,3}\\s*[Kk]\\b)(?:\\s*(?:annually|yearly|monthly|weekly|hourly|per\\s+(?:year|yr|hour|hr)|\\/(?:year|yr|hour|hr)))?/i.test(line)) ||
+      "";
+    const findEmploymentType = (lines) =>
+      lines.find((line) => /(full[- ]?time|part[- ]?time|contract|temporary|internship|freelance|apprenticeship)/i.test(line)) ||
+      "";
+    const cardSelector = [
+      '[data-jk]',
+      '[data-testid="slider_item"]',
+      '[data-testid*="job_seen_beacon"]',
+      '[class*="job_seen_beacon"]'
+    ].join(", ");
+    const cards = Array.from(document.querySelectorAll(cardSelector))
+      .filter((node) => node && normalize(node.innerText || node.textContent || ""));
+    const seen = new Set();
+    const jobs = [];
+    for (const card of cards) {
+      const anchor = card.querySelector('h2 a[href], a[href*="/viewjob"], a[href*="/rc/clk"]');
+      const href = toAbsoluteUrl(anchor?.getAttribute("href") || "");
+      if (!href || /\\/pagead\\/clk/i.test(href) || /\\/career(?:[/?#]|$)/i.test(href)) {
+        continue;
+      }
+      const externalId = parseExternalId(href) || normalize(card.getAttribute("data-jk") || "");
+      if (!externalId || seen.has(externalId)) {
+        continue;
+      }
+      const title =
+        normalize(anchor?.innerText || anchor?.textContent || "") ||
+        findText(card, ['[data-testid="jobTitle"]', 'h2']);
+      if (!title || title.length < 4 || title.length > 220) {
+        continue;
+      }
+      const lines = parseCardLines(card);
+      const company =
+        findText(card, ['[data-testid="company-name"]', '[data-testid*="companyName"]', '[class*="companyName"]']) ||
+        lines.find((line) => line && line.length <= 120 && !line.includes(title) && !/(remote|hybrid|on-site|onsite|full[- ]?time|part[- ]?time|contract|day|week|month|year|ago|posted)/i.test(line)) ||
+        "Unknown company";
+      const location = findLocation(card, lines) || null;
+      const salaryText = findSalary(card, lines) || null;
+      const employmentType = findEmploymentType(lines) || null;
+      seen.add(externalId);
+      jobs.push({
+        externalId,
+        title,
+        company,
+        location,
+        postedAt: "within 3 days (search filter)",
+        employmentType,
+        easyApply: false,
+        salaryText,
+        summary: lines.slice(0, 6).join(" · ").slice(0, 500),
+        description: normalize(lines.join(" · ")).slice(0, 1000),
+        extractorProvenance: {
+          postedAt: "inferred_search_filter",
+          salaryText: salaryText ? "card" : "fallback_unknown",
+          employmentType: employmentType ? "card" : "fallback_unknown",
+          location: location ? "card" : "fallback_unknown",
+          description: "card"
+        },
+        url: href
+      });
+    }
+    return JSON.stringify({
+      pageUrl: location.href,
+      capturedAt: new Date().toISOString(),
+      jobs,
+      expectedCount: extractExpectedCount(),
+      captureDiagnostics: {
+        queryValue: findInputValue([
+          'input[name="q"]',
+          'input[placeholder*="Job title"]',
+          'input[placeholder*="keywords"]'
+        ]),
+        locationValue: findInputValue([
+          'input[name="l"]',
+          'input[placeholder*="City, state"]',
+          'input[placeholder*="Search location"]'
+        ]),
+        appliedPayFilter:
+          normalize(findFilterButtonText("Pay")) ||
+          normalize(nativeFilterState?.appliedPayFilter || ""),
+        appliedDatePostedFilter:
+          normalize(findFilterButtonText("Date posted")) ||
+          normalize(nativeFilterState?.appliedDatePostedFilter || ""),
+        appliedDistanceFilter:
+          normalize(findFilterButtonText("Distance")) ||
+          normalize(nativeFilterState?.appliedDistanceFilter || ""),
+        pageTitle: normalize(document.title || ""),
+        expectedState: nativeFilterState
+      },
+      debug: {
+        cards: cards.length,
+        jobs: jobs.length
+      }
+    });
+  } catch (error) {
+    return JSON.stringify({
+      pageUrl: location.href,
+      capturedAt: new Date().toISOString(),
+      jobs: [],
+      expectedCount: null,
+      debug: null,
+      error: String(error && error.message ? error.message : error)
+    });
+  }
+})()
+  `.trim();
+}
+
 function readIndeedJobsFromChrome(searchUrl, options = {}) {
-  const extractionScript = buildGenericBoardExtractionScript({
-    siteKey: "indeed",
-    hostIncludes: ["indeed.com"],
-    urlIncludes: ["/viewjob", "/rc/clk", "/pagead/clk"],
-    blockedIncludes: ["/cmp/", "/companies/", "/career-advice/", "/career/"],
-    expectedCountSelectors: INDEED_EXPECTED_COUNT_SELECTORS,
-    expectedCountPatternSources: [
-      "page\\\\s+\\\\d+\\\\s+of\\\\s+([\\\\d,]+)\\\\s+jobs?\\\\b",
-      "showing\\\\s+\\\\d+\\\\s*[-–]\\\\s*\\\\d+\\\\s+of\\\\s+([\\\\d,]+)\\\\s+jobs?\\\\b"
-    ],
-    allowExpectedCountBodyFallback: false
-  });
+  const extractionScript = buildIndeedExtractionScript(options.nativeFilterState);
   const maxPages = Number(options.maxPages) > 0 ? Number(options.maxPages) : 8;
   const payload = capturePaginatedGenericBoardJobs({
     searchUrl,
@@ -4018,6 +4308,7 @@ export function captureLinkedInSourceWithChromeAppleScript(
     throw new Error("Chrome AppleScript capture requires a linkedin_capture_file source.");
   }
 
+  const startedAt = new Date().toISOString();
   const payload = readLinkedInJobsFromChrome(source.searchUrl, {
     ...options,
     timeoutMs:
@@ -4037,13 +4328,18 @@ export function captureLinkedInSourceWithChromeAppleScript(
         : options.maxIdleScrollSteps
   });
   const enrichedJobs = applySearchFilterInferences(source, payload.jobs);
+  const telemetry = buildCaptureTelemetry(source, payload, {
+    startedAt,
+    tabInfo: readAutomationTabInfo()
+  });
 
   return {
     ...writeLinkedInCaptureFile(source, enrichedJobs, {
       capturedAt: payload.capturedAt,
       pageUrl: payload.pageUrl,
       expectedCount: payload.expectedCount,
-      captureDiagnostics: payload.captureDiagnostics
+      captureDiagnostics: payload.captureDiagnostics,
+      captureTelemetry: telemetry
     }),
     provider: "chrome_applescript",
     status: "completed"
@@ -4059,14 +4355,20 @@ export function captureYcSourceWithChromeAppleScript(
     throw new Error("Chrome AppleScript capture requires a yc_jobs source.");
   }
 
+  const startedAt = new Date().toISOString();
   const payload = readYcJobsFromChrome(source.searchUrl, options);
   const enrichedJobs = applySearchFilterInferences(source, payload.jobs);
+  const telemetry = buildCaptureTelemetry(source, payload, {
+    startedAt,
+    tabInfo: readAutomationTabInfo()
+  });
 
   return {
     ...writeYcCaptureFile(source, enrichedJobs, {
       capturedAt: payload.capturedAt,
       pageUrl: payload.pageUrl,
-      expectedCount: payload.expectedCount
+      expectedCount: payload.expectedCount,
+      captureTelemetry: telemetry
     }),
     provider: "chrome_applescript",
     status: "completed"
@@ -4082,17 +4384,23 @@ export function captureWellfoundSourceWithChromeAppleScript(
     throw new Error("Chrome AppleScript capture requires a wellfound_search source.");
   }
 
+  const startedAt = new Date().toISOString();
   const payload = readWellfoundJobsFromChrome(source.searchUrl, options);
   const enrichedJobs = applySearchFilterInferences(
     source,
     runDetailEnrichment(source, payload.jobs, options)
   );
+  const telemetry = buildCaptureTelemetry(source, payload, {
+    startedAt,
+    tabInfo: readAutomationTabInfo()
+  });
 
   return {
     ...writeWellfoundCaptureFile(source, enrichedJobs, {
       capturedAt: payload.capturedAt,
       pageUrl: payload.pageUrl,
-      expectedCount: payload.expectedCount
+      expectedCount: payload.expectedCount,
+      captureTelemetry: telemetry
     }),
     provider: "chrome_applescript",
     status: "completed"
@@ -4108,6 +4416,7 @@ export function captureAshbySourceWithChromeAppleScript(
     throw new Error("Chrome AppleScript capture requires an ashby_search source.");
   }
 
+  const startedAt = new Date().toISOString();
   const payload = readAshbyJobsFromChrome(source.searchUrl, {
     ...options,
     maxBoards: Number(source.maxBoards) > 0 ? Number(source.maxBoards) : options.maxBoards
@@ -4116,12 +4425,17 @@ export function captureAshbySourceWithChromeAppleScript(
     source,
     runDetailEnrichment(source, payload.jobs, options)
   );
+  const telemetry = buildCaptureTelemetry(source, payload, {
+    startedAt,
+    tabInfo: readAutomationTabInfo()
+  });
 
   return {
     ...writeAshbyCaptureFile(source, enrichedJobs, {
       capturedAt: payload.capturedAt,
       pageUrl: payload.pageUrl,
-      expectedCount: payload.expectedCount
+      expectedCount: payload.expectedCount,
+      captureTelemetry: telemetry
     }),
     provider: "chrome_applescript",
     status: "completed"
@@ -4137,20 +4451,31 @@ export function captureIndeedSourceWithChromeAppleScript(
     throw new Error("Chrome AppleScript capture requires an indeed_search source.");
   }
 
+  const nativeFilterState = getIndeedNativeFilterState(source);
+  const startedAt = new Date().toISOString();
   const payload = readIndeedJobsFromChrome(source.searchUrl, {
     ...options,
+    nativeFilterState,
     maxPages: Number(source.maxPages) > 0 ? Number(source.maxPages) : options.maxPages
   });
-  const enrichedJobs = applySearchFilterInferences(
-    source,
-    runDetailEnrichment(source, payload.jobs, options)
+  const enrichedJobs = filterIndeedCapturedJobs(
+    applySearchFilterInferences(
+      source,
+      runDetailEnrichment(source, payload.jobs, options)
+    )
   );
+  const telemetry = buildCaptureTelemetry(source, payload, {
+    startedAt,
+    tabInfo: readAutomationTabInfo()
+  });
 
   return {
     ...writeIndeedCaptureFile(source, enrichedJobs, {
       capturedAt: payload.capturedAt,
       pageUrl: payload.pageUrl,
-      expectedCount: payload.expectedCount
+      expectedCount: payload.expectedCount,
+      captureDiagnostics: payload.captureDiagnostics || nativeFilterState,
+      captureTelemetry: telemetry
     }),
     provider: "chrome_applescript",
     status: "completed"
@@ -4166,17 +4491,23 @@ export function captureGoogleSourceWithChromeAppleScript(
     throw new Error("Chrome AppleScript capture requires a google_search source.");
   }
 
+  const startedAt = new Date().toISOString();
   const payload = readGoogleJobsFromChrome(source.searchUrl, options);
   const enrichedJobs = applySearchFilterInferences(
     source,
     runDetailEnrichment(source, payload.jobs, options)
   );
+  const telemetry = buildCaptureTelemetry(source, payload, {
+    startedAt,
+    tabInfo: readAutomationTabInfo()
+  });
 
   return {
     ...writeGoogleCaptureFile(source, enrichedJobs, {
       capturedAt: payload.capturedAt,
       pageUrl: payload.pageUrl,
-      expectedCount: payload.expectedCount
+      expectedCount: payload.expectedCount,
+      captureTelemetry: telemetry
     }),
     provider: "chrome_applescript",
     status: "completed"
@@ -4192,6 +4523,7 @@ export function captureZipRecruiterSourceWithChromeAppleScript(
     throw new Error("Chrome AppleScript capture requires a ziprecruiter_search source.");
   }
 
+  const startedAt = new Date().toISOString();
   const payload = readZipRecruiterJobsFromChrome(source.searchUrl, {
     ...options,
     timeoutMs:
@@ -4206,12 +4538,17 @@ export function captureZipRecruiterSourceWithChromeAppleScript(
     source,
     runDetailEnrichment(source, payload.jobs, options)
   );
+  const telemetry = buildCaptureTelemetry(source, payload, {
+    startedAt,
+    tabInfo: readAutomationTabInfo()
+  });
 
   return {
     ...writeZipRecruiterCaptureFile(source, enrichedJobs, {
       capturedAt: payload.capturedAt,
       pageUrl: payload.pageUrl,
-      expectedCount: payload.expectedCount
+      expectedCount: payload.expectedCount,
+      captureTelemetry: telemetry
     }),
     provider: "chrome_applescript",
     status: "completed"
@@ -4227,13 +4564,19 @@ export function captureRemoteOkSourceWithChromeAppleScript(
     throw new Error("Chrome AppleScript capture requires a remoteok_search source.");
   }
 
+  const startedAt = new Date().toISOString();
   const payload = readRemoteOkJobsFromChrome(source.searchUrl, options);
+  const telemetry = buildCaptureTelemetry(source, payload, {
+    startedAt,
+    tabInfo: readAutomationTabInfo()
+  });
 
   return {
     ...writeRemoteOkCaptureFile(source, payload.jobs, {
       capturedAt: payload.capturedAt,
       pageUrl: payload.pageUrl,
-      expectedCount: payload.expectedCount
+      expectedCount: payload.expectedCount,
+      captureTelemetry: telemetry
     }),
     provider: "chrome_applescript",
     status: "completed"

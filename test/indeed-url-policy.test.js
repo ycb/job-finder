@@ -17,7 +17,7 @@ test("isIndeedJobUrl accepts real Indeed job links", () => {
   );
   assert.equal(
     isIndeedJobUrl("https://www.indeed.com/pagead/clk?jk=abc12345def67890&from=vj"),
-    true
+    false
   );
 });
 
@@ -32,6 +32,33 @@ test("isIndeedJobUrl rejects Indeed salary and career pages even when fromjk is 
     isIndeedJobUrl(
       "https://www.indeed.com/career/platform-manager/salaries/San-Francisco--CA"
     ),
+    false
+  );
+});
+
+test("isIndeedJobUrl rejects known synthetic placeholder viewjob ids", () => {
+  assert.equal(
+    isIndeedJobUrl("https://www.indeed.com/viewjob?jk=a1b2c3d4e5f67890"),
+    false
+  );
+  assert.equal(
+    isIndeedJobUrl("https://www.indeed.com/viewjob?jk=123456789abcdef0"),
+    false
+  );
+  assert.equal(
+    isIndeedJobUrl("https://www.indeed.com/viewjob?jk=456789abcdef0123"),
+    false
+  );
+  assert.equal(
+    isIndeedJobUrl("https://www.indeed.com/viewjob?jk=890abcdef0123456"),
+    false
+  );
+  assert.equal(
+    isIndeedJobUrl("https://www.indeed.com/viewjob?jk=cdef0123456789ab"),
+    false
+  );
+  assert.equal(
+    isIndeedJobUrl("https://www.indeed.com/viewjob?jk=f1e2d3c4b5a67890"),
     false
   );
 });

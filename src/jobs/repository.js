@@ -12,6 +12,10 @@ function sourceRunPreferenceSql(alias) {
 }
 
 export function upsertJobs(db, jobs, options = {}) {
+  const hasExplicitLastImportBatchId = Object.prototype.hasOwnProperty.call(
+    options || {},
+    "lastImportBatchId"
+  );
   const lastImportBatchId =
     typeof options?.lastImportBatchId === "string" && options.lastImportBatchId.trim()
       ? options.lastImportBatchId.trim()
@@ -53,7 +57,10 @@ export function upsertJobs(db, jobs, options = {}) {
       structured_meta = excluded.structured_meta,
       metadata_quality_score = excluded.metadata_quality_score,
       missing_required_fields = excluded.missing_required_fields,
-      last_import_batch_id = COALESCE(excluded.last_import_batch_id, jobs.last_import_batch_id),
+      last_import_batch_id = CASE
+        WHEN ? = 1 THEN excluded.last_import_batch_id
+        ELSE COALESCE(excluded.last_import_batch_id, jobs.last_import_batch_id)
+      END,
       updated_at = excluded.updated_at;
   `);
 
@@ -85,7 +92,8 @@ export function upsertJobs(db, jobs, options = {}) {
         : null,
       lastImportBatchId,
       job.createdAt,
-      job.updatedAt
+      job.updatedAt,
+      hasExplicitLastImportBatchId ? 1 : 0
     );
 
     if (result.changes > 0) {
@@ -307,6 +315,106 @@ export function countSourceJobsInBatch(db, sourceId, batchId) {
     .get(normalizedSourceId, normalizedBatchId);
 
   return Math.max(0, Math.round(Number(row?.count) || 0));
+}
+
+export function countActiveJobsByIds(db, jobIds = []) {
+  const normalizedJobIds = Array.from(
+    new Set(
+      (Array.isArray(jobIds) ? jobIds : [])
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+    )
+  );
+
+  if (normalizedJobIds.length === 0) {
+    return 0;
+  }
+
+  const placeholders = normalizedJobIds.map(() => "?").join(", ");
+  const row = db
+    .prepare(
+      `
+      SELECT COUNT(*) AS count
+      FROM jobs j
+      LEFT JOIN applications a ON a.job_id = j.id
+      LEFT JOIN evaluations e ON e.job_id = j.id
+      WHERE j.id IN (${placeholders})
+        AND COALESCE(a.status, 'new') IN ('new', 'viewed')
+        AND COALESCE(e.hard_filtered, 0) = 0;
+    `
+    )
+    .get(...normalizedJobIds);
+
+  return Math.max(0, Math.round(Number(row?.count) || 0));
+}
+
+export function finalizeSourceRunDeltasForBatch(db, runId) {
+  const normalizedRunId = String(runId || "").trim();
+  if (!normalizedRunId) {
+    return 0;
+  }
+
+  const rows = db
+    .prepare(
+      `
+      SELECT DISTINCT source_id AS sourceId
+      FROM source_run_deltas
+      WHERE run_id = ?;
+    `
+    )
+    .all(normalizedRunId);
+
+  if (!rows.length) {
+    return 0;
+  }
+
+  const summarizeSourceBatch = db.prepare(`
+    SELECT
+      COUNT(*) AS importedKeptCount,
+      SUM(CASE WHEN COALESCE(e.hard_filtered, 0) = 1 THEN 1 ELSE 0 END) AS hardFilteredCount,
+      SUM(
+        CASE
+          WHEN COALESCE(a.status, 'new') IN ('new', 'viewed')
+            AND COALESCE(e.hard_filtered, 0) = 0
+          THEN 1
+          ELSE 0
+        END
+      ) AS importedCount
+    FROM jobs j
+    LEFT JOIN evaluations e ON e.job_id = j.id
+    LEFT JOIN applications a ON a.job_id = j.id
+    WHERE j.last_import_batch_id = ?
+      AND j.source_id = ?;
+  `);
+
+  const updateDelta = db.prepare(`
+    UPDATE source_run_deltas
+    SET
+      hard_filtered_count = ?,
+      imported_kept_count = ?,
+      imported_count = ?
+    WHERE run_id = ?
+      AND source_id = ?;
+  `);
+
+  let updated = 0;
+  for (const row of rows) {
+    const sourceId = String(row?.sourceId || "").trim();
+    if (!sourceId) {
+      continue;
+    }
+    const summary = summarizeSourceBatch.get(normalizedRunId, sourceId);
+    updateDelta.run(
+      Math.max(0, Math.round(Number(summary?.hardFilteredCount) || 0)),
+      Math.max(0, Math.round(Number(summary?.importedKeptCount) || 0)),
+      Math.max(0, Math.round(Number(summary?.importedCount) || 0)),
+      normalizedRunId,
+      sourceId
+    );
+    updated += 1;
+  }
+
+  return updated;
 }
 
 export function listAllNormalizedHashes(db) {
@@ -707,6 +815,38 @@ export function markApplicationStatusByNormalizedHash(
   for (const row of rows) {
     upsertApplicationStatus(db, row.id, status, notes);
   }
+}
+
+/**
+ * Count active-queue-eligible jobs from a given run, deduplicated across sources
+ * by normalizedHash. This is the number the user sees as "New" in the Jobs tab
+ * queue — one per unique job even if multiple sources imported the same posting.
+ *
+ * Use this for the run-level "Imported" aggregate so it aligns with the queue
+ * New count rather than the sum of per-source importedCount values, which
+ * overcounts when the same underlying job is imported by several sources.
+ */
+export function countDeduplicatedQueueJobsForRun(db, runId) {
+  const normalizedRunId = String(runId || "").trim();
+  if (!normalizedRunId) {
+    return 0;
+  }
+
+  const row = db
+    .prepare(
+      `
+      SELECT COUNT(DISTINCT COALESCE(j.normalized_hash, j.id)) AS count
+      FROM jobs j
+      LEFT JOIN applications a ON a.job_id = j.id
+      LEFT JOIN evaluations e  ON e.job_id = j.id
+      WHERE j.last_import_batch_id = ?
+        AND COALESCE(a.status, 'new') IN ('new', 'viewed')
+        AND COALESCE(e.hard_filtered, 0) = 0;
+    `
+    )
+    .get(normalizedRunId);
+
+  return Math.max(0, Math.round(Number(row?.count) || 0));
 }
 
 export function getLatestImportedRunId(db) {

@@ -2465,7 +2465,15 @@ export default function App() {
                         <TableCell>
                           <SearchMetricValue
                             value={totals.imported}
-                            delta={totals.latestTrustedRunImportedCount}
+                            delta={
+                              // Use the run-level deduplicated count from queueMeta so
+                              // this aggregate delta matches the Jobs-tab "New" count.
+                              // Per-source sum (latestTrustedRunImportedCount) overcounts
+                              // when the same job is captured by multiple sources.
+                              dashboard?.queueMeta?.latestRunImportedCount != null
+                                ? dashboard.queueMeta.latestRunImportedCount
+                                : totals.latestTrustedRunImportedCount
+                            }
                           />
                         </TableCell>
                         <TableCell>{totals.avgScore}</TableCell>

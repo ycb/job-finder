@@ -168,6 +168,12 @@ As of 2026-03-06.
 - Render `Connect your sources` as its own top-level section on the Searches tab (below page tabs), not nested inside `My Job Searches`.
 - Treat explicit source configuration as its own persisted state (`sourcesConfiguredAt`), separate from selected-count. Without this, first-run defaults can overwrite intentional disables (especially when the user disables all sources).
 
+## Source Query Parity
+
+- Do not smuggle unrequested or unverified source-native filters into the generated URL just because the source currently supports them or an existing URL carried them.
+- For parity debugging, the first comparison point is the user's manual baseline search. Preserve the core query semantics (`q` + `location`, or source equivalent) before layering on extra filters.
+- If adding native filter params makes the source ignore or dilute the core query, move those filters back to `appliedPostCapture` until a verified native mapping exists.
+
 ## Direct Source Filter Mapping
 
 - Do not assume a source lacks a URL strategy just because its `initialFilters` or SSR payload looks thin.
@@ -212,6 +218,11 @@ As of 2026-03-06.
 - Do not surface cache internals in user-facing status labels. Cache behavior is controlled by the toggle; status UI should stay focused on readiness/attention only.
 - Treat "z-index-looking" overlay bugs in the React UI as potential token/class mismatches first (for example `bg-popover` without a defined `popover` token can render transparent and mimic stacking issues).
 - When defaulting users to `Enabled` for orientation, add concise guidance that points to `Disabled` for auth-required enablement.
+
+## Source QA Closeout Discipline
+
+- When QA feedback spans multiple sources plus shared orchestration/accounting defects, stop handling issues piecemeal and create one closeout ExecPlan. Otherwise the team can "fix" individual sources while the shared run behavior remains misleading.
+- Treat "fixed pending QA" as a real status for source work that has code/test evidence but has not yet been validated in a fresh end-to-end QA run. Do not promote those fixes to closed until the live run proves them.
 - In `Disabled`, `Enable` must be a prominent primary row action; do not hide primary source actions inside overflow.
 - Remove overflow menus from `Disabled` rows entirely to reduce duplicate affordances; keep overflow for `Enabled` row secondary actions only.
 - For auth-required source enablement, enforce one-source-at-a-time with a guided modal flow (`Open source` -> user signs in -> `I'm logged in` auth probe).
@@ -431,3 +442,5 @@ As of 2026-03-06.
 - When comparing live QA metrics against controller-side diagnostics, first prove both checkouts are using the same `config/source-criteria.json`. I misdiagnosed LinkedIn source-run drift because `/Users/admin/job-finder` had different scoring keywords than the controller worktree.
 - Do not conflate `bucket=reject` with `hardFiltered`. If the approved product contract says `Filtered` means hard-filter failure only, metric builders and tests must enforce that exactly.
 - Do not use `reject` as product language for rows that merely score low against current keywords. In this product, `hardFiltered` means ruled out; low-score rows are still valid opportunities and should be treated as "low signal" or similar, not true rejects.
+- For stakeholder QA of source quality, do not offer or silently use cached runs. Every QA-triggered search must execute live so run observations map directly to source query construction, extraction, and scoring behavior.
+- For Indeed MVP capture, do not run generic detail-page enrichment after search extraction. The product requirement is search, scroll, extract, and paginate only; fetching `viewjob` pages reintroduces bogus URLs and page-not-found failures that are outside MVP scope.

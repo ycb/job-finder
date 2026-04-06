@@ -113,6 +113,43 @@ test("writeSourceCapturePayload persists baseline capture funnel metadata", () =
   }
 });
 
+test("writeSourceCapturePayload persists capture telemetry", () => {
+  const { tempDir, capturePath } = createTempCapturePath("job-finder-capture-telemetry-");
+  const source = {
+    id: "builtin-ai",
+    name: "Built In AI",
+    type: "builtin_search",
+    searchUrl: "https://www.builtinsf.com/jobs?search=ai",
+    capturePath
+  };
+
+  try {
+    writeSourceCapturePayload(source, [{ title: "PM 1" }], {
+      pageUrl: source.searchUrl,
+      captureTelemetry: {
+        sourceId: source.id,
+        status: "live_success",
+        initialUrl: source.searchUrl,
+        visitedUrls: [source.searchUrl],
+        finalUrl: source.searchUrl,
+        stopReason: "completed"
+      }
+    });
+
+    const summary = readSourceCaptureSummary(source);
+    assert.deepEqual(summary.payload?.captureTelemetry, {
+      sourceId: source.id,
+      status: "live_success",
+      initialUrl: source.searchUrl,
+      visitedUrls: [source.searchUrl],
+      finalUrl: source.searchUrl,
+      stopReason: "completed"
+    });
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("readSourceCaptureSummary sanitizes implausible persisted expected counts", () => {
   const { tempDir, capturePath } = createTempCapturePath("job-finder-sanitize-expected-");
   const source = {

@@ -8,6 +8,7 @@ import { openDatabase } from "../src/db/client.js";
 import { runMigrations } from "../src/db/migrations.js";
 import { classifyRunDeltas } from "../src/jobs/run-deltas.js";
 import {
+  countActiveJobsByIds,
   CURRENT_SOURCE_RUN_SEMANTICS_VERSION,
   countSourceJobsInBatch,
   getLatestImportedRunId,
@@ -749,6 +750,26 @@ test("buildSourceRunSemanticMetrics ignores same-source reruns and only counts c
   );
 });
 
+test("buildSourceRunSemanticMetrics returns imported-kept job ids for latest-batch stamping", () => {
+  const metrics = buildSourceRunSemanticMetrics({
+    normalizedJobs: [
+      { id: "job-1", normalizedHash: "hash-1" },
+      { id: "job-2", normalizedHash: "hash-2" },
+      { id: "job-3", normalizedHash: "hash-3" },
+      { id: "job-4", normalizedHash: "hash-2" }
+    ],
+    evaluations: [
+      { jobId: "job-1", hardFiltered: false },
+      { jobId: "job-2", hardFiltered: true },
+      { jobId: "job-3", hardFiltered: false },
+      { jobId: "job-4", hardFiltered: false }
+    ],
+    knownDuplicateHashes: new Set(["hash-3"])
+  });
+
+  assert.deepEqual(metrics.importedKeptJobIds, ["job-1", "job-4"]);
+});
+
 test("countSourceJobsInBatch reflects actual persisted rows touched in a run", () => {
   const { db, dir } = createTempDb();
 
@@ -801,6 +822,130 @@ test("countSourceJobsInBatch reflects actual persisted rows touched in a run", (
     ], { lastImportBatchId: runId });
 
     assert.equal(countSourceJobsInBatch(db, sourceId, runId), 1);
+  } finally {
+    cleanupTempDb(db, dir);
+  }
+});
+
+test("upsertJobs clears last import batch id when explicitly passed null", () => {
+  const { db, dir } = createTempDb();
+
+  try {
+    const normalizedJob = {
+      id: "job-1",
+      source: "builtin_search",
+      sourceId: "builtin-sf-ai-pm",
+      sourceUrl: "https://example.com/jobs/1",
+      externalId: "1",
+      title: "Senior Product Manager",
+      company: "Example",
+      location: "San Francisco, CA",
+      postedAt: null,
+      employmentType: null,
+      easyApply: false,
+      salaryText: null,
+      description: "Role",
+      normalizedHash: "hash-1",
+      structuredMeta: null,
+      metadataQualityScore: null,
+      missingRequiredFields: null,
+      createdAt: "2026-03-01T00:00:00.000Z",
+      updatedAt: "2026-03-01T00:00:00.000Z"
+    };
+
+    upsertJobs(db, [normalizedJob], { lastImportBatchId: "run-1" });
+    upsertJobs(db, [{ ...normalizedJob, updatedAt: "2026-03-02T00:00:00.000Z" }], {
+      lastImportBatchId: null
+    });
+
+    const row = db
+      .prepare(`SELECT last_import_batch_id AS lastImportBatchId FROM jobs WHERE id = 'job-1'`)
+      .get();
+
+    assert.equal(row.lastImportBatchId, null);
+  } finally {
+    cleanupTempDb(db, dir);
+  }
+});
+
+test("countActiveJobsByIds counts only non-terminal imported jobs", () => {
+  const { db, dir } = createTempDb();
+
+  try {
+    upsertJobs(db, [
+      {
+        id: "job-1",
+        source: "builtin_search",
+        sourceId: "builtin-sf-ai-pm",
+        sourceUrl: "https://example.com/jobs/1",
+        externalId: "1",
+        title: "Senior Product Manager",
+        company: "Example",
+        location: "San Francisco, CA",
+        postedAt: null,
+        employmentType: null,
+        easyApply: false,
+        salaryText: null,
+        description: "Role",
+        normalizedHash: "hash-1",
+        structuredMeta: null,
+        metadataQualityScore: null,
+        missingRequiredFields: null,
+        createdAt: "2026-03-01T00:00:00.000Z",
+        updatedAt: "2026-03-01T00:00:00.000Z"
+      },
+      {
+        id: "job-2",
+        source: "builtin_search",
+        sourceId: "builtin-sf-ai-pm",
+        sourceUrl: "https://example.com/jobs/2",
+        externalId: "2",
+        title: "Staff Product Manager",
+        company: "Example",
+        location: "San Francisco, CA",
+        postedAt: null,
+        employmentType: null,
+        easyApply: false,
+        salaryText: null,
+        description: "Role",
+        normalizedHash: "hash-2",
+        structuredMeta: null,
+        metadataQualityScore: null,
+        missingRequiredFields: null,
+        createdAt: "2026-03-01T00:00:00.000Z",
+        updatedAt: "2026-03-01T00:00:00.000Z"
+      },
+      {
+        id: "job-3",
+        source: "builtin_search",
+        sourceId: "builtin-sf-ai-pm",
+        sourceUrl: "https://example.com/jobs/3",
+        externalId: "3",
+        title: "Principal Product Manager",
+        company: "Example",
+        location: "San Francisco, CA",
+        postedAt: null,
+        employmentType: null,
+        easyApply: false,
+        salaryText: null,
+        description: "Role",
+        normalizedHash: "hash-3",
+        structuredMeta: null,
+        metadataQualityScore: null,
+        missingRequiredFields: null,
+        createdAt: "2026-03-01T00:00:00.000Z",
+        updatedAt: "2026-03-01T00:00:00.000Z"
+      }
+    ]);
+
+    db.prepare(
+      `INSERT INTO applications (job_id, status, notes, submitted_at, last_action_at) VALUES (?, ?, '', NULL, ?)`
+    ).run("job-2", "applied", "2026-03-02T00:00:00.000Z");
+    db.prepare(
+      `INSERT INTO applications (job_id, status, notes, submitted_at, last_action_at) VALUES (?, ?, '', NULL, ?)`
+    ).run("job-3", "rejected", "2026-03-02T00:00:00.000Z");
+
+    assert.equal(countActiveJobsByIds(db, ["job-1", "job-2", "job-3"]), 1);
   } finally {
     cleanupTempDb(db, dir);
   }

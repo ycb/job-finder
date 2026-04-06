@@ -20,8 +20,7 @@ const INDEED_EXPECTED_COUNT_PATTERNS = Object.freeze([
 
 const INDEED_JOB_URL_PATTERNS = Object.freeze([
   /\/viewjob(?:[/?#]|$)/i,
-  /\/rc\/clk(?:[/?#]|$)/i,
-  /\/pagead\/clk(?:[/?#]|$)/i
+  /\/rc\/clk(?:[/?#]|$)/i
 ]);
 
 const INDEED_BLOCKED_URL_PATTERNS = Object.freeze([
@@ -31,9 +30,47 @@ const INDEED_BLOCKED_URL_PATTERNS = Object.freeze([
   /\/career(?:[/?#]|$)/i
 ]);
 
+const INDEED_BLOCKED_JOB_IDS = new Set([
+  "a1b2c3d4e5f67890",
+  "123456789abcdef0",
+  "456789abcdef0123",
+  "890abcdef0123456",
+  "cdef0123456789ab",
+  "f1e2d3c4b5a67890"
+]);
+
 function assertIndeedSource(source) {
   if (!source || source.type !== "indeed_search") {
     throw new Error("Indeed capture write requires an indeed_search source.");
+  }
+}
+
+export function getIndeedNativeFilterState(source) {
+  try {
+    const parsed = new URL(String(source?.searchUrl || "").trim());
+    const queryValue = String(parsed.searchParams.get("q") || "").trim();
+    const locationValue = String(parsed.searchParams.get("l") || "").trim();
+    const salaryType = String(parsed.searchParams.get("salaryType") || "").trim();
+    const fromage = Number(parsed.searchParams.get("fromage"));
+    const radius = String(parsed.searchParams.get("radius") || "").trim();
+
+    return {
+      queryValue,
+      locationValue,
+      appliedPayFilter: salaryType || "",
+      appliedDatePostedFilter:
+        Number.isFinite(fromage) && fromage > 0 ? `last ${Math.round(fromage)} days` : "",
+      appliedDistanceFilter:
+        radius === "0" ? "exact location only" : radius ? `${radius} miles` : ""
+    };
+  } catch {
+    return {
+      queryValue: "",
+      locationValue: "",
+      appliedPayFilter: "",
+      appliedDatePostedFilter: "",
+      appliedDistanceFilter: ""
+    };
   }
 }
 
@@ -64,6 +101,16 @@ export function parseIndeedExpectedCountText(text) {
 export function isIndeedJobUrl(url) {
   const normalized = String(url || "").trim();
   if (!normalized) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(normalized);
+    const jk = String(parsed.searchParams.get("jk") || "").trim().toLowerCase();
+    if (jk && INDEED_BLOCKED_JOB_IDS.has(jk)) {
+      return false;
+    }
+  } catch {
     return false;
   }
 

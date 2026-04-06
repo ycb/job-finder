@@ -244,6 +244,14 @@ export function writeLinkedInCaptureFile(
     payload.captureDiagnostics = options.captureDiagnostics;
   }
 
+  if (
+    options.captureTelemetry &&
+    typeof options.captureTelemetry === "object" &&
+    !Array.isArray(options.captureTelemetry)
+  ) {
+    payload.captureTelemetry = options.captureTelemetry;
+  }
+
   fs.writeFileSync(source.capturePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 
   return {

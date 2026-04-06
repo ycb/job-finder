@@ -206,8 +206,14 @@ test("indeed criteria accountability marks hard include terms as applied in URL"
   });
 
   assert.equal(result.url.includes("fromage=3"), true);
+  assert.equal(result.url.includes("salaryType=%24200%2C000%2B"), true);
+  assert.equal(result.url.includes("radius=0"), true);
   assert.equal(result.criteriaAccountability.appliedInUrl.includes("hardIncludeTerms"), true);
   assert.equal(result.criteriaAccountability.unsupported.includes("hardIncludeTerms"), false);
+  assert.equal(result.criteriaAccountability.appliedInUrl.includes("datePosted"), true);
+  assert.equal(result.criteriaAccountability.appliedInUrl.includes("minSalary"), true);
+  assert.equal(result.criteriaAccountability.appliedPostCapture.includes("datePosted"), false);
+  assert.equal(result.criteriaAccountability.appliedPostCapture.includes("minSalary"), false);
 });
 
 test("levelsfyi builder returns a real URL and truthful accountability", () => {
