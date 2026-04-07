@@ -64,8 +64,6 @@ import { evaluateJobsFromSearchCriteria } from "./jobs/score.js";
 import { writeShortlistFile } from "./shortlist/render.js";
 import { startReviewServer } from "./review/server.js";
 import {
-  getSourceRefreshDecision,
-  normalizeRefreshProfile,
   readSourceCaptureSummary
 } from "./sources/cache-policy.js";
 import { classifyRefreshErrorOutcome, recordRefreshEvent } from "./sources/refresh-state.js";
@@ -507,52 +505,19 @@ function buildRejectedEvaluation(reason) {
   };
 }
 
-function buildSourceRefreshContext(source, options = {}) {
-  options = applySourceQaOverrides(options);
-  const refreshProfile = normalizeRefreshProfile(
-    options.refreshProfile || process.env.JOB_FINDER_REFRESH_PROFILE || "safe"
-  );
-
+function buildSourceRefreshContext(source) {
   if (!isBrowserCaptureSource(source)) {
     return {
-      refreshMode: refreshProfile,
       servedFrom: "live",
       statusReason: "fetched_during_sync",
       statusLabel: "direct_fetch"
     };
   }
 
-  const decision = getSourceRefreshDecision(source, {
-    profile: refreshProfile,
-    forceRefresh: Boolean(options.forceRefresh),
-    statePath: options.refreshStatePath,
-    nowMs: options.nowMs
-  });
-  const statusReason = decision.reason || "eligible";
-  const statusLabelMap = {
-    eligible: "ready_live",
-    force_refresh: "ready_live",
-    cache_fresh: "cache_fresh",
-    cooldown: "cooldown",
-    min_interval: "throttled",
-    daily_cap: "daily_cap",
-    mock_profile: "cache_only"
-  };
-
-  if (isCurrentRunLiveCapture(decision.sourceState || {}, options)) {
-    return {
-      refreshMode: refreshProfile,
-      servedFrom: "live",
-      statusReason: "fetched_during_sync",
-      statusLabel: "ready_live"
-    };
-  }
-
   return {
-    refreshMode: refreshProfile,
-    servedFrom: decision.servedFrom || "cache",
-    statusReason,
-    statusLabel: statusLabelMap[statusReason] || "cache_only"
+    servedFrom: "live",
+    statusReason: "fetched_during_sync",
+    statusLabel: "ready_live"
   };
 }
 
@@ -1738,34 +1703,6 @@ function runCaptureAll(snapshotDirArg) {
   );
 }
 
-function describeRefreshDecision(source, decision) {
-  if (decision.allowLive) {
-    return null;
-  }
-
-  const sourceName = source?.name || source?.id || "source";
-  const capturedAt = decision?.cacheSummary?.capturedAt || "unknown";
-  const cachedCount = Number(decision?.cacheSummary?.jobCount || 0);
-
-  if (decision.reason === "cache_fresh") {
-    return `Using cached capture for "${sourceName}" (${cachedCount} job(s); capturedAt=${capturedAt}).`;
-  }
-
-  if (decision.reason === "mock_profile") {
-    return `Using cached capture for "${sourceName}" (mock profile disables live refresh).`;
-  }
-
-  const nextEligible = decision?.nextEligibleAt || "unknown";
-  return `Using cached capture for "${sourceName}" (live refresh blocked: ${decision.reason}; next eligible=${nextEligible}; cachedAt=${capturedAt}).`;
-}
-
-function resolveCliRefreshProfile(explicitProfile) {
-  return normalizeRefreshProfile(
-    explicitProfile || process.env.JOB_FINDER_REFRESH_PROFILE || "safe",
-    { strict: true }
-  );
-}
-
 async function runCaptureSourceLive(sourceIdOrName, snapshotPathArg, options = {}) {
   if (!sourceIdOrName) {
     throw new Error(
@@ -1778,18 +1715,6 @@ async function runCaptureSourceLive(sourceIdOrName, snapshotPathArg, options = {
     throw new Error(
       `capture-source-live supports browser-capture sources (linkedin_capture_file, wellfound_search, ashby_search, google_search, indeed_search, ziprecruiter_search, yc_jobs, remoteok_search). "${source.name}" is ${source.type}.`
     );
-  }
-
-  const refreshProfile = resolveCliRefreshProfile(options.refreshProfile);
-  const decision = getSourceRefreshDecision(source, {
-    profile: refreshProfile,
-    forceRefresh: Boolean(options.forceRefresh),
-    statePath: options.refreshStatePath
-  });
-
-  if (!decision.allowLive) {
-    console.log(describeRefreshDecision(source, decision));
-    return;
   }
 
   const bridgeSession = await ensureBridgeForLinkedInSources([source], {
@@ -1808,8 +1733,7 @@ async function runCaptureSourceLive(sourceIdOrName, snapshotPathArg, options = {
         sourceId: source.id,
         outcome,
         at: new Date().toISOString(),
-        cooldownMinutes:
-          outcome === "challenge" ? Number(decision?.policy?.cooldownMinutes || 0) : 0
+        cooldownMinutes: 0
       });
       throw error;
     }
@@ -1846,7 +1770,6 @@ async function runCaptureSourceLive(sourceIdOrName, snapshotPathArg, options = {
 
 async function runCaptureAllLive(snapshotDirArg, options = {}) {
   const sources = getEnabledBrowserCaptureSources();
-  const refreshProfile = resolveCliRefreshProfile(options.refreshProfile);
 
   if (sources.length === 0) {
     console.log(
@@ -1860,56 +1783,26 @@ async function runCaptureAllLive(snapshotDirArg, options = {}) {
   }
 
   const snapshotDir = path.resolve(snapshotDirArg || "output/playwright");
-  const liveSources = [];
-  const liveDecisions = new Map();
   const completedSourceIds = [];
   let completed = 0;
   let bridgeSession = null;
 
-  for (const source of sources) {
-    const decision = getSourceRefreshDecision(source, {
-      profile: refreshProfile,
-      forceRefresh: Boolean(options.forceRefresh),
-      statePath: options.refreshStatePath
-    });
-
-    if (decision.allowLive) {
-      liveSources.push(source);
-      liveDecisions.set(source.id, decision);
-    } else {
-      completed += 1;
-      console.log(describeRefreshDecision(source, decision));
-    }
-  }
-
-  if (liveSources.length === 0) {
-    console.log(`capture-all-live imported ${completed} source(s).`);
-    return {
-      completed,
-      completedSourceIds,
-      pending: false,
-      skipped: false
-    };
-  }
-
-  bridgeSession = await ensureBridgeForLinkedInSources(liveSources);
+  bridgeSession = await ensureBridgeForLinkedInSources(sources);
 
   try {
-    for (const source of liveSources) {
+    for (const source of sources) {
       const snapshotPath = getDefaultSnapshotPath(source, snapshotDir);
       let result;
       try {
         result = await captureSourceViaBridge(source, snapshotPath);
       } catch (error) {
         const outcome = classifyRefreshErrorOutcome(error);
-        const decision = liveDecisions.get(source.id);
         recordRefreshEvent({
           statePath: options.refreshStatePath,
           sourceId: source.id,
           outcome,
           at: new Date().toISOString(),
-          cooldownMinutes:
-            outcome === "challenge" ? Number(decision?.policy?.cooldownMinutes || 0) : 0
+          cooldownMinutes: 0
         });
         throw error;
       }

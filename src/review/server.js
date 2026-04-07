@@ -69,8 +69,6 @@ import {
 } from "../jobs/run-deltas.js";
 import { evaluateJobsFromSearchCriteria } from "../jobs/score.js";
 import {
-  getSourceRefreshDecision,
-  normalizeRefreshProfile,
   readSourceCaptureSummary
 } from "../sources/cache-policy.js";
 import { sanitizeLinkedInJob } from "../sources/linkedin-cleanup.js";
@@ -87,7 +85,8 @@ import {
   classifyRefreshErrorOutcome,
   countSourceEventsForUtcDay,
   readRefreshState,
-  recordRefreshEvent
+  recordRefreshEvent,
+  resolveSourceRefreshState
 } from "../sources/refresh-state.js";
 import {
   computeAllSourceHealthStatuses,
@@ -1081,13 +1080,9 @@ function isBrowserCaptureSource(source) {
 }
 
 export function buildSourceRefreshMeta(source, options = {}) {
-  const refreshProfile = normalizeRefreshProfile(
-    options.refreshProfile || process.env.JOB_FINDER_REFRESH_PROFILE || "safe"
-  );
-
   if (!isBrowserCaptureSource(source)) {
     return {
-      refreshMode: refreshProfile,
+      refreshMode: "safe",
       servedFrom: "live",
       lastLiveAt: null,
       lastAttemptedAt: null,
@@ -1100,13 +1095,8 @@ export function buildSourceRefreshMeta(source, options = {}) {
     };
   }
 
-  const decision = getSourceRefreshDecision(source, {
-    profile: refreshProfile,
-    forceRefresh: Boolean(options.forceRefresh),
-    statePath: options.refreshStatePath,
-    nowMs: options.nowMs
-  });
-  const sourceState = decision.sourceState || {};
+  const refreshStateData = readRefreshState(options.refreshStatePath);
+  const sourceState = resolveSourceRefreshState(refreshStateData, source.id) || {};
   const lastAttemptedAt = sourceState.lastAttemptedAt || null;
   const lastAttemptOutcome = sourceState.lastAttemptOutcome || null;
   const lastAttemptError = sourceState.lastError || null;
@@ -1117,17 +1107,7 @@ export function buildSourceRefreshMeta(source, options = {}) {
     lastAttemptOutcome !== "success" &&
     Number.isFinite(lastAttemptMs) &&
     (!Number.isFinite(lastLiveMs) || lastAttemptMs >= lastLiveMs);
-  let statusReason = decision.reason || "eligible";
-  const statusLabelMap = {
-    eligible: "ready_live",
-    force_refresh: "ready_live",
-    qa_live: "ready_live",
-    cache_fresh: "cache_fresh",
-    cooldown: "cooldown",
-    min_interval: "throttled",
-    daily_cap: "daily_cap",
-    mock_profile: "cache_only"
-  };
+  let statusReason = "eligible";
   if (latestAttemptFailed) {
     statusReason = lastAttemptOutcome === "challenge" ? "challenge" : "attempt_failed";
   }
@@ -1138,13 +1118,12 @@ export function buildSourceRefreshMeta(source, options = {}) {
 
   if (isCurrentRunLiveCapture(sourceState, options)) {
     return {
-      refreshMode: refreshProfile,
       servedFrom: "live",
       lastLiveAt: sourceState.lastLiveAt || lastAttemptedAt || options.currentCapturedAt || null,
       lastAttemptedAt,
       lastAttemptOutcome,
       lastAttemptError,
-      nextEligibleAt: decision.nextEligibleAt || null,
+      nextEligibleAt: null,
       cooldownUntil: sourceState.cooldownUntil || null,
       statusLabel: "ready_live",
       statusReason: "fetched_during_sync"
@@ -1152,15 +1131,14 @@ export function buildSourceRefreshMeta(source, options = {}) {
   }
 
   return {
-    refreshMode: refreshProfile,
-    servedFrom: decision.servedFrom,
+    servedFrom: "live",
     lastLiveAt: sourceState.lastLiveAt || null,
     lastAttemptedAt,
     lastAttemptOutcome,
     lastAttemptError,
-    nextEligibleAt: decision.nextEligibleAt || null,
+    nextEligibleAt: null,
     cooldownUntil: sourceState.cooldownUntil || null,
-    statusLabel: statusLabelOverrideMap[statusReason] || statusLabelMap[statusReason] || "cache_only",
+    statusLabel: statusLabelOverrideMap[statusReason] || "ready_live",
     statusReason
   };
 }
@@ -1512,38 +1490,6 @@ async function runSourceCapture(sourceId) {
   return runSourceCaptureWithOptions(sourceId, {});
 }
 
-function describeRefreshDecision(source, decision) {
-  if (decision.allowLive) {
-    return null;
-  }
-
-  const sourceName = source?.name || source?.id || "source";
-  const capturedAt = decision?.cacheSummary?.capturedAt || "unknown";
-  const cachedCount = Number(decision?.cacheSummary?.jobCount || 0);
-
-  if (decision.reason === "cache_fresh") {
-    return `Skipped fresh capture for "${sourceName}" (capturedAt=${capturedAt}; jobs=${cachedCount}).`;
-  }
-
-  if (decision.reason === "mock_profile") {
-    return `Using cache for "${sourceName}" (mock profile disables live refresh).`;
-  }
-
-  return `Using cache for "${sourceName}" (live refresh blocked: ${decision.reason}; next eligible=${decision.nextEligibleAt || "unknown"}; capturedAt=${capturedAt}).`;
-}
-
-function sourceWithCadenceCacheTtl(source, options = {}) {
-  const overrideHours = Number(options.cacheTtlHours);
-  if (!Number.isFinite(overrideHours) || overrideHours <= 0) {
-    return source;
-  }
-
-  return {
-    ...source,
-    cacheTtlHours: overrideHours
-  };
-}
-
 async function runSourceCaptureWithOptions(sourceId, options = {}) {
   options = applySourceQaOverrides(options);
   const source = loadSources().sources.find((item) => item.id === sourceId);
@@ -1564,32 +1510,6 @@ async function runSourceCaptureWithOptions(sourceId, options = {}) {
     };
   }
 
-  const refreshProfile = normalizeRefreshProfile(
-    options.refreshProfile || process.env.JOB_FINDER_REFRESH_PROFILE || "safe"
-  );
-  const decisionSource = sourceWithCadenceCacheTtl(source, options);
-  const decision = getSourceRefreshDecision(decisionSource, {
-    profile: refreshProfile,
-    forceRefresh: Boolean(options.forceRefresh),
-    statePath: options.refreshStatePath
-  });
-
-  if (!decision.allowLive) {
-      return {
-        capture: {
-        provider: "cache",
-        status: "completed",
-        cached: true,
-        jobsImported: decision.cacheSummary?.jobCount || 0,
-        servedFrom: "cache",
-        policyReason: decision.reason,
-        nextEligibleAt: decision.nextEligibleAt || null,
-          message: describeRefreshDecision(source, decision)
-        },
-        sync: null
-      };
-    }
-
   await ensureBridgeForSources([source]);
 
   // Auth preflight for sources that require sign-in. Run probe now that the
@@ -1603,14 +1523,13 @@ async function runSourceCaptureWithOptions(sourceId, options = {}) {
       authResult = buildAuthPreflightFailure(source, err);
     }
     if (authResult.status !== "pass") {
-      const cooldownMinutes = Number(decision?.policy?.cooldownMinutes || 0);
       recordRefreshEvent({
         statePath: options.refreshStatePath,
         sourceId: source.id,
         outcome: "challenge",
         mode: options.runMode === "manual" ? "manual" : "scheduled",
         at: new Date().toISOString(),
-        cooldownMinutes
+        cooldownMinutes: 0
       });
       const err = Object.assign(
         new Error(authResult.userMessage || "Auth check failed. Sign in to this source and retry."),
@@ -1631,8 +1550,7 @@ async function runSourceCaptureWithOptions(sourceId, options = {}) {
       outcome,
       mode: options.runMode === "manual" ? "manual" : "scheduled",
       at: new Date().toISOString(),
-      cooldownMinutes:
-        outcome === "challenge" ? Number(decision?.policy?.cooldownMinutes || 0) : 0
+      cooldownMinutes: 0
     });
     throw error;
   }
@@ -1793,26 +1711,14 @@ async function runAllCaptures() {
 export async function handleRunAllSourcesRequest(parsedBody = {}, overrides = {}) {
   const applySourceQaOverridesFn =
     overrides.applySourceQaOverridesFn || applySourceQaOverrides;
-  const normalizeRefreshProfileFn =
-    overrides.normalizeRefreshProfileFn || normalizeRefreshProfile;
   const runAllCapturesWithOptionsFn =
     overrides.runAllCapturesWithOptionsFn || runAllCapturesWithOptions;
 
   const qaRunOptions = applySourceQaOverridesFn({
-    refreshProfile:
-      typeof parsedBody.refreshProfile === "string"
-        ? parsedBody.refreshProfile
-        : undefined,
     forceRefresh: parsedBody.forceRefresh === true
   });
-  const refreshProfile =
-    typeof qaRunOptions.refreshProfile === "string"
-      ? qaRunOptions.refreshProfile
-      : undefined;
-  const normalizedRefreshProfile = normalizeRefreshProfileFn(refreshProfile || "safe");
   const forceRefresh = qaRunOptions.forceRefresh === true;
   const result = await runAllCapturesWithOptionsFn({
-    refreshProfile: normalizedRefreshProfile,
     forceRefresh
   });
 
@@ -1823,10 +1729,6 @@ export async function runAllCapturesWithOptions(options = {}, overrides = {}) {
   options = applySourceQaOverrides(options);
   const loadSourcesFn = overrides.loadSourcesFn || loadSources;
   const isBrowserCaptureSourceFn = overrides.isBrowserCaptureSourceFn || isBrowserCaptureSource;
-  const sourceWithCadenceCacheTtlFn =
-    overrides.sourceWithCadenceCacheTtlFn || sourceWithCadenceCacheTtl;
-  const getSourceRefreshDecisionFn =
-    overrides.getSourceRefreshDecisionFn || getSourceRefreshDecision;
   const ensureBridgeFn = overrides.ensureBridgeFn || ensureBridgeForSources;
   const captureSourceFn = overrides.captureSourceFn || captureSourceViaBridge;
   const recordRefreshEventFn = overrides.recordRefreshEventFn || recordRefreshEvent;
@@ -1835,34 +1737,13 @@ export async function runAllCapturesWithOptions(options = {}, overrides = {}) {
   const buildSourceSnapshotPathFn =
     overrides.buildSourceSnapshotPathFn || buildSourceSnapshotPath;
   const runSyncAndScoreFn = overrides.runSyncAndScoreFn || runSyncAndScore;
-  const normalizeRefreshProfileFn =
-    overrides.normalizeRefreshProfileFn || normalizeRefreshProfile;
 
   const sources = loadSourcesFn().sources.filter((source) => source.enabled);
   const captures = [];
   const failures = [];
   let completedCount = 0;
-  const refreshProfile = normalizeRefreshProfileFn(
-    options.refreshProfile || process.env.JOB_FINDER_REFRESH_PROFILE || "safe"
-  );
-  const liveBrowserSources = [];
-  const decisions = new Map();
 
-  for (const source of sources) {
-    if (!isBrowserCaptureSourceFn(source)) {
-      continue;
-    }
-
-    const decision = getSourceRefreshDecisionFn(sourceWithCadenceCacheTtlFn(source, options), {
-      profile: refreshProfile,
-      forceRefresh: Boolean(options.forceRefresh),
-      statePath: options.refreshStatePath
-    });
-    decisions.set(source.id, decision);
-    if (decision.allowLive) {
-      liveBrowserSources.push(source);
-    }
-  }
+  const liveBrowserSources = sources.filter((source) => isBrowserCaptureSourceFn(source));
 
   if (liveBrowserSources.length > 0) {
     await ensureBridgeFn(liveBrowserSources);
@@ -1901,26 +1782,7 @@ export async function runAllCapturesWithOptions(options = {}, overrides = {}) {
     let capture;
 
     if (isBrowserCaptureSourceFn(source)) {
-      const decision =
-        decisions.get(source.id) ||
-        getSourceRefreshDecisionFn(sourceWithCadenceCacheTtlFn(source, options), {
-          profile: refreshProfile,
-          forceRefresh: Boolean(options.forceRefresh),
-          statePath: options.refreshStatePath
-        });
-
-      if (!decision.allowLive) {
-        capture = {
-          provider: "cache",
-          status: "completed",
-          cached: true,
-          servedFrom: "cache",
-          policyReason: decision.reason,
-          nextEligibleAt: decision.nextEligibleAt || null,
-          jobsImported: decision.cacheSummary?.jobCount || 0,
-          message: describeRefreshDecision(source, decision)
-        };
-      } else if (blockedSourceIds.has(source.id)) {
+      if (blockedSourceIds.has(source.id)) {
         // Auth preflight blocked this source — already recorded above; skip capture.
         capture = {
           provider: "bridge",
@@ -1937,7 +1799,6 @@ export async function runAllCapturesWithOptions(options = {}, overrides = {}) {
           );
         } catch (error) {
           const outcome = classifyRefreshErrorOutcomeFn(error);
-          const decision = decisions.get(source.id);
           const errorMessage = String(error?.message || error || "capture_failed");
           recordRefreshEventFn({
             statePath: options.refreshStatePath,
@@ -1945,8 +1806,7 @@ export async function runAllCapturesWithOptions(options = {}, overrides = {}) {
             outcome,
             mode: options.runMode === "manual" ? "manual" : "scheduled",
             at: new Date().toISOString(),
-            cooldownMinutes:
-              outcome === "challenge" ? Number(decision?.policy?.cooldownMinutes || 0) : 0,
+            cooldownMinutes: 0,
             error: errorMessage
           });
           capture = {
@@ -1954,9 +1814,7 @@ export async function runAllCapturesWithOptions(options = {}, overrides = {}) {
             status: "failed",
             outcome,
             error: errorMessage,
-            jobsImported: 0,
-            nextEligibleAt:
-              outcome === "challenge" ? decision?.nextEligibleAt || null : null
+            jobsImported: 0
           };
           failures.push({
             sourceId: source.id,
@@ -1991,10 +1849,7 @@ export async function runAllCapturesWithOptions(options = {}, overrides = {}) {
       ...capture
     });
 
-    if (
-      capture.status === "completed" &&
-      (!isBrowserCaptureSourceFn(source) || capture.servedFrom !== "cache")
-    ) {
+    if (capture.status === "completed") {
       completedCount += 1;
       completedSourceIds.push(source.id);
     }
@@ -8019,27 +7874,7 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
             return;
           }
 
-          const decision = getSourceRefreshDecision(source, {
-            profile: normalizeRefreshProfile(
-              applySourceQaOverrides({ refreshProfile: "safe" }).refreshProfile || "safe"
-            ),
-            forceRefresh: applySourceQaOverrides({}).forceRefresh === true,
-            bypassRefreshGuards: applySourceQaOverrides({}).bypassRefreshGuards === true
-          });
-          if (!decision.allowLive) {
-            response.writeHead(409, { "Content-Type": "application/json; charset=utf-8" });
-            response.end(
-              JSON.stringify({
-                error: "Manual refresh is not available yet.",
-                reason: decision.reason,
-                nextEligibleAt: decision.nextEligibleAt || null
-              })
-            );
-            return;
-          }
-
           const result = await runSourceCaptureWithOptions(sourceId, {
-            refreshProfile: "safe",
             runMode: "manual"
           });
           response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });

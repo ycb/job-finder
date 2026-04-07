@@ -13,7 +13,6 @@ test("run-all request handler executes capture without separate auth preflight",
     {},
     {
       applySourceQaOverridesFn: (options) => options,
-      normalizeRefreshProfileFn: (profile) => profile || "safe",
       runAuthPreflightForEnabledSourcesFn: async () => {
         preflightCalls.push("called");
         return [{ sourceId: "linkedin-live-capture" }];
@@ -26,7 +25,7 @@ test("run-all request handler executes capture without separate auth preflight",
   );
 
   assert.deepEqual(preflightCalls, []);
-  assert.deepEqual(captureCalls, [{ refreshProfile: "safe", forceRefresh: false }]);
+  assert.deepEqual(captureCalls, [{ forceRefresh: false }]);
   assert.deepEqual(result, { ok: true, captures: [], sync: { collected: 0 } });
 });
 
@@ -124,7 +123,8 @@ test("runAllCapturesWithOptions continues after a browser source fails and still
   );
 });
 
-test("runAllCapturesWithOptions excludes cache-served browser sources from sync", async () => {
+test("runAllCapturesWithOptions always captures browser sources live (no cache gate)", async () => {
+  const bridgeCalls = [];
   const syncCalls = [];
 
   const result = await reviewServer.runAllCapturesWithOptions(
@@ -147,15 +147,15 @@ test("runAllCapturesWithOptions excludes cache-served browser sources from sync"
         ]
       }),
       isBrowserCaptureSourceFn: (source) => source.type.startsWith("browser"),
-      sourceWithCadenceCacheTtlFn: (source) => source,
-      getSourceRefreshDecisionFn: () => ({
-        allowLive: false,
-        reason: "cache_fresh",
-        cacheSummary: { jobCount: 9 }
-      }),
-      ensureBridgeFn: async () => {
-        throw new Error("bridge should not start");
+      ensureBridgeFn: async (liveSources) => {
+        bridgeCalls.push(liveSources.map((s) => s.id));
       },
+      captureSourceFn: async (source) => ({
+        provider: "bridge",
+        status: "completed",
+        capturedAt: "2026-03-30T22:00:00.000Z",
+        jobsImported: 9
+      }),
       runSyncAndScoreFn: (options) => {
         syncCalls.push(options);
         return { collected: 1 };
@@ -166,29 +166,27 @@ test("runAllCapturesWithOptions excludes cache-served browser sources from sync"
     }
   );
 
+  assert.deepEqual(bridgeCalls, [["zip-ai-pm"]]);
   assert.deepEqual(
     result.captures.map((capture) => ({
       sourceId: capture.sourceId,
       provider: capture.provider,
-      servedFrom: capture.servedFrom || null,
       status: capture.status
     })),
     [
       {
         sourceId: "zip-ai-pm",
-        provider: "cache",
-        servedFrom: "cache",
+        provider: "bridge",
         status: "completed"
       },
       {
         sourceId: "builtin-sf-ai-pm",
         provider: "source_fetch",
-        servedFrom: null,
         status: "completed"
       }
     ]
   );
-  assert.deepEqual(syncCalls, [{ sourceIds: ["builtin-sf-ai-pm"] }]);
+  assert.deepEqual(syncCalls, [{ sourceIds: ["zip-ai-pm", "builtin-sf-ai-pm"] }]);
 });
 
 test("runAllCapturesWithOptions forces live browser capture in source QA mode", async () => {
