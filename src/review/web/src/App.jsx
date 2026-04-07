@@ -1128,10 +1128,15 @@ export default function App() {
       return;
     }
     const nextPage = Math.floor(currentIndex / JOBS_PAGE_SIZE) + 1;
-    if (nextPage !== jobsPage) {
-      setJobsPage(nextPage);
-    }
-  }, [jobsPage, selectedJobId, sortedJobs]);
+    // NOTE: jobsPage intentionally excluded from deps. Including it created a
+    // feedback loop: clicking Next updated jobsPage → effect fired → re-synced
+    // page back to the selected job (page 1) → Next had no visible effect.
+    // The effect should only run when the selected job or list changes, not
+    // when the user manually pages. Reading jobsPage here is a guard against
+    // redundant setState; a stale read is safe (worst case: one extra setState).
+    setJobsPage((current) => (nextPage !== current ? nextPage : current));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedJobId, sortedJobs]);
 
   const currentEnabledSourceIds = useCallback(
     () =>
