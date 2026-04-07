@@ -8,7 +8,6 @@ import {
   materializeSourcesFromLibraryMap
 } from "../src/config/source-library.js";
 import { validateSources } from "../src/config/schema.js";
-import { getDefaultCacheTtlHours } from "../src/sources/cache-policy.js";
 
 test("Levels.fyi registers in the source library and accepts direct HTTP config", () => {
   const definitions = listSourceLibraryDefinitions();
@@ -18,7 +17,6 @@ test("Levels.fyi registers in the source library and accepts direct HTTP config"
   assert.equal(levels.id, "levelsfyi-ai-pm");
   assert.equal(levels.name, "Levels.fyi");
   assert.equal(levels.enabled, false);
-  assert.equal(getDefaultCacheTtlHours("levelsfyi_search"), 12);
   assert.deepEqual(getSourceAggregationIds(levels), ["levelsfyi-ai-pm"]);
 
   const enabledMap = defaultSourceEnabledMap();

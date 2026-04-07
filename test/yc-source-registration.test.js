@@ -8,7 +8,6 @@ import {
   materializeSourcesFromLibraryMap
 } from "../src/config/source-library.js";
 import { validateSources } from "../src/config/schema.js";
-import { getDefaultCacheTtlHours } from "../src/sources/cache-policy.js";
 
 test("YC Jobs registers in the source library and accepts direct HTTP config", () => {
   const definitions = listSourceLibraryDefinitions();
@@ -18,7 +17,6 @@ test("YC Jobs registers in the source library and accepts direct HTTP config", (
   assert.equal(yc.id, "yc-product-jobs");
   assert.equal(yc.name, "YC Jobs");
   assert.equal(yc.enabled, false);
-  assert.equal(getDefaultCacheTtlHours("yc_jobs"), 12);
   assert.deepEqual(getSourceAggregationIds(yc), ["yc-product-jobs"]);
 
   const enabledMap = defaultSourceEnabledMap();

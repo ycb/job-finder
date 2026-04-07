@@ -4435,13 +4435,6 @@ export function renderDashboardPage(dashboard, options = {}) {
         return "12h";
       }
 
-      function runCadencePayload() {
-        if (selectedSearchRunCadence === "weekly" || selectedSearchRunCadence === "daily") {
-          return { refreshProfile: "safe" };
-        }
-        return { refreshProfile: "safe" };
-      }
-
       function formatDurationFromNow(value) {
         const targetMs = Date.parse(String(value || ""));
         if (!Number.isFinite(targetMs)) {
@@ -4627,9 +4620,8 @@ export function renderDashboardPage(dashboard, options = {}) {
             body: JSON.stringify(body)
           });
           let runAllPayload;
-          const runPayloadBase = runCadencePayload();
           try {
-            runAllPayload = await runAllSourcesAndSync(runPayloadBase);
+            runAllPayload = await runAllSourcesAndSync({});
           } catch (error) {
             const authSources = Array.isArray(error?.payload?.authSources)
               ? error.payload.authSources
@@ -4646,7 +4638,6 @@ export function renderDashboardPage(dashboard, options = {}) {
               );
             }
             runAllPayload = await runAllSourcesAndSync({
-              ...runPayloadBase,
               skipAuthPreflight: true
             });
           }
@@ -7894,10 +7885,6 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
         const result = await runSourceCaptureWithOptions(
           decodeURIComponent(match[1]),
           applySourceQaOverrides({
-            refreshProfile:
-              typeof parsedBody.refreshProfile === "string"
-                ? parsedBody.refreshProfile
-                : undefined,
             forceRefresh: parsedBody.forceRefresh === true,
             skipSync: parsedBody.skipSync === true
           })
