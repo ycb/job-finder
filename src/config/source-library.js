@@ -6,8 +6,7 @@ const SOURCE_LIBRARY = Object.freeze([
     legacySourceIds: ["linkedin-main", "growth-pm", "founding-pm", "ai-pm", "pm-remote-linkedin"],
     enabled: false,
     searchUrl: "https://www.linkedin.com/jobs/search/?location=San+Francisco%2C+CA&distance=25",
-    capturePath: "data/captures/linkedin-live-capture.json",
-    cacheTtlHours: 24
+    capturePath: "data/captures/linkedin-live-capture.json"
   },
   {
     id: "builtin-sf-ai-pm",
@@ -16,8 +15,7 @@ const SOURCE_LIBRARY = Object.freeze([
     legacySourceIds: ["builtin-main"],
     enabled: true,
     searchUrl: "https://www.builtinsf.com/jobs/product-management/product-manager",
-    maxJobs: 50,
-    cacheTtlHours: 12
+    maxJobs: 50
   },
   {
     id: "indeed-ai-pm",
@@ -25,8 +23,7 @@ const SOURCE_LIBRARY = Object.freeze([
     type: "indeed_search",
     legacySourceIds: ["indeed-main", "indeed-ai-pm-sf"],
     enabled: false,
-    searchUrl: "https://www.indeed.com/jobs?l=San+Francisco%2C+CA",
-    cacheTtlHours: 24
+    searchUrl: "https://www.indeed.com/jobs?l=San+Francisco%2C+CA"
   },
   {
     id: "zip-ai-pm",
@@ -35,8 +32,7 @@ const SOURCE_LIBRARY = Object.freeze([
     legacySourceIds: ["ziprecruiter-main", "ziprecruiter-ai-pm-sf"],
     enabled: false,
     searchUrl:
-      "https://www.ziprecruiter.com/jobs-search?location=San+Francisco%2C+CA&page=1",
-    cacheTtlHours: 24
+      "https://www.ziprecruiter.com/jobs-search?location=San+Francisco%2C+CA&page=1"
   },
   {
     id: "yc-product-jobs",
@@ -44,8 +40,7 @@ const SOURCE_LIBRARY = Object.freeze([
     type: "yc_jobs",
     enabled: false,
     searchUrl: "https://www.workatastartup.com/jobs",
-    maxJobs: 50,
-    cacheTtlHours: 12
+    maxJobs: 50
   },
   {
     id: "levelsfyi-ai-pm",
@@ -53,8 +48,7 @@ const SOURCE_LIBRARY = Object.freeze([
     type: "levelsfyi_search",
     enabled: false,
     searchUrl: "https://www.levels.fyi/jobs/",
-    maxJobs: 50,
-    cacheTtlHours: 12
+    maxJobs: 50
   }
 ]);
 

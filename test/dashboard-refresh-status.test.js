@@ -43,8 +43,7 @@ test("buildSourceRefreshMeta reports ready_live for fresh browser capture", () =
     name: "Google AI",
     type: "google_search",
     searchUrl: "https://www.google.com/search?q=ai+product+manager",
-    capturePath,
-    cacheTtlHours: 12
+    capturePath
   };
   const nowIso = "2026-03-06T18:00:00.000Z";
 
@@ -77,8 +76,7 @@ test("buildSourceRefreshMeta keeps challenge status visible even though live ref
     name: "Google AI",
     type: "google_search",
     searchUrl: "https://www.google.com/search?q=ai+product+manager",
-    capturePath,
-    cacheTtlHours: 12
+    capturePath
   };
 
   try {
@@ -117,8 +115,7 @@ test("buildSourceRefreshMeta reports the latest challenge attempt as challenge",
     name: "LinkedIn",
     type: "linkedin_capture_file",
     searchUrl: "https://www.linkedin.com/jobs/search/?keywords=product%20manager",
-    capturePath,
-    cacheTtlHours: 12
+    capturePath
   };
 
   try {
@@ -158,8 +155,7 @@ test("buildSourceRefreshMeta reports a later transient error over an older succe
     name: "Indeed",
     type: "indeed_search",
     searchUrl: "https://www.indeed.com/jobs?q=product+manager",
-    capturePath,
-    cacheTtlHours: 12
+    capturePath
   };
 
   try {
@@ -205,8 +201,7 @@ test("recordBlockedAuthPreflightAttempt persists auth-check failures into refres
     name: "ZipRecruiter",
     type: "ziprecruiter_search",
     searchUrl: "https://www.ziprecruiter.com/jobs-search?search=product+manager",
-    capturePath,
-    cacheTtlHours: 12
+    capturePath
   };
 
   try {
@@ -250,8 +245,7 @@ test("buildSourceRefreshMeta preserves live status for the current run capture",
     name: "ZipRecruiter",
     type: "ziprecruiter_search",
     searchUrl: "https://www.ziprecruiter.com/jobs-search?search=product+manager",
-    capturePath,
-    cacheTtlHours: 12
+    capturePath
   };
 
   try {
@@ -290,8 +284,7 @@ test("getSourceRefreshDecision bypasses cooldown and cache in source QA mode", (
     name: "LinkedIn",
     type: "linkedin_capture_file",
     searchUrl: "https://www.linkedin.com/jobs/search/?keywords=product%20manager",
-    capturePath,
-    cacheTtlHours: 12
+    capturePath
   };
 
   try {

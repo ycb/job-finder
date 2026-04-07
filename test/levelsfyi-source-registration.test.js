@@ -18,7 +18,6 @@ test("Levels.fyi registers in the source library and accepts direct HTTP config"
   assert.equal(levels.id, "levelsfyi-ai-pm");
   assert.equal(levels.name, "Levels.fyi");
   assert.equal(levels.enabled, false);
-  assert.equal(levels.cacheTtlHours, 12);
   assert.equal(getDefaultCacheTtlHours("levelsfyi_search"), 12);
   assert.deepEqual(getSourceAggregationIds(levels), ["levelsfyi-ai-pm"]);
 
@@ -43,8 +42,7 @@ test("Levels.fyi registers in the source library and accepts direct HTTP config"
         enabled: true,
         searchUrl: levels.searchUrl,
         capturePath: "data/captures/levelsfyi-ai-pm.json",
-        maxJobs: 40,
-        cacheTtlHours: 12
+        maxJobs: 40
       }
     ]
   });

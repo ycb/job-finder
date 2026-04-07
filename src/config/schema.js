@@ -733,16 +733,6 @@ export function validateSources(raw) {
         }
       }
 
-      if (source.cacheTtlHours !== undefined) {
-        const parsed = Number(source.cacheTtlHours);
-        if (!Number.isFinite(parsed) || parsed <= 0) {
-          throw new Error(
-            `Sources.sources[${index}].cacheTtlHours must be a positive number when provided.`
-          );
-        }
-        normalizedSource.cacheTtlHours = parsed;
-      }
-
       if (type === "mock_linkedin_saved_search") {
         normalizedSource.mockResultsPath = assertString(
           source.mockResultsPath,

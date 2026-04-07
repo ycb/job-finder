@@ -22,8 +22,7 @@ function createGoogleSource(capturePath) {
     name: "Google AI PM",
     type: "google_search",
     searchUrl: "https://www.google.com/search?q=ai+product+manager",
-    capturePath,
-    cacheTtlHours: 12
+    capturePath
   };
 }
 

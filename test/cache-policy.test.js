@@ -30,8 +30,7 @@ test("isSourceCaptureFresh returns true for fresh capture payload", () => {
     name: "Built In SF",
     type: "builtin_search",
     searchUrl: "https://www.builtinsf.com/jobs/product-management?search=AI",
-    capturePath,
-    cacheTtlHours: 12
+    capturePath
   };
 
   try {
@@ -56,8 +55,7 @@ test("getFreshCachedJobs returns null for stale capture payload", () => {
     name: "Wellfound AI",
     type: "wellfound_search",
     searchUrl: "https://wellfound.com/jobs",
-    capturePath,
-    cacheTtlHours: 24
+    capturePath
   };
 
   try {

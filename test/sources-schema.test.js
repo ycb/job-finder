@@ -24,7 +24,6 @@ test("validateSources accepts wellfound and ashby source types", () => {
         enabled: true,
         searchUrl: "https://wellfound.com/jobs",
         maxJobs: 30,
-        cacheTtlHours: 24,
         requiredTerms: ["product manager", "ai"],
         hardFilter: {
           requiredAny: ["ai", "machine learning"],
@@ -192,23 +191,6 @@ test("validateSources rejects invalid Ashby recencyWindow", () => {
   );
 });
 
-test("validateSources rejects non-positive cacheTtlHours", () => {
-  assert.throws(() =>
-    validateSources({
-      sources: [
-        {
-          id: "builtin-ai",
-          name: "Built In",
-          type: "builtin_search",
-          enabled: true,
-          searchUrl: "https://www.builtinsf.com/jobs/product-management",
-          cacheTtlHours: 0
-        }
-      ]
-    })
-  );
-});
-
 test("validateSources rejects invalid searchCriteria values", () => {
   assert.throws(() =>
     validateSources({
@@ -259,8 +241,7 @@ test("validateSources accepts YC Jobs and Levels.fyi direct HTTP sources", () =>
         enabled: true,
         searchUrl: "https://www.workatastartup.com/jobs",
         capturePath: "data/captures/yc-product-jobs.json",
-        maxJobs: 50,
-        cacheTtlHours: 12
+        maxJobs: 50
       },
       {
         id: "levelsfyi-ai-pm",
@@ -269,8 +250,7 @@ test("validateSources accepts YC Jobs and Levels.fyi direct HTTP sources", () =>
         enabled: true,
         searchUrl: "https://www.levels.fyi/jobs/",
         capturePath: "data/captures/levelsfyi-ai-pm.json",
-        maxJobs: 40,
-        cacheTtlHours: 12
+        maxJobs: 40
       }
     ]
   });

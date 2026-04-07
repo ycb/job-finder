@@ -61,11 +61,6 @@ export function getDefaultCacheTtlHours(sourceType) {
 }
 
 export function getSourceCacheTtlHours(source) {
-  const configured = Number(source?.cacheTtlHours);
-  if (Number.isFinite(configured) && configured > 0) {
-    return configured;
-  }
-
   return getDefaultCacheTtlHours(source?.type);
 }
 
