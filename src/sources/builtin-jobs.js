@@ -1,8 +1,5 @@
 import { execFileSync } from "node:child_process";
-import {
-  getFreshCachedJobs,
-  writeSourceCapturePayload
-} from "./cache-policy.js";
+import { writeSourceCapturePayload } from "./cache-policy.js";
 import { enrichJobsWithDetailPages } from "./detail-enrichment.js";
 
 function decodeHtmlEntities(value) {
@@ -241,15 +238,6 @@ function fetchBuiltInSearchHtml(searchUrl, timeoutMs = 30_000) {
 }
 
 export function collectBuiltInJobsFromSearch(source) {
-  const cachedJobs = getFreshCachedJobs(source);
-  if (Array.isArray(cachedJobs)) {
-    if (Number.isInteger(source.maxJobs) && source.maxJobs > 0) {
-      return cachedJobs.slice(0, source.maxJobs);
-    }
-
-    return cachedJobs;
-  }
-
   const html = fetchBuiltInSearchHtml(source.searchUrl, source.requestTimeoutMs || 30_000);
   const jobs = parseBuiltInSearchHtml(html, source.searchUrl);
   const jobsEnriched = enrichJobsWithDetailPages(source.type, jobs, {

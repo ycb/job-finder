@@ -1,8 +1,5 @@
 import { execFileSync } from "node:child_process";
-import {
-  getFreshCachedJobs,
-  writeSourceCapturePayload
-} from "./cache-policy.js";
+import { writeSourceCapturePayload } from "./cache-policy.js";
 import { enrichJobsWithDetailPages } from "./detail-enrichment.js";
 
 const DEFAULT_USER_AGENT =
@@ -222,14 +219,6 @@ function fetchGoogleSearchHtml(searchUrl, timeoutMs = 30_000) {
 }
 
 export function collectGoogleJobsFromSearch(source) {
-  const cachedJobs = getFreshCachedJobs(source);
-  if (Array.isArray(cachedJobs)) {
-    if (Number.isInteger(source.maxJobs) && source.maxJobs > 0) {
-      return cachedJobs.slice(0, source.maxJobs);
-    }
-    return cachedJobs;
-  }
-
   const html = fetchGoogleSearchHtml(source.searchUrl, source.requestTimeoutMs || 30_000);
   const jobs = parseGoogleSearchHtml(html, source.searchUrl);
   const jobsEnriched = enrichJobsWithDetailPages(source.type, jobs, {

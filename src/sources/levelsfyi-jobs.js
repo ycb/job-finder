@@ -1,9 +1,6 @@
 import { execFileSync } from "node:child_process";
 
-import {
-  getFreshCachedJobs,
-  writeSourceCapturePayload
-} from "./cache-policy.js";
+import { writeSourceCapturePayload } from "./cache-policy.js";
 
 const DEFAULT_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36";
@@ -562,14 +559,6 @@ export function writeLevelsFyiCaptureFile(source, jobs, options = {}) {
 }
 
 export function collectLevelsFyiJobsFromSearch(source, options = {}) {
-  const cachedJobs = getFreshCachedJobs(source);
-  if (Array.isArray(cachedJobs)) {
-    if (Number.isInteger(source.maxJobs) && source.maxJobs > 0) {
-      return cachedJobs.slice(0, source.maxJobs);
-    }
-    return cachedJobs;
-  }
-
   const fetchHtml =
     typeof options.fetchHtml === "function"
       ? options.fetchHtml
