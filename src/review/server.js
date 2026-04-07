@@ -1591,6 +1591,35 @@ async function runSourceCaptureWithOptions(sourceId, options = {}) {
     }
 
   await ensureBridgeForSources([source]);
+
+  // Auth preflight for sources that require sign-in. Run probe now that the
+  // bridge is up; bail early with a challenge record rather than capturing
+  // with invalid session data.
+  if (isSourceAuthRequired(source.type)) {
+    let authResult;
+    try {
+      authResult = await runSourceAuthProbe(source);
+    } catch (err) {
+      authResult = buildAuthPreflightFailure(source, err);
+    }
+    if (authResult.status !== "pass") {
+      const cooldownMinutes = Number(decision?.policy?.cooldownMinutes || 0);
+      recordRefreshEvent({
+        statePath: options.refreshStatePath,
+        sourceId: source.id,
+        outcome: "challenge",
+        mode: options.runMode === "manual" ? "manual" : "scheduled",
+        at: new Date().toISOString(),
+        cooldownMinutes
+      });
+      const err = Object.assign(
+        new Error(authResult.userMessage || "Auth check failed. Sign in to this source and retry."),
+        { payload: { requiresAuthCheck: true, reasonCode: authResult.reasonCode } }
+      );
+      throw err;
+    }
+  }
+
   let capture;
   try {
     capture = await captureSourceViaBridge(source, buildSourceSnapshotPath(source));
@@ -1839,6 +1868,34 @@ export async function runAllCapturesWithOptions(options = {}, overrides = {}) {
     await ensureBridgeFn(liveBrowserSources);
   }
 
+  // Auth preflight: probe auth-required live sources before any captures begin.
+  // Sources that fail are recorded as challenge events and skipped this run.
+  const blockedSourceIds = new Set();
+  const authRequiredLiveSources = liveBrowserSources.filter((s) =>
+    isSourceAuthRequired(s.type)
+  );
+  for (const source of authRequiredLiveSources) {
+    let authResult;
+    try {
+      authResult = await runSourceAuthProbe(source);
+    } catch (err) {
+      authResult = buildAuthPreflightFailure(source, err);
+    }
+    if (authResult.status !== "pass") {
+      recordBlockedAuthPreflightAttempt(source, authResult, {
+        runMode: options.runMode,
+        statePath: options.refreshStatePath
+      });
+      blockedSourceIds.add(source.id);
+      failures.push({
+        sourceId: source.id,
+        sourceName: source.name,
+        outcome: "challenge",
+        error: authResult.userMessage || "Auth check failed. Sign in to this source and retry."
+      });
+    }
+  }
+
   const completedSourceIds = [];
   for (const source of sources) {
     let capture;
@@ -1862,6 +1919,15 @@ export async function runAllCapturesWithOptions(options = {}, overrides = {}) {
           nextEligibleAt: decision.nextEligibleAt || null,
           jobsImported: decision.cacheSummary?.jobCount || 0,
           message: describeRefreshDecision(source, decision)
+        };
+      } else if (blockedSourceIds.has(source.id)) {
+        // Auth preflight blocked this source — already recorded above; skip capture.
+        capture = {
+          provider: "bridge",
+          status: "failed",
+          outcome: "challenge",
+          error: "Auth check failed. Sign in to this source and retry.",
+          jobsImported: 0
         };
       } else {
         try {
