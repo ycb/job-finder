@@ -62,11 +62,6 @@ test("runAllCapturesWithOptions continues after a browser source fails and still
     {
       loadSourcesFn: () => sources,
       isBrowserCaptureSourceFn: (source) => source.type.startsWith("browser"),
-      sourceWithCadenceCacheTtlFn: (source) => source,
-      getSourceRefreshDecisionFn: (source) =>
-        source.id === "source-a"
-          ? { allowLive: true }
-          : { allowLive: true, policy: { cooldownMinutes: 180 } },
       ensureBridgeFn: async (liveSources) => {
         bridgeCalls.push(liveSources.map((source) => source.id));
       },
@@ -193,7 +188,6 @@ test("runAllCapturesWithOptions forces live browser capture in source QA mode", 
   const originalQaMode = process.env.JOB_FINDER_SOURCE_QA_MODE;
   process.env.JOB_FINDER_SOURCE_QA_MODE = "1";
 
-  const decisionCalls = [];
   const captureCalls = [];
 
   try {
@@ -211,15 +205,6 @@ test("runAllCapturesWithOptions forces live browser capture in source QA mode", 
           ]
         }),
         isBrowserCaptureSourceFn: () => true,
-        sourceWithCadenceCacheTtlFn: (source) => source,
-        getSourceRefreshDecisionFn: (_source, options) => {
-          decisionCalls.push(options);
-          return {
-            allowLive: options.forceRefresh === true && options.profile === "probe",
-            reason: options.forceRefresh === true ? "force_refresh" : "cache_fresh",
-            cacheSummary: { jobCount: 9 }
-          };
-        },
         ensureBridgeFn: async () => {},
         captureSourceFn: async (source) => {
           captureCalls.push(source.id);
@@ -236,11 +221,11 @@ test("runAllCapturesWithOptions forces live browser capture in source QA mode", 
       }
     );
 
+    // In source QA mode, browser sources still run live (no cache gate)
     assert.equal(captureCalls.length, 1);
+    assert.equal(captureCalls[0], "zip-ai-pm");
     assert.equal(result.captures[0].provider, "bridge");
     assert.equal(result.captures[0].cached, undefined);
-    assert.ok(decisionCalls.every((call) => call.forceRefresh === true));
-    assert.ok(decisionCalls.every((call) => call.profile === "probe"));
   } finally {
     if (originalQaMode === undefined) {
       delete process.env.JOB_FINDER_SOURCE_QA_MODE;
