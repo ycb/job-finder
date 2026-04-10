@@ -4765,16 +4765,26 @@ function buildLevelsFyiDomCaptureScript() {
 function buildLevelsFyiDomScrollScript() {
   return `
 (() => {
-  const el =
-    document.querySelector('div[class*="companiesListContainer"]') ||
-    document.scrollingElement ||
-    document.documentElement ||
-    document.body;
+  const pickContainer = () => {
+    const preferred = document.querySelector('div[class*="companiesListContainer"]');
+    if (preferred) {
+      return preferred;
+    }
+    const candidates = Array.from(document.querySelectorAll("div"))
+      .filter((el) => el.scrollHeight > el.clientHeight + 40);
+    if (!candidates.length) {
+      return document.scrollingElement || document.documentElement || document.body;
+    }
+    return candidates.reduce((best, next) =>
+      next.scrollHeight > best.scrollHeight ? next : best
+    );
+  };
+  const el = pickContainer();
   const prev = el ? el.scrollTop : 0;
   const height = el ? el.scrollHeight : 0;
   const delta = Math.max(400, Math.round(window.innerHeight * 0.85));
   if (el) {
-    el.scrollBy(0, delta);
+    el.scrollTop = Math.min(prev + delta, height);
   }
   const next = el ? el.scrollTop : 0;
   return JSON.stringify({ prev, next, height });
@@ -4785,9 +4795,21 @@ function buildLevelsFyiDomScrollScript() {
 function buildLevelsFyiCompanyListScript() {
   return `
 (() => {
-  const container =
-    document.querySelector('div[class*="companiesListContainer"]') ||
-    document.body;
+  const pickContainer = () => {
+    const preferred = document.querySelector('div[class*="companiesListContainer"]');
+    if (preferred) {
+      return preferred;
+    }
+    const candidates = Array.from(document.querySelectorAll("div"))
+      .filter((el) => el.scrollHeight > el.clientHeight + 40);
+    if (!candidates.length) {
+      return document.body;
+    }
+    return candidates.reduce((best, next) =>
+      next.scrollHeight > best.scrollHeight ? next : best
+    );
+  };
+  const container = pickContainer();
   const nodes = Array.from(
     container.querySelectorAll('a,button,[role="button"]')
   );
@@ -4816,9 +4838,21 @@ function buildLevelsFyiCompanyClickScript(index) {
   const indexLiteral = JSON.stringify(Number(index));
   return `
 (() => {
-  const container =
-    document.querySelector('div[class*="companiesListContainer"]') ||
-    document.body;
+  const pickContainer = () => {
+    const preferred = document.querySelector('div[class*="companiesListContainer"]');
+    if (preferred) {
+      return preferred;
+    }
+    const candidates = Array.from(document.querySelectorAll("div"))
+      .filter((el) => el.scrollHeight > el.clientHeight + 40);
+    if (!candidates.length) {
+      return document.body;
+    }
+    return candidates.reduce((best, next) =>
+      next.scrollHeight > best.scrollHeight ? next : best
+    );
+  };
+  const container = pickContainer();
   const nodes = Array.from(
     container.querySelectorAll('a,button,[role="button"]')
   );
@@ -5079,7 +5113,7 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
           buildLevelsFyiCompanyClickScript(company.index),
           timeoutMs
         );
-        sleepSync(700);
+        sleepSync(1200);
 
         const raw = executeInAutomationWindowFrontEncoded(
           buildLevelsFyiDomCaptureScript(),
