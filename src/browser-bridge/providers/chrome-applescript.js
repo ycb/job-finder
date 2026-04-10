@@ -4765,7 +4765,11 @@ function buildLevelsFyiDomCaptureScript() {
 function buildLevelsFyiDomScrollScript() {
   return `
 (() => {
-  const el = document.scrollingElement || document.documentElement || document.body;
+  const el =
+    document.querySelector('div[class*="companiesListContainer"]') ||
+    document.scrollingElement ||
+    document.documentElement ||
+    document.body;
   const prev = el ? el.scrollTop : 0;
   const height = el ? el.scrollHeight : 0;
   const delta = Math.max(400, Math.round(window.innerHeight * 0.85));
