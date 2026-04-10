@@ -4688,6 +4688,10 @@ function buildLevelsFyiDomProbeScript() {
       scrollHeight: el.scrollHeight,
       clientHeight: el.clientHeight
     }));
+  const companiesContainer = document.querySelector('div[class*="companiesListContainer"]');
+  const companiesContainerHtml = companiesContainer
+    ? String(companiesContainer.outerHTML || "").slice(0, 800)
+    : null;
 
   return JSON.stringify({
     anchorCount: anchors.length,
@@ -4698,7 +4702,8 @@ function buildLevelsFyiDomProbeScript() {
     jobIdSample,
     viewJobSample,
     testIdSample,
-    scrollContainers
+    scrollContainers,
+    companiesContainerHtml
   });
 })()
   `.trim();
