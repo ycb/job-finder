@@ -4633,6 +4633,23 @@ function buildLevelsFyiNextDataScript() {
   `.trim();
 }
 
+function buildLevelsFyiDomProbeScript() {
+  return `
+(() => {
+  const anchors = Array.from(document.querySelectorAll('a[href*="/jobs/"]'));
+  const sample = anchors.slice(0, 3).map((anchor) => ({
+    href: anchor.href,
+    text: String(anchor.textContent || "").trim().slice(0, 80),
+    html: String(anchor.outerHTML || "").slice(0, 200)
+  }));
+  return JSON.stringify({
+    anchorCount: anchors.length,
+    sample
+  });
+})()
+  `.trim();
+}
+
 function runDetailEnrichment(source, jobs, options = {}) {
   const sourceType = String(source?.type || "").trim().toLowerCase();
   const sourceDefaultMaxJobs = sourceType === "linkedin_capture_file" ? 80 : 25;
@@ -4747,6 +4764,17 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
   let apiDecoder = null;
   let apiError = null;
   let apiCapabilities = null;
+  let domProbe = null;
+
+  try {
+    const rawProbe = executeInAutomationWindowFrontEncoded(
+      buildLevelsFyiDomProbeScript(),
+      timeoutMs
+    );
+    domProbe = parseBridgeJsonPayload(rawProbe);
+  } catch {
+    domProbe = null;
+  }
 
   for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
     const offset = pageIndex * limit;
@@ -4883,6 +4911,7 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
       apiDecoder,
       apiError,
       apiCapabilities,
+      domProbe,
       stopReason,
       usedFallback
     }
