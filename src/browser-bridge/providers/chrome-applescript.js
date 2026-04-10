@@ -4693,6 +4693,80 @@ function buildLevelsFyiDomProbeScript() {
   `.trim();
 }
 
+function buildLevelsFyiDomCaptureScript() {
+  return `
+(() => {
+  const anchors = Array.from(document.querySelectorAll('a[href*="jobId="]'));
+  const jobs = anchors.map((anchor) => {
+    const href = anchor.href || "";
+    let jobId = null;
+    try {
+      const parsed = new URL(href, location.origin);
+      jobId = parsed.searchParams.get("jobId");
+    } catch {}
+
+    const titleNode = anchor.querySelector('[class*="companyJobTitle"]');
+    const dateNode = anchor.querySelector('[class*="companyJobDate"]');
+    const locationNode = anchor.querySelector('[class*="companyJobLocation"]');
+    const dateText = dateNode ? String(dateNode.textContent || "").trim() : "";
+    let titleText = titleNode ? String(titleNode.textContent || "").trim() : "";
+    if (dateText) {
+      titleText = titleText.replace(dateText, "").trim();
+    }
+
+    const rawLocation = locationNode ? String(locationNode.textContent || "").trim() : "";
+    const parts = rawLocation
+      ? rawLocation.split("·").map((part) => part.trim()).filter(Boolean)
+      : [];
+    const jobLocation = parts[0] || null;
+    const salaryText = parts.find((part) => part.includes("$")) || null;
+
+    let company = null;
+    let cursor = anchor.parentElement;
+    while (cursor && cursor !== document.body) {
+      const companyNode = cursor.querySelector('[class*="companyName"],[class*="companyTitle"]');
+      if (companyNode) {
+        company = String(companyNode.textContent || "").trim();
+        break;
+      }
+      cursor = cursor.parentElement;
+    }
+
+    return {
+      externalId: jobId,
+      title: titleText || null,
+      company: company || null,
+      location: jobLocation,
+      salaryText,
+      postedAt: dateText || null,
+      url: href,
+      pageUrl: String(window.location && window.location.href ? window.location.href : "")
+    };
+  });
+
+  return JSON.stringify({
+    jobs: jobs.filter((job) => job && job.externalId && job.title && job.company)
+  });
+})()
+  `.trim();
+}
+
+function buildLevelsFyiDomScrollScript() {
+  return `
+(() => {
+  const el = document.scrollingElement || document.documentElement || document.body;
+  const prev = el ? el.scrollTop : 0;
+  const height = el ? el.scrollHeight : 0;
+  const delta = Math.max(400, Math.round(window.innerHeight * 0.85));
+  if (el) {
+    el.scrollBy(0, delta);
+  }
+  const next = el ? el.scrollTop : 0;
+  return JSON.stringify({ prev, next, height });
+})()
+  `.trim();
+}
+
 function runDetailEnrichment(source, jobs, options = {}) {
   const sourceType = String(source?.type || "").trim().toLowerCase();
   const sourceDefaultMaxJobs = sourceType === "linkedin_capture_file" ? 80 : 25;
@@ -4808,6 +4882,8 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
   let apiError = null;
   let apiCapabilities = null;
   let domProbe = null;
+  let domScrollPasses = 0;
+  let domCapturedCount = 0;
 
   try {
     const rawProbe = executeInAutomationWindowFrontEncoded(
@@ -4907,6 +4983,52 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
   }
 
   if (collected.length === 0) {
+    const domSeen = new Set();
+    let noGrowth = 0;
+    const maxDomPasses = Number(options.domMaxPasses) > 0 ? Number(options.domMaxPasses) : 30;
+
+    for (let pass = 0; pass < maxDomPasses; pass += 1) {
+      domScrollPasses += 1;
+      const raw = executeInAutomationWindowFrontEncoded(
+        buildLevelsFyiDomCaptureScript(),
+        timeoutMs
+      );
+      const payload = parseBridgeJsonPayload(raw);
+      const jobs = Array.isArray(payload?.jobs) ? payload.jobs : [];
+      const priorSize = domSeen.size;
+      for (const job of jobs) {
+        const key = String(job?.externalId || "").trim();
+        if (!key || domSeen.has(key)) {
+          continue;
+        }
+        domSeen.add(key);
+        collected.push(job);
+      }
+      if (domSeen.size === priorSize) {
+        noGrowth += 1;
+      } else {
+        noGrowth = 0;
+      }
+
+      if (noGrowth >= 2) {
+        break;
+      }
+
+      executeInAutomationWindowFrontEncoded(
+        buildLevelsFyiDomScrollScript(),
+        timeoutMs
+      );
+      sleepSync(900);
+    }
+
+    domCapturedCount = domSeen.size;
+    if (domCapturedCount > 0) {
+      stopReason = "domScroll";
+      usedFallback = true;
+    }
+  }
+
+  if (collected.length === 0) {
     navigateAutomationTab(searchUrl, "Refreshing Levels.fyi source...");
     sleepSync(settleMs);
     const raw = executeInAutomationWindowFrontEncoded(
@@ -4955,6 +5077,8 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
       apiError,
       apiCapabilities,
       domProbe,
+      domScrollPasses,
+      domCapturedCount,
       stopReason,
       usedFallback
     }
