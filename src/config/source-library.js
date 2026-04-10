@@ -5,7 +5,7 @@ const SOURCE_LIBRARY = Object.freeze([
     type: "linkedin_capture_file",
     legacySourceIds: ["linkedin-main", "growth-pm", "founding-pm", "ai-pm", "pm-remote-linkedin"],
     enabled: false,
-    searchUrl: "https://www.linkedin.com/jobs/search/?location=San+Francisco%2C+CA&distance=25",
+    searchUrl: "https://www.linkedin.com/jobs/search/",
     capturePath: "data/captures/linkedin-live-capture.json",
     cacheTtlHours: 24
   },

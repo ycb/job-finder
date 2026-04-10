@@ -286,7 +286,7 @@ function defaultUrlForSourceType(sourceType) {
   }
 
   if (sourceType === "yc_jobs") {
-    return "https://www.workatastartup.com/jobs/l/product-manager";
+    return "https://www.workatastartup.com/companies";
   }
 
   if (sourceType === "remoteok_search") {
@@ -440,17 +440,40 @@ function combineTitleAndKeywords(criteria) {
   return [title, positiveQuery].filter(Boolean).join(" ").trim();
 }
 
-function buildYcRoleRoute(criteria) {
+function combineKeywordsOnly(criteria) {
+  const keywordMode = normalizeKeywordMode(criteria?.keywordMode);
+  const keywordTerms = Array.isArray(criteria?.keywordTerms)
+    ? criteria.keywordTerms.map((term) => normalizeText(term).toLowerCase()).filter(Boolean)
+    : normalizeCriteriaTermList(criteria?.keywords);
+  const hardIncludeTerms = normalizeCriteriaTermList(criteria?.hardIncludeTerms);
+  const includeTerms = normalizeCriteriaTermList(criteria?.includeTerms);
+  const positiveTerms = dedupe([
+    ...keywordTerms,
+    ...hardIncludeTerms,
+    ...includeTerms
+  ]).filter(Boolean);
+
+  if (positiveTerms.length === 0) {
+    return "";
+  }
+  if (keywordMode === "or" && positiveTerms.length > 1) {
+    return `(${positiveTerms.map(formatQueryTerm).join(" OR ")})`;
+  }
+
+  return keywordTermsToQueryText(positiveTerms);
+}
+
+function buildYcRoleParam(criteria) {
   const title = normalizeText(criteria?.title).toLowerCase();
   if (!title) {
-    return "/jobs";
+    return "";
   }
 
   if (/\b(product manager|head of product|director of product|vp product)\b/.test(title)) {
-    return "/jobs/l/product-manager";
+    return "product";
   }
 
-  return "/jobs";
+  return "";
 }
 
 function toLinkedInSalaryBucket(minSalary) {
@@ -969,10 +992,12 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
     const nextCriteria = {
       ...criteria
     };
-    const searchText = combineTitleAndKeywords(criteria);
+    const searchText = combineKeywordsOnly(criteria);
 
     if (searchText) {
       nextCriteria.keywords = searchText;
+      nextCriteria.hardIncludeTerms = [];
+      nextCriteria.includeTerms = [];
       if (criteria.title) criteriaAccountability.markAppliedInUrl("title");
       if (criteria.keywords) criteriaAccountability.markAppliedInUrl("keywords");
       if (criteria.hardIncludeTerms) {
@@ -1012,46 +1037,71 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
   }
 
   if (sourceType === "yc_jobs") {
-    parsed.pathname = buildYcRoleRoute(criteria);
+    parsed.pathname = "/companies";
     parsed.search = "";
     parsed.hash = "";
 
-    if (criteria.title) {
-      criteriaAccountability.markAppliedInUrl("title");
+    parsed.searchParams.set("demographic", "any");
+    parsed.searchParams.set("hasEquity", "any");
+    parsed.searchParams.set("hasSalary", "any");
+    parsed.searchParams.set("industry", "any");
+    parsed.searchParams.set("interviewProcess", "any");
+    parsed.searchParams.set("jobType", "any");
+    parsed.searchParams.set("layout", "list-compact");
+    parsed.searchParams.set("sortBy", "keyword");
+    parsed.searchParams.set("tab", "any");
+    parsed.searchParams.set("usVisaNotRequired", "any");
+
+    const ycRole = buildYcRoleParam(criteria);
+    if (ycRole) {
+      parsed.searchParams.set("role", ycRole);
+      if (criteria.title) {
+        criteriaAccountability.markAppliedInUrl("title");
+      }
     }
 
-    const searchText = combineTitleAndKeywords(criteria);
-    if (searchText) {
-      parsed.searchParams.set("search", searchText);
-      if (criteria.keywords) criteriaAccountability.markAppliedPostCapture("keywords");
-      if (criteria.hardIncludeTerms) {
-        criteriaAccountability.markAppliedPostCapture("hardIncludeTerms");
-      }
-      if (criteria.includeTerms) {
-        criteriaAccountability.markAppliedPostCapture("includeTerms");
-      }
-      if (criteria.keywordMode) {
-        criteriaAccountability.markAppliedPostCapture("keywordMode");
-      }
+    const queryTerms = dedupe([
+      ...normalizeCriteriaTermList(criteria.hardIncludeTerms),
+      ...normalizeCriteriaTermList(criteria.includeTerms),
+      ...normalizeCriteriaTermList(criteria.keywords)
+    ]);
+    const queryText = keywordTermsToQueryText(queryTerms);
+    if (queryText) {
+      parsed.searchParams.set("query", queryText);
+      if (criteria.keywords) criteriaAccountability.markAppliedInUrl("keywords");
+      if (criteria.hardIncludeTerms) criteriaAccountability.markAppliedInUrl("hardIncludeTerms");
+      if (criteria.includeTerms) criteriaAccountability.markAppliedInUrl("includeTerms");
+      if (criteria.keywordMode) criteriaAccountability.markAppliedPostCapture("keywordMode");
     }
 
     if (criteria.location) {
-      parsed.searchParams.set("location", criteria.location);
-      criteriaAccountability.markAppliedPostCapture("location");
+      const locationValue = normalizeText(criteria.location);
+      if (locationValue) {
+        parsed.searchParams.set("locations", locationValue);
+        criteriaAccountability.markAppliedInUrl("location");
+      }
     }
 
     if (criteria.datePosted) {
-      parsed.searchParams.set("datePosted", criteria.datePosted);
+      const normalizedDatePosted = normalizeText(criteria.datePosted).toLowerCase();
+      const wantsNewest =
+        normalizedDatePosted &&
+        normalizedDatePosted !== "any" &&
+        normalizedDatePosted !== "not set";
+      if (wantsNewest) {
+        parsed.searchParams.set("sortBy", "newest");
+      } else {
+        parsed.searchParams.set("sortBy", "keyword");
+      }
       criteriaAccountability.markAppliedPostCapture("datePosted");
     }
 
     if (criteria.minSalary) {
-      parsed.searchParams.set("minSalary", String(criteria.minSalary));
-      criteriaAccountability.markAppliedPostCapture("minSalary");
+      parsed.searchParams.set("hasSalary", "true");
+      criteriaAccountability.markAppliedInUrl("minSalary");
     }
 
     if (criteria.experienceLevel) {
-      parsed.searchParams.set("experienceLevel", criteria.experienceLevel);
       criteriaAccountability.markAppliedPostCapture("experienceLevel");
     }
 

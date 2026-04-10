@@ -71,10 +71,11 @@ test("recordSourceHealthRun writes and deduplicates entries by capturedAt", () =
 
 test("computeSourceHealthStatus marks reject outcomes as failing", () => {
   const { tempDir, historyPath } = createTempHistoryPath();
+  const now = Date.now();
 
   try {
     recordSourceHealthRun("indeed-main", {
-      capturedAt: "2026-03-07T20:00:00.000Z",
+      capturedAt: new Date(now).toISOString(),
       sourceType: "indeed_search",
       outcome: "reject",
       sampleSize: 0,
@@ -106,10 +107,11 @@ test("computeSourceHealthStatus marks reject outcomes as failing", () => {
 
 test("computeSourceHealthStatus detects volume anomaly as degraded", () => {
   const { tempDir, historyPath } = createTempHistoryPath();
+  const now = Date.now();
 
   try {
     recordSourceHealthRun("zip-main", {
-      capturedAt: "2026-03-07T18:00:00.000Z",
+      capturedAt: new Date(now - 2 * 60 * 60 * 1000).toISOString(),
       sourceType: "ziprecruiter_search",
       outcome: "accept",
       sampleSize: 90,
@@ -123,7 +125,7 @@ test("computeSourceHealthStatus detects volume anomaly as degraded", () => {
     });
 
     recordSourceHealthRun("zip-main", {
-      capturedAt: "2026-03-07T19:00:00.000Z",
+      capturedAt: new Date(now - 60 * 60 * 1000).toISOString(),
       sourceType: "ziprecruiter_search",
       outcome: "accept",
       sampleSize: 88,
@@ -137,7 +139,7 @@ test("computeSourceHealthStatus detects volume anomaly as degraded", () => {
     });
 
     recordSourceHealthRun("zip-main", {
-      capturedAt: "2026-03-07T20:00:00.000Z",
+      capturedAt: new Date(now).toISOString(),
       sourceType: "ziprecruiter_search",
       outcome: "accept",
       sampleSize: 4,

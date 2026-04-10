@@ -34,8 +34,7 @@ export function getEntitlementState(settings, env = process.env) {
   const monthlySearchCount = Number.isFinite(Number(monetization.monthlySearchCount))
     ? Math.max(0, Math.round(Number(monetization.monthlySearchCount)))
     : 0;
-  const monthlySearchMonth = String(monetization.monthlySearchMonth || "").trim();
-  const searchesUsedThisMonth = monthlySearchMonth === currentMonthKey() ? monthlySearchCount : 0;
+  const searchesUsedThisMonth = monthlySearchCount;
   const jobsInDbLimit = Number.isFinite(Number(monetization.jobsInDbLimit))
     ? Math.max(0, Math.round(Number(monetization.jobsInDbLimit)))
     : 500;

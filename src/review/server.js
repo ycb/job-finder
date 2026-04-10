@@ -6134,17 +6134,22 @@ export function renderDashboardPage(dashboard, options = {}) {
                 safeName +
                 ' <span class="external-link-icon" aria-hidden="true">&#8599;</span></a>'
               : '<span class="search-name search-link-label">' + safeName + "</span>";
-            const foundLabel =
-              hasCountValue(source.foundCount)
-                ? String(Math.max(0, Math.round(Number(source.foundCount))))
+            const foundLabel = source.hasUnknownExpectedCount
+              ? hasCountValue(source.importedCount)
+                ? String(source.importedCount) + "/?"
+                : "—"
+              : hasCountValue(source.importedCount) && hasCountValue(source.expectedFoundCount)
+                ? String(source.importedCount) +
+                  "/" +
+                  String(Math.max(0, Math.round(source.expectedFoundCount)))
                 : "—";
             const filteredLabel =
-              hasCountValue(source.filteredCount)
-                ? String(Math.max(0, Math.round(Number(source.filteredCount))))
+              hasCountValue(source.droppedByHardFilterCount)
+                ? String(Math.max(0, Math.round(Number(source.droppedByHardFilterCount))))
                 : "—";
             const dedupedLabel =
-              hasCountValue(source.dedupedCount)
-                ? String(Math.max(0, Math.round(Number(source.dedupedCount))))
+              hasCountValue(source.droppedByDedupeCount)
+                ? String(Math.max(0, Math.round(Number(source.droppedByDedupeCount))))
                 : "—";
             const disableControls = busy || onboardingBusy || Boolean(authFlowSourceId);
             const authBlocked = source.enabled && source.authRequired && source.status.tone === "warn";

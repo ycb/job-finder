@@ -431,18 +431,9 @@ test("renderDashboardPage searches table shows funnel columns", () => {
 test("renderDashboardPage computes Found as imported-over-expected ratio", () => {
   const html = renderDashboardPage({});
   assert.equal(html.includes("const foundLabel ="), true);
-  assert.equal(html.includes("source.hasUnknownExpectedCount"), true);
-  assert.equal(html.includes('String(source.importedCount) + "/?"'), true);
-  assert.equal(
-    html.includes(
-      "String(source.importedCount) +"
-    ),
-    true
-  );
-  assert.equal(
-    html.includes("String(Math.max(0, Math.round(source.expectedFoundCount)))"),
-    true
-  );
+  assert.equal(html.includes("hasCountValue(source.foundCount)"), true);
+  assert.equal(html.includes("Number(source.foundCount)"), true);
+  assert.equal(html.includes('"—"'), true);
 });
 
 test("renderDashboardPage includes bold totals row for the active searches tab", () => {
@@ -458,11 +449,11 @@ test("renderDashboardPage includes bold totals row for the active searches tab",
 test("renderDashboardPage computes filtered and deduped as dropped counts", () => {
   const html = renderDashboardPage({});
   assert.equal(
-    html.includes("filteredCount: Number(source.droppedByHardFilterCount || 0)"),
+    html.includes("filteredCount: hasCountValue(source.droppedByHardFilterCount)"),
     true
   );
   assert.equal(
-    html.includes("dedupedCount: Number(source.droppedByDedupeCount || 0)"),
+    html.includes("dedupedCount: hasCountValue(source.droppedByDedupeCount)"),
     true
   );
 });
@@ -470,7 +461,7 @@ test("renderDashboardPage computes filtered and deduped as dropped counts", () =
 test("renderDashboardPage computes imported from source import totals", () => {
   const html = renderDashboardPage({});
   assert.equal(
-    html.includes("importedCount: Number(source.importedCount || 0)"),
+    html.includes("importedCount: hasCountValue(source.importedCount)"),
     true
   );
   assert.equal(html.includes("accumulator.imported += Number(source.importedCount || 0);"), true);

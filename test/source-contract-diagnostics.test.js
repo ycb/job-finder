@@ -9,6 +9,8 @@ import {
   runSourceContractDiagnostics
 } from "../src/sources/source-contracts.js";
 
+const today = new Date().toISOString().slice(0, 10);
+
 function createTempWorkspace(prefix = "job-finder-contract-diagnostics-") {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   const sourcesPath = path.join(tempDir, "sources.json");
@@ -50,6 +52,7 @@ function buildContract(sourceType, options = {}) {
 test("evaluateSourceContractDrift includes field-level coverage mismatch context", () => {
   const { tempDir, sourcesPath, contractsPath, historyPath } = createTempWorkspace();
   const capturePath = path.join(tempDir, "indeed.json");
+  const nowIso = new Date().toISOString();
 
   try {
     writeJson(sourcesPath, {
@@ -60,13 +63,13 @@ test("evaluateSourceContractDrift includes field-level coverage mismatch context
       contracts: [
         buildContract("indeed_search", {
           requiredFields: ["salaryText"],
-          lastVerified: "2026-03-07"
+          lastVerified: today
         })
       ]
     });
     writeJson(capturePath, {
       sourceId: "indeed-main",
-      capturedAt: "2026-03-07T00:00:00.000Z",
+      capturedAt: nowIso,
       jobs: [{ salaryText: "" }, { salaryText: "unknown" }]
     });
 
@@ -93,6 +96,7 @@ test("evaluateSourceContractDrift includes field-level coverage mismatch context
 test("evaluateSourceContractDrift reports healthy captures with no mismatches", () => {
   const { tempDir, sourcesPath, contractsPath, historyPath } = createTempWorkspace();
   const capturePath = path.join(tempDir, "indeed-healthy.json");
+  const nowIso = new Date().toISOString();
 
   try {
     writeJson(sourcesPath, {
@@ -103,13 +107,13 @@ test("evaluateSourceContractDrift reports healthy captures with no mismatches", 
       contracts: [
         buildContract("indeed_search", {
           requiredFields: ["salaryText"],
-          lastVerified: "2026-03-07"
+          lastVerified: today
         })
       ]
     });
     writeJson(capturePath, {
       sourceId: "indeed-main",
-      capturedAt: "2026-03-07T00:00:00.000Z",
+      capturedAt: nowIso,
       jobs: [{ salaryText: "$250k" }, { salaryText: "$225k" }]
     });
 
@@ -133,6 +137,7 @@ test("runSourceContractDiagnostics persists latest diagnostics artifact", () => 
   const { tempDir, sourcesPath, contractsPath, historyPath } = createTempWorkspace();
   const capturePath = path.join(tempDir, "indeed.json");
   const diagnosticsDir = path.join(tempDir, "diagnostics");
+  const nowIso = new Date().toISOString();
 
   try {
     writeJson(sourcesPath, {
@@ -143,13 +148,13 @@ test("runSourceContractDiagnostics persists latest diagnostics artifact", () => 
       contracts: [
         buildContract("indeed_search", {
           requiredFields: ["salaryText"],
-          lastVerified: "2025-01-01"
+          lastVerified: today
         })
       ]
     });
     writeJson(capturePath, {
       sourceId: "indeed-main",
-      capturedAt: "2026-03-07T00:00:00.000Z",
+      capturedAt: nowIso,
       jobs: [{ salaryText: "" }, { salaryText: "unknown" }]
     });
 

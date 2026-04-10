@@ -48,13 +48,14 @@ test("getEntitlementState does not enforce limits when flag disabled", () => {
 });
 
 test("getEntitlementState exposes monthly search and jobs stored limits for free plan", () => {
+  const currentMonth = new Date().toISOString().slice(0, 7);
   const state = getEntitlementState(
     {
       monetization: {
         plan: "free",
         monthlySearchLimit: 10,
         monthlySearchCount: 4,
-        monthlySearchMonth: "2026-03",
+        monthlySearchMonth: currentMonth,
         jobsInDbLimit: 500,
       },
     },

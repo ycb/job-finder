@@ -1,5 +1,7 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import { writeAshbyCaptureFile } from "../../sources/ashby-jobs.js";
 import { writeGoogleCaptureFile } from "../../sources/google-jobs.js";
@@ -32,15 +34,38 @@ function sleepSync(milliseconds) {
 function escapeAppleScriptString(value) {
   return String(value || "")
     .replace(/\\/g, "\\\\")
-    .replace(/"/g, '\\"');
+    .replace(/"/g, '""')
+    .replace(/[\r\n]+/g, " ");
 }
 
 function runAppleScript(script, timeoutMs = 15_000) {
-  const result = spawnSync("osascript", ["-e", script], {
-    encoding: "utf8",
-    maxBuffer: 10 * 1024 * 1024,
-    timeout: timeoutMs
-  });
+  const lines = Array.isArray(script)
+    ? script
+    : String(script || "").split(/\r?\n/).filter(Boolean);
+  const args = [];
+  for (const line of lines) {
+    args.push("-e", line);
+  }
+  const attempt = () =>
+    spawnSync("osascript", args, {
+      encoding: "utf8",
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: timeoutMs
+    });
+
+  let result = attempt();
+  if (
+    result.status !== 0 &&
+    /Can’t get application \"Google Chrome\"/.test(String(result.stderr || result.stdout || "")) &&
+    /-1728/.test(String(result.stderr || result.stdout || ""))
+  ) {
+    spawnSync("osascript", ["-e", 'tell application "Google Chrome" to activate'], {
+      encoding: "utf8",
+      timeout: timeoutMs
+    });
+    sleepSync(350);
+    result = attempt();
+  }
 
   if (result.error) {
     if (result.error.code === "ETIMEDOUT") {
@@ -52,7 +77,11 @@ function runAppleScript(script, timeoutMs = 15_000) {
 
   if (result.status !== 0) {
     const errorText = String(result.stderr || result.stdout || "").trim();
-    if (/Allow JavaScript from Apple Events/i.test(errorText)) {
+    if (
+      /Allow JavaScript from Apple Events/i.test(errorText) ||
+      /Access not allowed/i.test(errorText) ||
+      /\(-1723\)/.test(errorText)
+    ) {
       throw new Error(
         'Chrome is blocking JavaScript automation. In Chrome, enable View > Developer > "Allow JavaScript from Apple Events", then rerun capture.'
       );
@@ -69,13 +98,7 @@ let automationWindowId = null;
 function createChromeProbeWindow(url, timeoutMs) {
   const escapedUrl = escapeAppleScriptString(url);
   const rawId = runAppleScript(
-    [
-      'tell application "Google Chrome"',
-      "set _window to make new window",
-      `set URL of active tab of _window to "${escapedUrl}"`,
-      "return id of _window",
-      "end tell"
-    ].join("\n"),
+    `tell application "Google Chrome" to id of (make new window)`,
     timeoutMs
   );
 
@@ -83,6 +106,10 @@ function createChromeProbeWindow(url, timeoutMs) {
   if (!Number.isInteger(parsedId)) {
     throw new Error("Could not create probe Chrome window.");
   }
+  runAppleScript(
+    `tell application "Google Chrome" to set URL of active tab of window id ${parsedId} to "${escapedUrl}"`,
+    timeoutMs
+  );
   return parsedId;
 }
 
@@ -93,12 +120,7 @@ function closeChromeWindow(windowId) {
 
   try {
     runAppleScript(
-      [
-        'tell application "Google Chrome"',
-        `set _window to window id ${windowId}`,
-        "if _window is not missing value then close _window",
-        "end tell"
-      ].join("\n")
+      `tell application "Google Chrome" to close window id ${windowId}`
     );
   } catch {
     // no-op
@@ -111,15 +133,27 @@ function executeInChromeWindow(windowId, javaScript, timeoutMs) {
   }
 
   return runAppleScript(
-    [
-      'tell application "Google Chrome"',
-      `set _window to window id ${windowId}`,
-      'tell active tab of _window',
-      `set resultText to execute javascript "${escapeAppleScriptString(javaScript)}"`,
-      "end tell",
-      "return resultText",
-      "end tell"
-    ].join("\n"),
+    `tell application "Google Chrome" to tell active tab of window id ${windowId} to execute javascript "${escapeAppleScriptString(
+      javaScript
+    )}"`,
+    timeoutMs
+  );
+}
+
+function executeInChromeWindowEncoded(windowId, javaScript, timeoutMs) {
+  const encoded = Buffer.from(String(javaScript || ""), "utf8").toString("base64");
+  const wrapped = `(() => { const script = atob('${encoded}'); return eval(script); })()`;
+  return executeInChromeWindow(windowId, wrapped, timeoutMs);
+}
+
+function executeInChromeWindowFromFile(windowId, filePath, timeoutMs) {
+  if (!Number.isInteger(windowId)) {
+    throw new Error("executeInChromeWindowFromFile requires a valid window id.");
+  }
+
+  const escapedPath = escapeAppleScriptString(filePath);
+  return runAppleScript(
+    `tell application "Google Chrome" to tell active tab of window id ${windowId} to execute javascript (read POSIX file "${escapedPath}")`,
     timeoutMs
   );
 }
@@ -130,14 +164,7 @@ function readChromeWindowTabInfo(windowId) {
   }
 
   const raw = runAppleScript(
-    [
-      'tell application "Google Chrome"',
-      `set _window to window id ${windowId}`,
-      "set tabUrl to URL of active tab of _window",
-      "set tabTitle to title of active tab of _window",
-      "return tabUrl & \"\\n\" & tabTitle",
-      "end tell"
-    ].join("\n")
+    `tell application "Google Chrome" to (URL of active tab of window id ${windowId}) & "\\n" & (title of active tab of window id ${windowId})`
   );
 
   const [url = "", title = ""] = String(raw || "").split(/\r?\n/, 2);
@@ -628,6 +655,7 @@ function buildFilterInputProbeScript() {
 
   const cssEscape = (value) => String(value || "")
     .replace(/\\/g, "\\\\")
+    .replace(/'/g, "\\'")
     .replace(/\"/g, "\\\"");
 
   const textFromIds = (value) => {
@@ -670,11 +698,11 @@ function buildFilterInputProbeScript() {
     const id = normalize(element.getAttribute("id"));
     if (id) return "#" + cssEscape(id);
     const testId = normalize(element.getAttribute("data-testid"));
-    if (testId) return tag + "[data-testid=\\"" + cssEscape(testId) + "\\"]";
+    if (testId) return tag + "[data-testid='" + cssEscape(testId) + "']";
     const name = normalize(element.getAttribute("name"));
-    if (name) return tag + "[name=\\"" + cssEscape(name) + "\\"]";
+    if (name) return tag + "[name='" + cssEscape(name) + "']";
     const placeholder = normalize(element.getAttribute("placeholder"));
-    if (placeholder) return tag + "[placeholder=\\"" + cssEscape(placeholder) + "\\"]";
+    if (placeholder) return tag + "[placeholder='" + cssEscape(placeholder) + "']";
     return "";
   };
 
@@ -832,33 +860,58 @@ export function probeSourceFilterInputsWithChromeAppleScript(source, options = {
     };
   }
 
-  const settleMs = Number(options.settleMs) > 0 ? Number(options.settleMs) : 1500;
+  const settleMs = Number(options.settleMs) > 0 ? Number(options.settleMs) : 2500;
   const readyStateWaitMs =
-    Number(options.readyStateWaitMs) > 0 ? Number(options.readyStateWaitMs) : 1200;
+    Number(options.readyStateWaitMs) > 0 ? Number(options.readyStateWaitMs) : 1500;
   const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 15_000;
 
   let windowId = null;
   let pageTitle = "";
   let finalUrl = "";
+  let probeTempDir = "";
+  let probeScriptPath = "";
+  const keepProbeFiles = process.env.JF_KEEP_PROBE_FILES === "1";
 
   try {
     windowId = createChromeProbeWindow(searchUrl, timeoutMs);
     sleepSync(settleMs);
 
-    try {
-      const readyState = executeInChromeWindow(windowId, "document.readyState", timeoutMs);
-      if (String(readyState || "").trim() !== "complete") {
+    {
+      let readyState = "";
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          readyState = String(
+            executeInChromeWindow(windowId, "document.readyState", timeoutMs) || ""
+          ).trim();
+        } catch {
+          readyState = "";
+        }
+        if (readyState === "complete") {
+          break;
+        }
         sleepSync(readyStateWaitMs);
       }
-    } catch {
-      // Best-effort: continue after initial settle delay.
     }
 
-    const tabInfo = readChromeWindowTabInfo(windowId);
+    let tabInfo = readChromeWindowTabInfo(windowId);
+    if (!tabInfo.title || !tabInfo.url) {
+      sleepSync(900);
+      tabInfo = readChromeWindowTabInfo(windowId);
+    }
     pageTitle = tabInfo.title || pageTitle;
     finalUrl = tabInfo.url || finalUrl;
 
-    const raw = executeInChromeWindow(windowId, buildFilterInputProbeScript(), timeoutMs);
+    probeTempDir = fs.mkdtempSync(path.join(os.tmpdir(), "jf-filter-probe-"));
+    probeScriptPath = path.join(probeTempDir, "probe.js");
+    fs.writeFileSync(probeScriptPath, buildFilterInputProbeScript(), "utf8");
+    let raw = executeInChromeWindowFromFile(windowId, probeScriptPath, timeoutMs);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      if (String(raw || "").trim() !== "missing value") {
+        break;
+      }
+      sleepSync(1500);
+      raw = executeInChromeWindowFromFile(windowId, probeScriptPath, timeoutMs);
+    }
     const parsed = JSON.parse(String(raw || "{}"));
     const filters = Array.isArray(parsed?.filters) ? parsed.filters : [];
 
@@ -887,6 +940,20 @@ export function probeSourceFilterInputsWithChromeAppleScript(source, options = {
   } finally {
     if (Number.isInteger(windowId)) {
       closeChromeWindow(windowId);
+    }
+    if (probeScriptPath && !keepProbeFiles) {
+      try {
+        fs.rmSync(probeScriptPath, { force: true });
+      } catch {
+        // ignore cleanup errors
+      }
+    }
+    if (probeTempDir && !keepProbeFiles) {
+      try {
+        fs.rmdirSync(probeTempDir, { recursive: true });
+      } catch {
+        // ignore cleanup errors
+      }
     }
   }
 }

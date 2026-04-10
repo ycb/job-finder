@@ -239,20 +239,20 @@
     },
     {
       "sourceType": "yc_jobs",
-      "contractVersion": "1.1.0",
-      "lastVerified": "2026-04-02",
+      "contractVersion": "1.2.0",
+      "lastVerified": "2026-04-03",
       "criteriaMapping": {
         "title": "url",
-        "keywords": "post_capture",
+        "keywords": "url",
         "keywordMode": "post_capture",
-        "hardIncludeTerms": "post_capture",
-        "includeTerms": "post_capture",
+        "hardIncludeTerms": "url",
+        "includeTerms": "url",
         "excludeTerms": "post_capture",
-        "location": "post_capture",
+        "location": "url",
         "distanceMiles": "unsupported",
         "datePosted": "post_capture",
         "experienceLevel": "post_capture",
-        "minSalary": "post_capture"
+        "minSalary": "url"
       },
       "extraction": {
         "requiredFields": [

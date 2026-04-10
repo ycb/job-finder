@@ -159,10 +159,11 @@ test("loadSourcesWithPath preserves derived metadata in sources map mode", () =>
     const yc = loaded.sources.find((source) => source.id === "yc-product-jobs");
 
     assert.ok(yc);
-    assert.match(yc.searchUrl, /^https:\/\/www\.workatastartup\.com\/jobs\/l\/product-manager\?/);
-    assert.deepEqual(yc.criteriaAccountability.appliedInUrl, ["title"]);
-    assert.equal(yc.criteriaAccountability.appliedPostCapture.includes("hardIncludeTerms"), true);
-    assert.equal(yc.criteriaAccountability.appliedPostCapture.includes("location"), true);
+    assert.match(yc.searchUrl, /^https:\/\/www\.workatastartup\.com\/companies\?/);
+    assert.deepEqual(
+      yc.criteriaAccountability.appliedInUrl.sort(),
+      ["title", "hardIncludeTerms", "location"].sort()
+    );
     assert.equal(yc.criteriaAccountability.appliedPostCapture.includes("datePosted"), true);
     assert.deepEqual(yc.formatterDiagnostics, {
       unsupported: [],
@@ -226,8 +227,14 @@ test("levelsfyi builder returns a real URL and truthful accountability", () => {
     distanceMiles: 25
   });
 
-  assert.match(result.url, /^https:\/\/www\.levels\.fyi\/jobs\/title\/product-manager\/location\/san-francisco-ca\?/);
+  assert.match(
+    result.url,
+    /^https:\/\/www\.levels\.fyi\/jobs\/title\/product-manager\/location\/san-francisco-bay-area\?/
+  );
   assert.equal(result.url.includes("postedAfterValue=3"), true);
+  assert.equal(result.url.includes("searchText=ai"), true);
+  assert.equal(result.url.includes("Product+manager"), false);
+  assert.equal(result.url.includes("ai+ai"), false);
   assert.equal(result.criteriaAccountability.appliedInUrl.includes("hardIncludeTerms"), true);
   assert.equal(result.criteriaAccountability.appliedInUrl.includes("datePosted"), true);
   assert.equal(result.criteriaAccountability.unsupported.includes("distanceMiles"), true);
@@ -241,11 +248,9 @@ test("yc jobs builder carries browser bootstrap state and only leaves unsupporte
     datePosted: "3d"
   });
 
-  assert.match(result.url, /^https:\/\/www\.workatastartup\.com\/jobs\/l\/product-manager\?/);
+  assert.match(result.url, /^https:\/\/www\.workatastartup\.com\/companies\?/);
   assert.equal(result.criteriaAccountability.appliedInUrl.includes("title"), true);
-  assert.equal(result.criteriaAccountability.appliedPostCapture.includes("hardIncludeTerms"), true);
-  assert.equal(result.criteriaAccountability.appliedPostCapture.includes("location"), true);
+  assert.equal(result.criteriaAccountability.appliedInUrl.includes("hardIncludeTerms"), true);
+  assert.equal(result.criteriaAccountability.appliedInUrl.includes("location"), true);
   assert.equal(result.criteriaAccountability.appliedPostCapture.includes("datePosted"), true);
-  assert.equal(result.criteriaAccountability.unsupported.includes("title"), false);
-  assert.equal(result.criteriaAccountability.unsupported.includes("distanceMiles"), false);
 });

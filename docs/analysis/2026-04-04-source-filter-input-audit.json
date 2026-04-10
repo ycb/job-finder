@@ -1,1 +1,62 @@
-[]
+[
+  {
+    "sourceId": "builtin-sf-ai-pm",
+    "sourceType": "builtin_search",
+    "searchUrl": "https://www.builtinsf.com/jobs/product-management/product-manager?search=Product+manager+ai&city=San+Francisco&daysSinceUpdated=3",
+    "pageTitle": "Best Product Manager Jobs in San Francisco, CA 2026 | Built In San Francisco",
+    "finalUrl": "https://www.builtinsf.com/jobs/product-management/product-manager?search=Product+manager+ai&city=San+Francisco&daysSinceUpdated=3",
+    "status": "error",
+    "errorMessage": "Unexpected token 'm', \"missing value\" is not valid JSON",
+    "filters": []
+  },
+  {
+    "sourceId": "indeed-ai-pm",
+    "sourceType": "indeed_search",
+    "searchUrl": "https://www.indeed.com/jobs?q=Product+manager+ai&l=San+Francisco%2C+CA&radius=0&salaryType=%24200%2C000%2B&fromage=3",
+    "pageTitle": "Product Manager Ai Jobs, Employment in San Francisco, CA | Indeed",
+    "finalUrl": "https://www.indeed.com/jobs?q=Product+manager+ai&l=San+Francisco%2C+CA&radius=0&salaryType=%24200%2C000%2B&fromage=3",
+    "status": "error",
+    "errorMessage": "Unexpected token 'm', \"missing value\" is not valid JSON",
+    "filters": []
+  },
+  {
+    "sourceId": "levelsfyi-ai-pm",
+    "sourceType": "levelsfyi_search",
+    "searchUrl": "https://www.levels.fyi/jobs/title/product-manager/location/san-francisco?searchText=Product+manager+ai+ai&minBaseCompensation=200000&postedAfterTimeType=days&postedAfterValue=3",
+    "pageTitle": "Product Manager Jobs | Levels.fyi",
+    "finalUrl": "https://www.levels.fyi/jobs/title/product-manager/location/san-francisco?minBaseCompensation=200000&postedAfterTimeType=days&postedAfterValue=3&searchText=Product+manager+ai+ai",
+    "status": "error",
+    "errorMessage": "Unexpected token 'm', \"missing value\" is not valid JSON",
+    "filters": []
+  },
+  {
+    "sourceId": "linkedin-live-capture",
+    "sourceType": "linkedin_capture_file",
+    "searchUrl": "https://www.linkedin.com/jobs/search/?keywords=Product+manager+ai&location=San+Francisco&f_TPR=r259200&f_SB2=9",
+    "pageTitle": "(2) Product manager ai Jobs in San Francisco | LinkedIn",
+    "finalUrl": "https://www.linkedin.com/jobs/search/?currentJobId=4394497097&f_SB2=9&f_TPR=r259200&keywords=Product%20manager%20ai&location=San%20Francisco",
+    "status": "error",
+    "errorMessage": "Unexpected token 'm', \"missing value\" is not valid JSON",
+    "filters": []
+  },
+  {
+    "sourceId": "yc-product-jobs",
+    "sourceType": "yc_jobs",
+    "searchUrl": "https://www.workatastartup.com/companies?demographic=any&hasEquity=any&hasSalary=true&industry=any&interviewProcess=any&jobType=any&layout=list-compact&sortBy=newest&tab=any&usVisaNotRequired=any&role=product&query=ai&locations=San+Francisco",
+    "pageTitle": "Directory | Y Combinator's Work at a Startup",
+    "finalUrl": "https://www.workatastartup.com/companies?demographic=any&hasEquity=any&hasSalary=true&industry=any&interviewProcess=any&jobType=any&layout=list-compact&locations=San%20Francisco&query=ai&role=product&sortBy=created_desc&tab=any&usVisaNotRequired=any",
+    "status": "error",
+    "errorMessage": "Unexpected token 'm', \"missing value\" is not valid JSON",
+    "filters": []
+  },
+  {
+    "sourceId": "zip-ai-pm",
+    "sourceType": "ziprecruiter_search",
+    "searchUrl": "https://www.ziprecruiter.com/jobs-search?search=Product+manager+ai&location=San+Francisco%2C+CA&page=1",
+    "pageTitle": "",
+    "finalUrl": "https://www.ziprecruiter.com/jobs-search?search=Product+manager+ai&location=San+Francisco%2C+CA&page=1",
+    "status": "error",
+    "errorMessage": "Unexpected token 'm', \"missing value\" is not valid JSON",
+    "filters": []
+  }
+]

@@ -1,4 +1,37 @@
 export const CURRENT_SOURCE_RUN_SEMANTICS_VERSION = 3;
+const TABLE_COLUMNS_CACHE = new WeakMap();
+
+function tableHasColumn(db, tableName, columnName) {
+  if (!db || typeof db.prepare !== "function") {
+    return false;
+  }
+  const table = String(tableName || "").trim();
+  const column = String(columnName || "").trim();
+  if (!table || !column) {
+    return false;
+  }
+  let cached = TABLE_COLUMNS_CACHE.get(db);
+  if (!cached) {
+    cached = new Map();
+    TABLE_COLUMNS_CACHE.set(db, cached);
+  }
+  if (!cached.has(table)) {
+    const rows = db.prepare(`PRAGMA table_info(${table});`).all();
+    cached.set(
+      table,
+      new Set(rows.map((row) => String(row?.name || "").trim()).filter(Boolean))
+    );
+  }
+  return cached.get(table).has(column);
+}
+
+function jobTableHasColumn(db, columnName) {
+  return tableHasColumn(db, "jobs", columnName);
+}
+
+function applicationsTableHasColumn(db, columnName) {
+  return tableHasColumn(db, "applications", columnName);
+}
 
 function sourceRunPreferenceSql(alias) {
   return `
@@ -20,55 +53,95 @@ export function upsertJobs(db, jobs, options = {}) {
     typeof options?.lastImportBatchId === "string" && options.lastImportBatchId.trim()
       ? options.lastImportBatchId.trim()
       : null;
-  const statement = db.prepare(`
-    INSERT INTO jobs (
-      id,
-      source,
-      source_id,
-      source_url,
-      external_id,
-      title,
-      company,
-      location,
-      posted_at,
-      employment_type,
-      easy_apply,
-      salary_text,
-      description,
-      normalized_hash,
-      structured_meta,
-      metadata_quality_score,
-      missing_required_fields,
-      last_import_batch_id,
-      created_at,
-      updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT DO UPDATE SET
-      external_id = excluded.external_id,
-      title = excluded.title,
-      company = excluded.company,
-      location = excluded.location,
-      posted_at = excluded.posted_at,
-      employment_type = excluded.employment_type,
-      easy_apply = excluded.easy_apply,
-      salary_text = excluded.salary_text,
-      description = excluded.description,
-      normalized_hash = excluded.normalized_hash,
-      structured_meta = excluded.structured_meta,
-      metadata_quality_score = excluded.metadata_quality_score,
-      missing_required_fields = excluded.missing_required_fields,
-      last_import_batch_id = CASE
-        WHEN ? = 1 THEN excluded.last_import_batch_id
-        ELSE COALESCE(excluded.last_import_batch_id, jobs.last_import_batch_id)
-      END,
-      updated_at = excluded.updated_at;
-  `);
+  const supportsLastImportBatchId = jobTableHasColumn(db, "last_import_batch_id");
+  const statement = supportsLastImportBatchId
+    ? db.prepare(`
+        INSERT INTO jobs (
+          id,
+          source,
+          source_id,
+          source_url,
+          external_id,
+          title,
+          company,
+          location,
+          posted_at,
+          employment_type,
+          easy_apply,
+          salary_text,
+          description,
+          normalized_hash,
+          structured_meta,
+          metadata_quality_score,
+          missing_required_fields,
+          last_import_batch_id,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT DO UPDATE SET
+          external_id = excluded.external_id,
+          title = excluded.title,
+          company = excluded.company,
+          location = excluded.location,
+          posted_at = excluded.posted_at,
+          employment_type = excluded.employment_type,
+          easy_apply = excluded.easy_apply,
+          salary_text = excluded.salary_text,
+          description = excluded.description,
+          normalized_hash = excluded.normalized_hash,
+          structured_meta = excluded.structured_meta,
+          metadata_quality_score = excluded.metadata_quality_score,
+          missing_required_fields = excluded.missing_required_fields,
+          last_import_batch_id = CASE
+            WHEN ? = 1 THEN excluded.last_import_batch_id
+            ELSE COALESCE(excluded.last_import_batch_id, jobs.last_import_batch_id)
+          END,
+          updated_at = excluded.updated_at;
+      `)
+    : db.prepare(`
+        INSERT INTO jobs (
+          id,
+          source,
+          source_id,
+          source_url,
+          external_id,
+          title,
+          company,
+          location,
+          posted_at,
+          employment_type,
+          easy_apply,
+          salary_text,
+          description,
+          normalized_hash,
+          structured_meta,
+          metadata_quality_score,
+          missing_required_fields,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT DO UPDATE SET
+          external_id = excluded.external_id,
+          title = excluded.title,
+          company = excluded.company,
+          location = excluded.location,
+          posted_at = excluded.posted_at,
+          employment_type = excluded.employment_type,
+          easy_apply = excluded.easy_apply,
+          salary_text = excluded.salary_text,
+          description = excluded.description,
+          normalized_hash = excluded.normalized_hash,
+          structured_meta = excluded.structured_meta,
+          metadata_quality_score = excluded.metadata_quality_score,
+          missing_required_fields = excluded.missing_required_fields,
+          updated_at = excluded.updated_at;
+      `);
 
   let inserted = 0;
   const newJobIds = [];
 
   for (const job of jobs) {
-    const result = statement.run(
+    const params = [
       job.id,
       job.source,
       job.sourceId,
@@ -89,12 +162,14 @@ export function upsertJobs(db, jobs, options = {}) {
         : null,
       Array.isArray(job.missingRequiredFields)
         ? JSON.stringify(job.missingRequiredFields)
-        : null,
-      lastImportBatchId,
-      job.createdAt,
-      job.updatedAt,
-      hasExplicitLastImportBatchId ? 1 : 0
-    );
+        : null
+    ];
+    if (supportsLastImportBatchId) {
+      params.push(lastImportBatchId, job.createdAt, job.updatedAt, hasExplicitLastImportBatchId ? 1 : 0);
+    } else {
+      params.push(job.createdAt, job.updatedAt);
+    }
+    const result = statement.run(...params);
 
     if (result.changes > 0) {
       inserted += 1;
@@ -759,32 +834,59 @@ export function upsertEvaluations(db, evaluations) {
 function upsertApplicationStatus(db, jobId, status, notes = "") {
   const now = new Date().toISOString();
   const firstViewedAt = status === "new" ? null : now;
-  const statement = db.prepare(`
-    INSERT INTO applications (
-      job_id,
+  const supportsFirstViewedAt = applicationsTableHasColumn(db, "first_viewed_at");
+  const statement = supportsFirstViewedAt
+    ? db.prepare(`
+        INSERT INTO applications (
+          job_id,
+          status,
+          notes,
+          draft_path,
+          first_viewed_at,
+          last_action_at,
+          submitted_at
+        ) VALUES (?, ?, ?, NULL, ?, ?, ?)
+        ON CONFLICT(job_id) DO UPDATE SET
+          status = excluded.status,
+          notes = excluded.notes,
+          first_viewed_at = COALESCE(applications.first_viewed_at, excluded.first_viewed_at),
+          last_action_at = excluded.last_action_at,
+          submitted_at = COALESCE(excluded.submitted_at, applications.submitted_at);
+      `)
+    : db.prepare(`
+        INSERT INTO applications (
+          job_id,
+          status,
+          notes,
+          draft_path,
+          last_action_at,
+          submitted_at
+        ) VALUES (?, ?, ?, NULL, ?, ?)
+        ON CONFLICT(job_id) DO UPDATE SET
+          status = excluded.status,
+          notes = excluded.notes,
+          last_action_at = excluded.last_action_at,
+          submitted_at = COALESCE(excluded.submitted_at, applications.submitted_at);
+      `);
+
+  if (supportsFirstViewedAt) {
+    statement.run(
+      jobId,
       status,
       notes,
-      draft_path,
-      first_viewed_at,
-      last_action_at,
-      submitted_at
-    ) VALUES (?, ?, ?, NULL, ?, ?, ?)
-    ON CONFLICT(job_id) DO UPDATE SET
-      status = excluded.status,
-      notes = excluded.notes,
-      first_viewed_at = COALESCE(applications.first_viewed_at, excluded.first_viewed_at),
-      last_action_at = excluded.last_action_at,
-      submitted_at = COALESCE(excluded.submitted_at, applications.submitted_at);
-  `);
-
-  statement.run(
-    jobId,
-    status,
-    notes,
-    firstViewedAt,
-    now,
-    status === "applied" ? now : null
-  );
+      firstViewedAt,
+      now,
+      status === "applied" ? now : null
+    );
+  } else {
+    statement.run(
+      jobId,
+      status,
+      notes,
+      now,
+      status === "applied" ? now : null
+    );
+  }
 }
 
 export function markApplicationStatus(db, jobId, status, notes = "") {

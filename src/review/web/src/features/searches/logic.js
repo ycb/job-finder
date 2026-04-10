@@ -451,14 +451,28 @@ export function presentSearchStatus(row) {
       : "Sign in to this source to continue."
     : latestAttemptDetail;
 
+  const importedCount = hasFiniteMetric(row?.importedCount)
+    ? Math.max(0, Math.round(Number(row.importedCount)))
+    : null;
+  const expectedCount = hasFiniteMetric(row?.expectedFoundCount)
+    ? Math.max(0, Math.round(Number(row.expectedFoundCount)))
+    : null;
+  const hasRun =
+    Boolean(row?.capturedAt) ||
+    Boolean(row?.lastAttemptedAt);
   return {
     tone,
     label,
     statusDetail,
     formatterDetail: "",
-    foundLabel: hasFiniteMetric(row?.foundCount)
-      ? String(Math.max(0, Math.round(Number(row.foundCount))))
-      : "—",
+    foundLabel:
+      hasFiniteMetric(row?.foundCount)
+        ? String(Math.max(0, Math.round(Number(row.foundCount))))
+        : row?.hasUnknownExpectedCount && importedCount !== null && hasRun
+        ? `${importedCount}/?`
+        : importedCount !== null && expectedCount !== null
+          ? `${importedCount}/${expectedCount}`
+          : "—",
   };
 }
 

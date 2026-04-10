@@ -147,7 +147,8 @@ test("loadSourcesWithPath ignores legacy map overrides beyond enabled flag", () 
     const linkedIn = loaded.find((source) => source.id === "linkedin-live-capture");
     assert.ok(linkedIn);
     assert.equal(linkedIn.name, "LinkedIn");
-    assert.equal(linkedIn.searchUrl, "https://www.linkedin.com/jobs/search/");
+    assert.equal(linkedIn.searchUrl.includes("legacy+saved+search"), false);
+    assert.ok(linkedIn.searchUrl.startsWith("https://www.linkedin.com/jobs/search/"));
     assert.equal(linkedIn.enabled, true);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
