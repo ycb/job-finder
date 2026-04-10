@@ -474,27 +474,35 @@ function decodeWrappedPayload(payload = {}) {
     return null;
   }
 
-  try {
-    const buffer = Buffer.from(raw, "base64");
-    if (!buffer || buffer.length === 0) {
-      return null;
-    }
-
-    let decoded = buffer;
-    if (buffer[0] === 0x1f && buffer[1] === 0x8b) {
-      decoded = zlib.gunzipSync(buffer);
-    } else if (buffer[0] === 0x78) {
-      decoded = zlib.inflateSync(buffer);
-    }
-
-    const text = decoded.toString("utf8").trim();
-    if (!text) {
-      return null;
-    }
-    return JSON.parse(text);
-  } catch {
+  const buffer = Buffer.from(raw, "base64");
+  if (!buffer || buffer.length === 0) {
     return null;
   }
+
+  const decoders = [
+    (input) => input,
+    (input) => zlib.brotliDecompressSync(input),
+    (input) => zlib.gunzipSync(input),
+    (input) => zlib.inflateSync(input)
+  ];
+
+  for (const decode of decoders) {
+    try {
+      const decoded = decode(buffer);
+      if (!decoded || decoded.length === 0) {
+        continue;
+      }
+      const text = decoded.toString("utf8").trim();
+      if (!text) {
+        continue;
+      }
+      return JSON.parse(text);
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
 }
 
 function normalizeJobSearchPayload(payload = {}) {
