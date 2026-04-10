@@ -5011,6 +5011,13 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
       );
       const payload = parseBridgeJsonPayload(raw);
       const jobs = Array.isArray(payload?.jobs) ? payload.jobs : [];
+      if (domScrollTrace.length < 5) {
+        domScrollTrace.push({
+          pass,
+          jobCount: jobs.length,
+          sampleIds: jobs.slice(0, 3).map((job) => job.externalId || null)
+        });
+      }
       const priorSize = domSeen.size;
       for (const job of jobs) {
         const key = String(job?.externalId || "").trim();
@@ -5036,7 +5043,7 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
       );
       const scrollPayload = parseBridgeJsonPayload(scrollRaw);
       if (domScrollTrace.length < 5) {
-        domScrollTrace.push(scrollPayload);
+        domScrollTrace.push({ scroll: scrollPayload });
       }
       if (scrollPayload && scrollPayload.prev === scrollPayload.next) {
         break;
