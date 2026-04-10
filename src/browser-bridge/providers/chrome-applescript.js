@@ -4544,6 +4544,74 @@ function buildLevelsFyiApiBodyScript() {
   `.trim();
 }
 
+function buildLevelsFyiApiFetchScript(apiUrl) {
+  const urlLiteral = JSON.stringify(String(apiUrl || ""));
+  return `
+(() => {
+  const response = { payload: null, decoder: null, error: null };
+  try {
+    const apiUrl = ${urlLiteral};
+    const req = new XMLHttpRequest();
+    req.open("GET", apiUrl, false);
+    req.send(null);
+    const raw = String(req.responseText || "");
+    if (!raw) {
+      response.error = "empty_response";
+      return JSON.stringify(response);
+    }
+    let payload = null;
+    try {
+      payload = JSON.parse(raw);
+    } catch (err) {
+      response.error = "json_parse";
+      return JSON.stringify(response);
+    }
+
+    let decoded = null;
+    if (payload && typeof payload.payload === "string") {
+      if (window.LZString && typeof window.LZString.decompressFromBase64 === "function") {
+        const attempt = window.LZString.decompressFromBase64(payload.payload);
+        if (attempt) {
+          decoded = attempt;
+          response.decoder = "lzstring";
+        }
+      }
+      if (!decoded && window.pako && typeof window.pako.inflate === "function") {
+        try {
+          const binary = atob(payload.payload);
+          const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+          const inflated = window.pako.inflate(bytes);
+          const text = new TextDecoder("utf-8").decode(inflated);
+          if (text) {
+            decoded = text;
+            response.decoder = "pako";
+          }
+        } catch {
+          // swallow and continue
+        }
+      }
+    }
+
+    if (decoded) {
+      try {
+        response.payload = JSON.parse(decoded);
+        return JSON.stringify(response);
+      } catch (err) {
+        response.error = "decoded_json_parse";
+        return JSON.stringify(response);
+      }
+    }
+
+    response.payload = payload;
+    return JSON.stringify(response);
+  } catch (err) {
+    response.error = String(err && err.message ? err.message : err);
+    return JSON.stringify(response);
+  }
+})()
+  `.trim();
+}
+
 function buildLevelsFyiNextDataScript() {
   return `
 (() => {
@@ -4668,6 +4736,8 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
   let usedFallback = false;
   let apiSample = null;
   let apiParsedKeys = null;
+  let apiDecoder = null;
+  let apiError = null;
 
   for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
     const offset = pageIndex * limit;
@@ -4679,10 +4749,8 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
     });
     let payloadWrapper = null;
     try {
-      navigateAutomationTab(apiUrl, "Fetching Levels.fyi API...");
-      sleepSync(900);
       const raw = executeInAutomationWindowFrontEncoded(
-        buildLevelsFyiApiBodyScript(),
+        buildLevelsFyiApiFetchScript(apiUrl),
         timeoutMs
       );
       payloadWrapper = parseBridgeJsonPayload(raw);
@@ -4691,22 +4759,28 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
       break;
     }
 
-    if (!payloadWrapper || !payloadWrapper.text) {
+    if (!payloadWrapper || !payloadWrapper.payload) {
+      if (!apiError && payloadWrapper?.error) {
+        apiError = payloadWrapper.error;
+      }
       apiFailures += 1;
       break;
     }
 
     if (apiSample === null) {
-      apiSample =
-        typeof payloadWrapper.text === "string"
-          ? payloadWrapper.text.slice(0, 400)
-          : null;
+      try {
+        apiSample = JSON.stringify(payloadWrapper.payload).slice(0, 400);
+      } catch {
+        apiSample = null;
+      }
     }
-    const apiPayload = parseBridgeJsonPayload(payloadWrapper.text);
-    if (!apiPayload) {
-      apiFailures += 1;
-      break;
+    if (!apiDecoder && payloadWrapper?.decoder) {
+      apiDecoder = payloadWrapper.decoder;
     }
+    if (!apiError && payloadWrapper?.error) {
+      apiError = payloadWrapper.error;
+    }
+    const apiPayload = payloadWrapper.payload;
     if (apiParsedKeys === null && apiPayload && typeof apiPayload === "object") {
       apiParsedKeys = Object.keys(apiPayload).slice(0, 8);
     }
@@ -4791,9 +4865,11 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
       offsets,
       expectedCount,
       apiFailures,
-      apiFetchMode: "navigate",
+      apiFetchMode: "xhr",
       apiSample,
       apiParsedKeys,
+      apiDecoder,
+      apiError,
       stopReason,
       usedFallback
     }
