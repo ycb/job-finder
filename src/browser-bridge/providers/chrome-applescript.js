@@ -349,6 +349,21 @@ function executeInAutomationWindowFront(javaScript, timeoutMs) {
   );
 }
 
+function executeInAutomationWindowFrontEncoded(javaScript, timeoutMs) {
+  const windowId = ensureAutomationWindow("Refreshing sources...");
+  runAppleScript(
+    [
+      'tell application "Google Chrome"',
+      "activate",
+      `set _window to window id ${windowId}`,
+      "set index of _window to 1",
+      "end tell"
+    ].join("\n"),
+    timeoutMs
+  );
+  return executeInChromeWindowEncoded(windowId, javaScript, timeoutMs);
+}
+
 function executeInFrontWindow(javaScript, timeoutMs) {
   return runAppleScript(
     [
@@ -4673,7 +4688,7 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
     });
     let payloadWrapper = null;
     try {
-      const raw = executeInAutomationWindowFront(
+      const raw = executeInAutomationWindowFrontEncoded(
         buildLevelsFyiApiFetchScript(apiUrl),
         timeoutMs
       );
@@ -4733,7 +4748,10 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
   }
 
   if (collected.length === 0) {
-    const raw = executeInAutomationWindowFront(buildLevelsFyiNextDataScript(), timeoutMs);
+    const raw = executeInAutomationWindowFrontEncoded(
+      buildLevelsFyiNextDataScript(),
+      timeoutMs
+    );
     const payload = parseBridgeJsonPayload(raw);
     if (payload?.nextData) {
       usedFallback = true;
