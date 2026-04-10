@@ -4665,12 +4665,15 @@ function buildLevelsFyiDomProbeScript() {
       return container ? String(container.outerHTML || "").slice(0, 400) : null;
     })(),
     companyText: (() => {
-      const container =
-        node.closest('div[class*="company-jobs-preview-card"]') ||
-        node.closest('div[class*="company"]') ||
-        node.parentElement;
-      const companyNode = container
-        ? container.querySelector('[class*="companyName"],[class*="companyTitle"],[class*="company"]')
+      let cursor = node.parentElement;
+      while (cursor && cursor !== document.body) {
+        if (cursor.querySelector('[class*="companyName"],[class*="companyTitle"]')) {
+          break;
+        }
+        cursor = cursor.parentElement;
+      }
+      const companyNode = cursor
+        ? cursor.querySelector('[class*="companyName"],[class*="companyTitle"]')
         : null;
       return companyNode ? String(companyNode.textContent || "").trim().slice(0, 80) : null;
     })()
