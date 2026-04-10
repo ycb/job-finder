@@ -4679,6 +4679,16 @@ function buildLevelsFyiDomProbeScript() {
     })()
   }));
   const testIdSample = testIds.slice(0, 5).map((node) => node.getAttribute("data-testid"));
+  const scrollContainers = Array.from(document.querySelectorAll("div"))
+    .filter((el) => el.scrollHeight > el.clientHeight + 40)
+    .slice(0, 5)
+    .map((el) => ({
+      id: el.id || null,
+      className: String(el.className || "").slice(0, 80),
+      scrollHeight: el.scrollHeight,
+      clientHeight: el.clientHeight
+    }));
+
   return JSON.stringify({
     anchorCount: anchors.length,
     jobIdLinkCount: jobIdLinks.length,
@@ -4687,7 +4697,8 @@ function buildLevelsFyiDomProbeScript() {
     sample,
     jobIdSample,
     viewJobSample,
-    testIdSample
+    testIdSample,
+    scrollContainers
   });
 })()
   `.trim();
