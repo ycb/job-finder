@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import zlib from "node:zlib";
 
 import {
   LEVELSFYI_SOURCE_NOTES,
@@ -349,6 +350,23 @@ test("parseLevelsFyiSearchPayload decodes wrapped base64 payloads", () => {
   assert.equal(jobs.length, 2);
   assert.equal(jobs[0].title, "Product Manager");
   assert.equal(jobs[0].company, "Meta");
+});
+
+test("parseLevelsFyiSearchPayload decodes brotli-wrapped base64 payloads", () => {
+  const compressed = zlib.brotliCompressSync(
+    Buffer.from(JSON.stringify(buildLevelsApiPayload({ includeDetail: true, total: 1 })))
+  );
+  const wrappedPayload = {
+    payload: compressed.toString("base64")
+  };
+
+  const jobs = parseLevelsFyiSearchPayload(
+    wrappedPayload,
+    "https://www.levels.fyi/jobs/title/product-manager/location/san-francisco-bay-area?minBaseCompensation=200000&postedAfterTimeType=days&postedAfterValue=3&searchText=ai"
+  );
+
+  assert.equal(jobs.length, 2);
+  assert.equal(jobs[0].title, "Product Manager");
 });
 
 test("collectLevelsFyiJobsFromSearch writes a capture payload and respects maxJobs", () => {
