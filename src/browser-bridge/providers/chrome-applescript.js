@@ -4548,7 +4548,15 @@ function buildLevelsFyiApiFetchScript(apiUrl) {
   const urlLiteral = JSON.stringify(String(apiUrl || ""));
   return `
 (() => {
-  const response = { payload: null, decoder: null, error: null };
+  const response = {
+    payload: null,
+    decoder: null,
+    error: null,
+    capabilities: {
+      lzstring: Boolean(window.LZString),
+      pako: Boolean(window.pako)
+    }
+  };
   try {
     const apiUrl = ${urlLiteral};
     const req = new XMLHttpRequest();
@@ -4738,6 +4746,7 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
   let apiParsedKeys = null;
   let apiDecoder = null;
   let apiError = null;
+  let apiCapabilities = null;
 
   for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
     const offset = pageIndex * limit;
@@ -4779,6 +4788,9 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
     }
     if (!apiError && payloadWrapper?.error) {
       apiError = payloadWrapper.error;
+    }
+    if (!apiCapabilities && payloadWrapper?.capabilities) {
+      apiCapabilities = payloadWrapper.capabilities;
     }
     const apiPayload = payloadWrapper.payload;
     if (apiParsedKeys === null && apiPayload && typeof apiPayload === "object") {
@@ -4870,6 +4882,7 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
       apiParsedKeys,
       apiDecoder,
       apiError,
+      apiCapabilities,
       stopReason,
       usedFallback
     }
