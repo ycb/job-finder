@@ -70,6 +70,40 @@ test("buildSourceRefreshMeta reports ready_live for fresh browser capture", () =
   }
 });
 
+test("buildSourceRefreshMeta treats Levels.fyi as browser capture when a live capture exists", () => {
+  const { tempDir, capturePath, statePath } = createTempPaths();
+  const source = {
+    id: "levels-ai",
+    name: "Levels.fyi",
+    type: "levelsfyi_search",
+    searchUrl: "https://www.levels.fyi/jobs?searchText=ai",
+    capturePath,
+    cacheTtlHours: 12
+  };
+  const nowIso = "2026-03-06T18:00:00.000Z";
+
+  try {
+    writeSourceCapturePayload(source, [{ title: "PM" }], {
+      capturedAt: nowIso,
+      pageUrl: source.searchUrl
+    });
+
+    const meta = buildSourceRefreshMeta(source, {
+      refreshProfile: "safe",
+      refreshStatePath: statePath,
+      nowMs: Date.parse(nowIso)
+    });
+
+    assert.equal(meta.statusLabel, "ready_live");
+    assert.equal(meta.statusReason, "eligible");
+    assert.equal(meta.servedFrom, "live");
+    assert.equal(meta.nextEligibleAt, null);
+    assert.equal(meta.lastLiveAt, null);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("buildSourceRefreshMeta keeps challenge status visible even though live refresh remains enabled", () => {
   const { tempDir, capturePath, statePath } = createTempPaths();
   const source = {

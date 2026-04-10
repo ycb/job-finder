@@ -1455,6 +1455,10 @@ function isRemoteOkSource(source) {
   return source?.type === "remoteok_search";
 }
 
+function isLevelsFyiSource(source) {
+  return source?.type === "levelsfyi_search";
+}
+
 function isYcSource(source) {
   return source?.type === "yc_jobs";
 }
@@ -1467,6 +1471,7 @@ function isBrowserCaptureSource(source) {
     isGoogleSource(source) ||
     isIndeedSource(source) ||
     isZipRecruiterSource(source) ||
+    isLevelsFyiSource(source) ||
     isYcSource(source) ||
     isRemoteOkSource(source)
   );
@@ -1785,11 +1790,11 @@ async function runCaptureSourceLive(sourceIdOrName, snapshotPathArg, options = {
   }
 
   const source = getSourceByIdOrName(sourceIdOrName);
-  if (!isBrowserCaptureSource(source)) {
-    throw new Error(
-      `capture-source-live supports browser-capture sources (linkedin_capture_file, wellfound_search, ashby_search, google_search, indeed_search, ziprecruiter_search, yc_jobs, remoteok_search). "${source.name}" is ${source.type}.`
-    );
-  }
+    if (!isBrowserCaptureSource(source)) {
+      throw new Error(
+        `capture-source-live supports browser-capture sources (linkedin_capture_file, wellfound_search, ashby_search, google_search, indeed_search, ziprecruiter_search, levelsfyi_search, yc_jobs, remoteok_search). "${source.name}" is ${source.type}.`
+      );
+    }
 
   const refreshProfile = resolveCliRefreshProfile(options.refreshProfile);
   const decision = getSourceRefreshDecision(source, {
