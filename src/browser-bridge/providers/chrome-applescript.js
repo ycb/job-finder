@@ -4652,7 +4652,7 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
   const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 20_000;
   const maxPages = Number(options.maxPages) > 0 ? Number(options.maxPages) : 12;
   const limitPerCompany = "25";
-  const limit = Number(options.limit) > 0 ? Math.min(200, Number(options.limit)) : 200;
+  const limit = Number(options.limit) > 0 ? Math.min(25, Number(options.limit)) : 25;
   const expectedStopBuffer = Number(options.expectedStopBuffer) > 0 ? Number(options.expectedStopBuffer) : 0;
 
   navigateAutomationTab(searchUrl, "Refreshing Levels.fyi source...");
