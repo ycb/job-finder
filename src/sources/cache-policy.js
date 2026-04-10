@@ -140,6 +140,34 @@ export function readSourceCaptureSummary(source) {
   }
 }
 
+export function isTimestampFresh(capturedAt, ttlHours, nowMs = Date.now()) {
+  const normalizedTtl = Number(ttlHours);
+  if (!Number.isFinite(normalizedTtl) || normalizedTtl <= 0) {
+    return false;
+  }
+
+  const capturedAtMs = Date.parse(String(capturedAt || "").trim());
+  if (!Number.isFinite(capturedAtMs)) {
+    return false;
+  }
+
+  const maxAgeMs = normalizedTtl * 60 * 60 * 1000;
+  return nowMs - capturedAtMs <= maxAgeMs;
+}
+
+export function isSourceCaptureFresh(source, nowMs = Date.now()) {
+  const summary = readSourceCaptureSummary(source);
+  if (summary.status !== "ready" || !summary.capturedAt) {
+    return false;
+  }
+
+  return isTimestampFresh(summary.capturedAt, getSourceCacheTtlHours(source), nowMs);
+}
+
+export function getFreshCachedJobs(source, options = {}) {
+  return null;
+}
+
 export function getSourceCaptureJobs(source) {
   const summary = readSourceCaptureSummary(source);
   if (summary.status !== "ready" || !summary.payload) {
@@ -238,3 +266,76 @@ export function writeSourceCapturePayload(source, jobs, options = {}) {
   return capturePath;
 }
 
+export function normalizeRefreshProfile(value, options = {}) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) {
+    return "safe";
+  }
+
+  if (!REFRESH_PROFILES.has(normalized)) {
+    if (options.strict) {
+      throw new Error(
+        `Invalid refresh profile "${value}". Expected one of: safe, probe, mock.`
+      );
+    }
+    return "safe";
+  }
+
+  return normalized;
+}
+
+export function getSourceRefreshDecision(source, options = {}) {
+  const nowMs = Number.isFinite(options.nowMs) ? options.nowMs : Date.now();
+  const nowIso = new Date(nowMs).toISOString();
+  const forceRefresh = options.forceRefresh === true;
+  const bypassRefreshGuards =
+    options.bypassRefreshGuards === true || isSourceQaModeEnabled(options.env || process.env);
+  const profile = normalizeRefreshProfile(
+    options.profile || process.env.JOB_FINDER_REFRESH_PROFILE || "safe"
+  );
+
+  const cacheSummary = readSourceCaptureSummary(source);
+  const cacheFresh = isTimestampFresh(
+    cacheSummary.capturedAt,
+    getSourceCacheTtlHours(source),
+    nowMs
+  );
+
+  const policy = getRefreshPolicyForSource(source, { profile });
+  const refreshState = readRefreshState(options.statePath);
+  const sourceState = resolveSourceRefreshState(refreshState, source?.id || "");
+  const liveEventsTodayCount = countSourceEventsForUtcDay(
+    refreshState,
+    source?.id || "",
+    nowIso
+  );
+  if (bypassRefreshGuards) {
+    return {
+      profile,
+      policy,
+      cacheSummary,
+      cacheFresh,
+      sourceState,
+      liveEventsTodayCount,
+      servedFrom: "live",
+      allowLive: true,
+      cached: false,
+      reason: "qa_live",
+      nextEligibleAt: null
+    };
+  }
+
+  return {
+    profile,
+    policy,
+    cacheSummary,
+    cacheFresh,
+    sourceState,
+    liveEventsTodayCount,
+    servedFrom: "live",
+    allowLive: true,
+    cached: false,
+    reason: forceRefresh ? "force_refresh" : "eligible",
+    nextEligibleAt: null
+  };
+}

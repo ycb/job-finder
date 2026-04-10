@@ -48,6 +48,8 @@ test("evaluateSourceContractDrift classifies low coverage as error and stale-onl
   const { tempDir, sourcesPath, contractsPath, historyPath } = createTempWorkspace();
   const indeedCapturePath = path.join(tempDir, "indeed.json");
   const zipCapturePath = path.join(tempDir, "zip.json");
+  const today = new Date().toISOString().slice(0, 10);
+  const nowIso = new Date().toISOString();
 
   try {
     writeJson(sourcesPath, {
@@ -61,7 +63,7 @@ test("evaluateSourceContractDrift classifies low coverage as error and stale-onl
       version: "test",
       contracts: [
         buildContract("indeed_search", {
-          lastVerified: "2026-04-06",
+          lastVerified: today,
           requiredFields: ["title", "salaryText", "location"]
         }),
         buildContract("ziprecruiter_search", {
@@ -73,7 +75,7 @@ test("evaluateSourceContractDrift classifies low coverage as error and stale-onl
 
     writeJson(indeedCapturePath, {
       sourceId: "indeed-main",
-      capturedAt: "2026-04-06T00:00:00.000Z",
+      capturedAt: nowIso,
       jobs: [
         { title: "AI PM", salaryText: "", location: "San Francisco, CA" },
         { title: "Senior PM", salaryText: "unknown", location: "San Jose, CA" }
@@ -82,7 +84,7 @@ test("evaluateSourceContractDrift classifies low coverage as error and stale-onl
 
     writeJson(zipCapturePath, {
       sourceId: "zip-main",
-      capturedAt: "2026-04-06T00:00:00.000Z",
+      capturedAt: nowIso,
       jobs: [{ title: "PM", company: "ZipCo", location: "Remote" }]
     });
 
@@ -162,6 +164,8 @@ test("evaluateSourceContractDrift emits null coverage for empty captures", () =>
     "job-finder-contract-empty-"
   );
   const capturePath = path.join(tempDir, "builtin.json");
+  const today = new Date().toISOString().slice(0, 10);
+  const nowIso = new Date().toISOString();
 
   try {
     writeJson(sourcesPath, {
@@ -173,14 +177,14 @@ test("evaluateSourceContractDrift emits null coverage for empty captures", () =>
       contracts: [
         buildContract("builtin_search", {
           requiredFields: ["title", "company", "location"],
-          lastVerified: "2026-04-06"
+          lastVerified: today
         })
       ]
     });
 
     writeJson(capturePath, {
       sourceId: "builtin-main",
-      capturedAt: "2026-04-06T00:00:00.000Z",
+      capturedAt: nowIso,
       jobs: []
     });
 

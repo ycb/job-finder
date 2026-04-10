@@ -16,7 +16,8 @@ export const LEVELSFYI_SOURCE_NOTES = Object.freeze({
     "minBaseCompensation -> minBaseCompensation",
     "minMedianTotalCompensation -> minMedianTotalCompensation",
     "postedAfterTimeType + postedAfterValue -> query params",
-    "sortBy -> query param passthrough"
+    "sortBy -> query param passthrough",
+    "API: /v1/job/search (jobFamilySlugs, locationSlugs)"
   ]),
   unsupportedCriteria: Object.freeze([
     "exclude terms",
@@ -78,6 +79,26 @@ function slugifyPathSegment(value) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+const LOCATION_SLUG_ALIASES = Object.freeze({
+  "san-francisco": "san-francisco-bay-area",
+  "san-francisco-ca": "san-francisco-bay-area",
+  "san-francisco-ca-usa": "san-francisco-bay-area",
+  "san-francisco-usa": "san-francisco-bay-area",
+  "sf": "san-francisco-bay-area",
+  "sf-ca": "san-francisco-bay-area",
+  "san-francisco-bay-area": "san-francisco-bay-area",
+  "bay-area": "san-francisco-bay-area",
+  "san-francisco-bay": "san-francisco-bay-area"
+});
+
+function normalizeLocationSlug(value) {
+  const slug = slugifyPathSegment(value);
+  if (!slug) {
+    return "";
+  }
+  return LOCATION_SLUG_ALIASES[slug] || slug;
 }
 
 function toAbsoluteUrl(inputUrl, baseUrl = "https://www.levels.fyi") {
@@ -394,7 +415,7 @@ function buildPathSegments(criteria = {}) {
     segments.push("title", slugifyPathSegment(title));
   }
   if (location) {
-    segments.push("location", slugifyPathSegment(location));
+    segments.push("location", normalizeLocationSlug(location));
   }
 
   return segments.filter(Boolean).join("/");
@@ -439,11 +460,17 @@ export function buildLevelsFyiSearchUrl(criteria = {}) {
   return baseUrl.toString();
 }
 
+function normalizeJobSearchPayload(payload = {}) {
+  if (payload && Array.isArray(payload.results)) {
+    return payload;
+  }
+  return null;
+}
+
 function extractJobPostingData(pageProps = {}) {
-  const results = Array.isArray(pageProps.initialJobsData?.results)
-    ? pageProps.initialJobsData.results
-    : [];
-  const detail = pageProps.initialJobDetails || null;
+  const searchPayload = normalizeJobSearchPayload(pageProps.initialJobsData);
+  const results = searchPayload ? searchPayload.results : [];
+  const detail = pageProps.initialJobDetails || searchPayload?.initialJobDetails || null;
   const detailJobId = normalizeText(detail?.id);
 
   const jobs = [];
@@ -503,6 +530,80 @@ function extractJobPostingData(pageProps = {}) {
   return jobs;
 }
 
+function buildApiSearchParams(criteria = {}, overrides = {}) {
+  const params = new URLSearchParams();
+  const limitPerCompany = normalizeText(overrides.limitPerCompany) || "25";
+  const limit = normalizeText(overrides.limit) || "200";
+  const offset = normalizeText(overrides.offset) || "0";
+  params.set("limitPerCompany", limitPerCompany);
+  params.set("limit", limit);
+  params.set("offset", offset);
+  const sortBy = normalizeText(criteria.sortBy) || "relevance";
+  params.set("sortBy", sortBy);
+
+  const searchText = normalizeSearchText(criteria);
+  if (searchText) {
+    params.set("searchText", searchText);
+  }
+
+  const minBaseCompensation = Number(criteria.minBaseCompensation ?? criteria.minSalary);
+  if (Number.isFinite(minBaseCompensation) && minBaseCompensation > 0) {
+    params.set("minBaseCompensation", String(Math.round(minBaseCompensation)));
+  }
+
+  const minMedianTotalCompensation = Number(criteria.minMedianTotalCompensation);
+  if (
+    Number.isFinite(minMedianTotalCompensation) &&
+    minMedianTotalCompensation > 0
+  ) {
+    params.set(
+      "minMedianTotalCompensation",
+      String(Math.round(minMedianTotalCompensation))
+    );
+  }
+
+  const postedAfter = resolveDatePostedCriteria(criteria);
+  if (postedAfter) {
+    params.set("postedAfterTimeType", postedAfter.postedAfterTimeType);
+    params.set("postedAfterValue", postedAfter.postedAfterValue);
+  }
+
+  const title = normalizeText(criteria.title);
+  if (title) {
+    params.append("jobFamilySlugs[0]", slugifyPathSegment(title));
+  }
+
+  const location = normalizeText(criteria.location);
+  if (location) {
+    params.append("locationSlugs[0]", normalizeLocationSlug(location));
+  }
+
+  return params;
+}
+
+export function buildLevelsFyiApiUrl(criteria = {}, overrides = {}) {
+  const baseUrl = new URL("https://api.levels.fyi/v1/job/search");
+  baseUrl.search = buildApiSearchParams(criteria, overrides).toString();
+  return baseUrl.toString();
+}
+
+export function parseLevelsFyiSearchPayload(payload, searchUrl) {
+  const searchPayload = normalizeJobSearchPayload(payload);
+  if (!searchPayload) {
+    return [];
+  }
+
+  const jobs = extractJobPostingData({
+    initialJobsData: searchPayload,
+    initialJobDetails: searchPayload.initialJobDetails || null
+  });
+
+  return jobs.map((job) => ({
+    ...job,
+    pageUrl: toAbsoluteUrl(searchUrl)
+  }));
+}
+
 export function parseLevelsFyiSearchHtml(html, searchUrl) {
   const payload = extractNextDataPayload(html);
   if (!payload) {
@@ -516,6 +617,54 @@ export function parseLevelsFyiSearchHtml(html, searchUrl) {
     ...job,
     pageUrl: toAbsoluteUrl(searchUrl)
   }));
+}
+
+function extractCriteriaFromSearchUrl(searchUrl) {
+  const criteria = {};
+  try {
+    const parsed = new URL(String(searchUrl || "").trim());
+    const path = parsed.pathname.split("/").filter(Boolean);
+    const titleIndex = path.indexOf("title");
+    if (titleIndex >= 0 && path[titleIndex + 1]) {
+      criteria.title = path[titleIndex + 1].replace(/-/g, " ");
+    }
+    const locationIndex = path.indexOf("location");
+    if (locationIndex >= 0 && path[locationIndex + 1]) {
+      criteria.location = path[locationIndex + 1].replace(/-/g, " ");
+    }
+
+    const searchText = parsed.searchParams.get("searchText");
+    if (searchText) {
+      criteria.searchText = searchText;
+    }
+    const minBaseCompensation = parsed.searchParams.get("minBaseCompensation");
+    if (minBaseCompensation) {
+      criteria.minBaseCompensation = Number(minBaseCompensation);
+    }
+    const minMedianTotalCompensation = parsed.searchParams.get("minMedianTotalCompensation");
+    if (minMedianTotalCompensation) {
+      criteria.minMedianTotalCompensation = Number(minMedianTotalCompensation);
+    }
+    const postedAfterTimeType = parsed.searchParams.get("postedAfterTimeType");
+    const postedAfterValue = parsed.searchParams.get("postedAfterValue");
+    if (postedAfterTimeType && postedAfterValue) {
+      criteria.postedAfterTimeType = postedAfterTimeType;
+      criteria.postedAfterValue = postedAfterValue;
+    }
+    const sortBy = parsed.searchParams.get("sortBy");
+    if (sortBy) {
+      criteria.sortBy = sortBy;
+    }
+  } catch {
+    return {};
+  }
+
+  return criteria;
+}
+
+function buildLevelsFyiApiUrlFromSearchUrl(searchUrl, overrides = {}) {
+  const criteria = extractCriteriaFromSearchUrl(searchUrl);
+  return buildLevelsFyiApiUrl(criteria, overrides);
 }
 
 function fetchLevelsFyiSearchHtml(searchUrl, timeoutMs = 30_000) {
@@ -539,6 +688,41 @@ function fetchLevelsFyiSearchHtml(searchUrl, timeoutMs = 30_000) {
   );
 }
 
+function fetchLevelsFyiSearchJson(searchUrl, overrides = {}, timeoutMs = 30_000) {
+  const timeoutSeconds = Math.max(5, Math.ceil(timeoutMs / 1000));
+  const apiUrl = buildLevelsFyiApiUrlFromSearchUrl(searchUrl, overrides);
+
+  const raw = execFileSync(
+    "curl",
+    [
+      "-sS",
+      "-L",
+      "--compressed",
+      "-A",
+      DEFAULT_USER_AGENT,
+      "-H",
+      "accept: application/json",
+      "--max-time",
+      String(timeoutSeconds),
+      apiUrl
+    ],
+    {
+      encoding: "utf8",
+      maxBuffer: 10 * 1024 * 1024
+    }
+  );
+
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 export function writeLevelsFyiCaptureFile(source, jobs, options = {}) {
   if (!source || source.type !== "levelsfyi_search") {
     throw new Error("Levels.fyi capture write requires a levelsfyi_search source.");
@@ -559,17 +743,125 @@ export function writeLevelsFyiCaptureFile(source, jobs, options = {}) {
 }
 
 export function collectLevelsFyiJobsFromSearch(source, options = {}) {
+  const cachedJobs = getFreshCachedJobs(source);
+  if (Array.isArray(cachedJobs)) {
+    if (Number.isInteger(source.maxJobs) && source.maxJobs > 0) {
+      return cachedJobs.slice(0, source.maxJobs);
+    }
+    return cachedJobs;
+  }
+
+  const fetchJson =
+    typeof options.fetchJson === "function"
+      ? options.fetchJson
+      : (searchUrl, overrides) =>
+          fetchLevelsFyiSearchJson(
+            searchUrl,
+            overrides,
+            options.timeoutMs || 30_000
+          );
   const fetchHtml =
     typeof options.fetchHtml === "function"
       ? options.fetchHtml
       : (searchUrl) => fetchLevelsFyiSearchHtml(searchUrl, options.timeoutMs || 30_000);
 
-  const html = fetchHtml(source.searchUrl);
-  const jobs = parseLevelsFyiSearchHtml(html, source.searchUrl);
+  let jobs = [];
+  let expectedCount = null;
+
+  const maxJobs =
+    Number.isInteger(source.maxJobs) && source.maxJobs > 0 ? source.maxJobs : null;
+  const pageLimit = maxJobs && maxJobs < 200 ? String(maxJobs) : "200";
+  const limitPerCompany = "25";
+
+  const dedupeByExternalId = (items) => {
+    const seen = new Set();
+    return items.filter((job) => {
+      const id = normalizeText(job?.externalId || "");
+      if (!id || seen.has(id)) {
+        return false;
+      }
+      seen.add(id);
+      return true;
+    });
+  };
+
+  const collected = [];
+  let offset = 0;
+  let pageIndex = 0;
+  let hasMore = true;
+
+  while (hasMore && pageIndex < 10) {
+    const priorCount = collected.length;
+    const jsonPayload = fetchJson(source.searchUrl, {
+      offset: String(offset),
+      limit: pageLimit,
+      limitPerCompany
+    });
+    if (!jsonPayload) {
+      break;
+    }
+
+    if (expectedCount === null) {
+      const parsedExpected = Number(
+        jsonPayload.totalMatchingJobs || jsonPayload.total || null
+      );
+      if (Number.isFinite(parsedExpected) && parsedExpected > 0) {
+        expectedCount = Math.round(parsedExpected);
+      }
+    }
+
+    const pageJobs = parseLevelsFyiSearchPayload(jsonPayload, source.searchUrl);
+    if (pageJobs.length === 0) {
+      break;
+    }
+    collected.push(...pageJobs);
+    const deduped = dedupeByExternalId(collected);
+    collected.length = 0;
+    collected.push(...deduped);
+
+    if (collected.length === priorCount) {
+      jobs = collected;
+      hasMore = false;
+      break;
+    }
+
+    if (maxJobs && collected.length >= maxJobs) {
+      jobs = collected.slice(0, maxJobs);
+      hasMore = false;
+      break;
+    }
+
+    const pageLimitNumber = Number(pageLimit);
+    const shouldContinueByExpected =
+      Number.isFinite(expectedCount) &&
+      expectedCount > 0 &&
+      collected.length < expectedCount;
+
+    if (!shouldContinueByExpected && pageJobs.length < pageLimitNumber) {
+      jobs = collected;
+      hasMore = false;
+      break;
+    }
+
+    offset += pageLimitNumber;
+    pageIndex += 1;
+  }
+
+  if ((!jobs || jobs.length === 0) && collected.length > 0) {
+    jobs = collected;
+  }
+
+  if (!jobs || jobs.length === 0) {
+    const html = fetchHtml(source.searchUrl);
+    jobs = parseLevelsFyiSearchHtml(html, source.searchUrl);
+    const pageProps = extractNextDataPayload(html)?.props?.pageProps || {};
+    expectedCount = Number(
+      pageProps.initialJobsData?.totalMatchingJobs || pageProps.initialJobsData?.total
+    );
+  }
+
   const capturedAt = new Date().toISOString();
-  const pageProps = extractNextDataPayload(html)?.props?.pageProps || {};
-  const expectedCount = Number(pageProps.initialJobsData?.totalMatchingJobs || pageProps.initialJobsData?.total);
-  const jobsWithMetadata = jobs.map((job) => ({
+  const jobsWithMetadata = (jobs || []).map((job) => ({
     ...job,
     retrievedAt: capturedAt
   }));

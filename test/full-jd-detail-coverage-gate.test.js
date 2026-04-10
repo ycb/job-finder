@@ -6,6 +6,8 @@ import path from "node:path";
 
 import { evaluateSourceContractDrift } from "../src/sources/source-contracts.js";
 
+const today = new Date().toISOString().slice(0, 10);
+
 function createTempWorkspace(prefix = "job-finder-full-jd-gate-") {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   return {
@@ -36,7 +38,7 @@ function buildContract(sourceType) {
   return {
     sourceType,
     contractVersion: "1.0.0",
-    lastVerified: "2026-04-06",
+    lastVerified: today,
     criteriaMapping: {},
     extraction: {
       requiredFields: ["title"],
@@ -71,7 +73,7 @@ test("evaluateSourceContractDrift computes detail-description coverage and fails
     });
     writeJson(capturePath, {
       sourceId: "indeed-main",
-      capturedAt: "2026-04-06T20:00:00.000Z",
+      capturedAt: new Date().toISOString(),
       jobs: [
         buildJob("AI Product Manager", "detail"),
         buildJob("Senior Product Manager", "detail"),

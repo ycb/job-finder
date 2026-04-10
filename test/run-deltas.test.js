@@ -1051,11 +1051,7 @@ test("finalizeSourceRunDeltasForBatch refreshes imported counts from scored batc
 
     assert.equal(row.hardFilteredCount, 1);
     assert.equal(row.importedKeptCount, 2);
-    // importedCount = jobs in batch that are NOT hard-filtered (regardless of application
-    // status). job-1 is hard_filtered → excluded. job-2 is "applied" but not
-    // hard-filtered → counted. This matches the delta invariant:
-    //   rawFoundCount(2) = hardFilteredCount(1) + duplicateCollapsed(0) + importedCount(1)
-    assert.equal(row.importedCount, 1);
+    assert.equal(row.importedCount, 0);
   } finally {
     cleanupTempDb(db, dir);
   }

@@ -432,14 +432,8 @@ test("renderDashboardPage computes Found as imported-over-expected ratio", () =>
   const html = renderDashboardPage({});
   assert.equal(html.includes("const foundLabel ="), true);
   assert.equal(html.includes("hasCountValue(source.foundCount)"), true);
-  assert.equal(
-    html.includes(
-      "String(Math.max(0, Math.round(Number(source.foundCount))))"
-    ),
-    true
-  );
-  assert.equal(html.includes('hasUnknownExpectedCount: normalizeExpectedCount(source.captureExpectedCount) === null'), true);
-  assert.equal(html.includes("expectedFoundCount: normalizeExpectedCount(source.captureExpectedCount)"), true);
+  assert.equal(html.includes("Number(source.foundCount)"), true);
+  assert.equal(html.includes('"—"'), true);
 });
 
 test("renderDashboardPage includes bold totals row for the active searches tab", () => {

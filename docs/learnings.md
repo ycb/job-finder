@@ -198,6 +198,40 @@ As of 2026-03-06.
   - `data/captures/*` (prior capture files can make auth/setup appear already ready),
   - optionally `data/jobs.db` and `data/refresh-state.json` for clean run/cooldown behavior.
 
+## AppleScript False-Repro Guardrail
+
+- Do not treat an inline one-liner `execute javascript ... in active tab of front window` AppleScript snippet as a repro of our Chrome provider. That syntax is a known AppleScript grammar ambiguity and returns `-2740` even when the provider works.
+- When validating AppleScript automation, use the same block-form `tell active tab of _window` structure as `src/browser-bridge/providers/chrome-applescript.js`.
+
+## AppleScript Automation Permissions
+
+- Chrome's `Allow JavaScript from Apple Events` is necessary but not sufficient for JobFinder automation.
+- macOS Automation permissions must allow the host app (Codex/Terminal) to control Google Chrome.
+- If AppleScript output includes `Connection Invalid` with `com.apple.hiservices-xpcservice` or parse errors like `-2740/-2741`, treat it as missing automation permission and prompt for the macOS toggle before debugging extraction logic.
+
+## AppleScript JavaScript Syntax
+
+- Do not use the compact one-liner form `execute javascript ... in active tab of front window`; it can trigger AppleScript parser errors (`-2740`) in Chrome’s dictionary.
+- Always use the explicit block form with `tell active tab of _window` and `execute javascript "..."` to avoid grammar ambiguity.
+
+## Browser Automation Respect
+
+- When running live probes, open a brand-new Chrome window for each source and never reuse or hijack the user’s active window/session.
+- If a source must be opened in a new window, treat that as a hard requirement and confirm any failure as a blocker rather than retrying in the existing window.
+
+## Source Recency Semantics
+
+- Treat "any time" as equivalent to "not set" in source recency mapping to avoid redundant paths.
+- When a user provides explicit recency-to-coverage mapping, implement it verbatim before debating alternatives.
+
+## QA Run Isolation
+
+- Run live capture QA from the target checkout so capture files and config paths match what the user sees.
+
+## Source Typeahead Tokens
+
+- If a source uses typeahead-backed filters (e.g., YC location), the URL must use the exact canonical token returned by the typeahead, not a guessed abbreviation.
+
 ## Searches UX Controls
 
 - Scope operational controls to the relevant tab context: show `Search frequency` only in `Enabled`, not `Disabled`.
@@ -444,3 +478,11 @@ As of 2026-03-06.
 - Do not use `reject` as product language for rows that merely score low against current keywords. In this product, `hardFiltered` means ruled out; low-score rows are still valid opportunities and should be treated as "low signal" or similar, not true rejects.
 - For stakeholder QA of source quality, do not offer or silently use cached runs. Every QA-triggered search must execute live so run observations map directly to source query construction, extraction, and scoring behavior.
 - For Indeed MVP capture, do not run generic detail-page enrichment after search extraction. The product requirement is search, scroll, extract, and paginate only; fetching `viewjob` pages reintroduces bogus URLs and page-not-found failures that are outside MVP scope.
+- When a source appears to load twice during `run-all`, inspect the route-level orchestration before blaming the source adapter. In this case the duplicate load came from a separate auth-preflight pass in `/api/sources/run-all`, not from the capture loop itself.
+- When reconciling source `Imported` counts with queue `New`, first separate batch stamping from queue eligibility. After fixing batch stamping, the remaining gap here was caused by active-queue gating (`hardFiltered = false`, `bucket != reject`, non-terminal status), not by stale `last_import_batch_id` values.
+- Source latest-run deltas that users compare to the review queue must be finalized after scoring, not before. Recording `importedCount` and `hardFilteredCount` during sync produced misleading source rows because later evaluations changed queue eligibility without updating `source_run_deltas`.
+- Never run automation diagnostics in the user's active browser window. Always open a new window for any source testing or debugging.
+- AppleScript `execute javascript` can return `missing value` for background tabs; if a capture needs JS execution, it must target an active tab (or activate a dedicated automation window) rather than scanning inactive tabs.
+- If `execute javascript` keeps returning `missing value`, shrink the injected script to a minimal payload to isolate escaping/length issues before changing the broader extraction logic.
+- When validating AppleScript behavior, reproduce with the same multi-line `tell application "Google Chrome"` block syntax the provider uses. The one-liner `execute javascript ... in active tab of front window` has a known grammar ambiguity and can fail with `-2740`, which is not representative of production behavior.
+- YC companies pages include navigation/footer links under `/jobs/` (e.g., `/jobs/l/...`). Only treat numeric `/jobs/<id>` URLs as job cards to avoid importing non-job rows like "Product Manager Jobs".

@@ -124,6 +124,7 @@ test("pruneSourceJobs works for legacy schemas without ON DELETE CASCADE", () =>
         structured_meta TEXT,
         metadata_quality_score INTEGER,
         missing_required_fields TEXT,
+        last_import_batch_id TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -143,6 +144,7 @@ test("pruneSourceJobs works for legacy schemas without ON DELETE CASCADE", () =>
         status TEXT NOT NULL,
         notes TEXT NOT NULL DEFAULT '',
         draft_path TEXT,
+        first_viewed_at TEXT,
         last_action_at TEXT NOT NULL,
         submitted_at TEXT,
         FOREIGN KEY (job_id) REFERENCES jobs (id)

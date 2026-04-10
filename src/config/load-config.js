@@ -575,6 +575,18 @@ export function loadSourcesWithPath(
   const searchCriteria = loadSearchCriteria(searchCriteriaPath).criteria;
   const { resolvedPath, data } = readSourcesFileWithBootstrap(sourcesPath);
   const normalized = normalizeSourcesPayload(data, resolvedPath);
+  const baseSearchUrls = new Map(
+    normalized.sources.map((source) => [String(source.id || "").trim(), source.searchUrl])
+  );
+  const legacyOverrideIds =
+    normalized.mode !== "array" && data && typeof data.sources === "object"
+      ? new Set(
+          Object.entries(data.sources)
+            .filter(([, value]) => value && typeof value === "object")
+            .map(([key]) => String(key || "").trim())
+            .filter(Boolean)
+        )
+      : new Set();
   const changed = ensureDerivedSourceMetadata(
     normalized.sources,
     resolvedPath,
@@ -585,9 +597,9 @@ export function loadSourcesWithPath(
     normalized.mode !== "array"
       ? validated.sources.map((source, index) => ({
           ...source,
-          searchUrl:
-            String(normalized.sources[index]?.searchUrl || "").trim() ||
-            String(source.searchUrl || "").trim(),
+          searchUrl: legacyOverrideIds.has(source.id)
+            ? String(baseSearchUrls.get(source.id) || source.searchUrl || "").trim()
+            : String(source.searchUrl || "").trim(),
           criteriaAccountability:
             normalized.sources[index]?.criteriaAccountability ??
             source.criteriaAccountability,
@@ -812,10 +824,7 @@ function ensureDerivedSourceMetadata(sources, resolvedPath, globalSearchCriteria
         built.unsupported,
         built.notes
       );
-      if (
-        built.url &&
-        built.url !== String(source.searchUrl || "").trim()
-      ) {
+      if (built.url && built.url !== String(source.searchUrl || "").trim()) {
         source.searchUrl = built.url;
         changed = true;
       }

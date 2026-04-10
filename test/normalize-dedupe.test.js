@@ -116,7 +116,7 @@ test("levelsfyi normalization preserves per-job identity via jobId query paramet
   const source = {
     id: "levelsfyi-ai-pm",
     type: "levelsfyi_search",
-    searchUrl: "https://www.levels.fyi/jobs/title/product-manager/location/san-francisco-usa"
+    searchUrl: "https://www.levels.fyi/jobs/title/product-manager/location/san-francisco-bay-area"
   };
 
   const normalized = normalizeJobRecord(

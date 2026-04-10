@@ -440,6 +440,29 @@ function combineTitleAndKeywords(criteria) {
   return [title, positiveQuery].filter(Boolean).join(" ").trim();
 }
 
+function combineKeywordsOnly(criteria) {
+  const keywordMode = normalizeKeywordMode(criteria?.keywordMode);
+  const keywordTerms = Array.isArray(criteria?.keywordTerms)
+    ? criteria.keywordTerms.map((term) => normalizeText(term).toLowerCase()).filter(Boolean)
+    : normalizeCriteriaTermList(criteria?.keywords);
+  const hardIncludeTerms = normalizeCriteriaTermList(criteria?.hardIncludeTerms);
+  const includeTerms = normalizeCriteriaTermList(criteria?.includeTerms);
+  const positiveTerms = dedupe([
+    ...keywordTerms,
+    ...hardIncludeTerms,
+    ...includeTerms
+  ]).filter(Boolean);
+
+  if (positiveTerms.length === 0) {
+    return "";
+  }
+  if (keywordMode === "or" && positiveTerms.length > 1) {
+    return `(${positiveTerms.map(formatQueryTerm).join(" OR ")})`;
+  }
+
+  return keywordTermsToQueryText(positiveTerms);
+}
+
 function buildYcRoleParam(criteria) {
   const title = normalizeText(criteria?.title).toLowerCase();
   if (!title) {
@@ -969,7 +992,7 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
     const nextCriteria = {
       ...criteria
     };
-    const searchText = combineTitleAndKeywords(criteria);
+    const searchText = combineKeywordsOnly(criteria);
 
     if (searchText) {
       // combineTitleAndKeywords already folds title + keywords + hardIncludeTerms +
@@ -977,8 +1000,8 @@ export function buildSearchUrlForSourceType(sourceType, rawCriteria, options = {
       // buildLevelsFyiSearchUrl's normalizeSearchText does not add them a second time,
       // which previously produced duplicates like "Product manager ai ai".
       nextCriteria.keywords = searchText;
-      nextCriteria.hardIncludeTerms = undefined;
-      nextCriteria.includeTerms = undefined;
+      nextCriteria.hardIncludeTerms = [];
+      nextCriteria.includeTerms = [];
       if (criteria.title) criteriaAccountability.markAppliedInUrl("title");
       if (criteria.keywords) criteriaAccountability.markAppliedInUrl("keywords");
       if (criteria.hardIncludeTerms) {

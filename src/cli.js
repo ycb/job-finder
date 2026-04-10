@@ -45,6 +45,7 @@ import { normalizeJobRecord } from "./jobs/normalize.js";
 import { applyRetentionPolicyCleanup, writeRetentionCleanupAudit } from "./jobs/retention.js";
 import {
   countActiveJobsByIds,
+  finalizeSourceRunDeltasForBatch,
   listAllJobs,
   listNormalizedHashesOutsideSources,
   listSourceJobsForDelta,
@@ -129,6 +130,7 @@ import {
   collectJobsFromSource,
   importLinkedInSnapshot
 } from "./sources/linkedin-saved-search.js";
+import { captureSourceFromCli } from "./cli/capture-source.js";
 import { checkEnvironmentReadiness, checkSourceAccess } from "./onboarding/source-access.js";
 import {
   getEffectiveOnboardingChannel,
@@ -767,14 +769,18 @@ function runSync(options = {}) {
       rejected_count: skippedByQuality
     });
   }
+  return runId;
 }
 
-function runScore() {
+function runScore(runId = null) {
   const { criteria } = loadSearchCriteria();
   const { db } = withDatabase();
   const jobs = listAllJobs(db);
   const evaluations = evaluateJobsFromSearchCriteria(criteria, jobs);
   upsertEvaluations(db, evaluations);
+  if (runId) {
+    finalizeSourceRunDeltasForBatch(db, runId);
+  }
   const bucketCounts = summarizeBuckets(evaluations);
 
   db.close();
@@ -1646,18 +1652,23 @@ function runCaptureSource(sourceIdOrName, snapshotPathArg) {
 
   const source = getSourceByIdOrName(sourceIdOrName);
   const snapshotPath = path.resolve(snapshotPathArg || getDefaultSnapshotPath(source));
+  const result = captureSourceFromCli({
+    source,
+    snapshotPath,
+    openUrlInBrowser,
+    importLinkedInSnapshot,
+    collectRawJobsFromSource
+  });
 
-  if (!fs.existsSync(snapshotPath)) {
-    openUrlInBrowser(source.searchUrl);
+  if (result.status === "missing_snapshot") {
     console.log(`Opened "${source.name}" (${source.id})`);
     console.log(`No snapshot found at ${snapshotPath}`);
     console.log("Save a Playwright snapshot to that path, then rerun capture-source to import it.");
     return;
   }
 
-  const result = importLinkedInSnapshot(source, snapshotPath);
   console.log(
-    `Captured ${result.jobsImported} job(s) for "${source.name}" from ${snapshotPath}`
+    `Captured ${result.jobsImported} job(s) for "${source.name}" from ${result.capturePath || source.searchUrl}`
   );
 }
 
@@ -1915,11 +1926,11 @@ async function runPipeline(options = {}) {
     console.log("No enabled browser-capture sources. Skipping browser capture.");
   }
 
-  runSync({
+  const runId = runSync({
     allowQuarantined: options.allowQuarantined,
     sourceIds: syncSourceIds
   });
-  runScore();
+  runScore(runId);
   runShortlist();
   runList(10);
   console.log("Pipeline complete. Start the dashboard with: npm run review");

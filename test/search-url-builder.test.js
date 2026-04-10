@@ -243,11 +243,15 @@ test("buildSearchUrlForSourceType encodes YC browser search state in a determini
 
   const parsed = new URL(result.url);
   assert.equal(parsed.origin, "https://www.workatastartup.com");
-  assert.equal(parsed.pathname, "/jobs/l/product-manager");
-  assert.equal(parsed.searchParams.get("search"), "product manager ai");
-  assert.equal(parsed.searchParams.get("location"), "San Francisco, CA");
-  assert.equal(parsed.searchParams.get("datePosted"), "3d");
-  assert.equal(parsed.searchParams.get("minSalary"), "200000");
+  assert.equal(parsed.pathname, "/companies");
+  assert.equal(parsed.searchParams.get("query"), "ai");
+  assert.equal(parsed.searchParams.get("role"), "product");
+  assert.equal(parsed.searchParams.get("locations"), "San Francisco, CA");
+  assert.equal(parsed.searchParams.get("sortBy"), "newest");
+  assert.equal(parsed.searchParams.get("hasSalary"), "true");
   assert.equal(result.criteriaAccountability.appliedInUrl.includes("title"), true);
-  assert.equal(result.criteriaAccountability.appliedPostCapture.includes("hardIncludeTerms"), true);
+  assert.equal(result.criteriaAccountability.appliedInUrl.includes("hardIncludeTerms"), true);
+  assert.equal(result.criteriaAccountability.appliedInUrl.includes("location"), true);
+  assert.equal(result.criteriaAccountability.appliedInUrl.includes("minSalary"), true);
+  assert.equal(result.criteriaAccountability.appliedPostCapture.includes("datePosted"), true);
 });

@@ -34,6 +34,78 @@ function normalizeText(value) {
   return stripTags(value).replace(/\s+/g, " ").trim();
 }
 
+export function getYcRecencyFraction(rawValue) {
+  const normalized = normalizeText(rawValue).toLowerCase();
+
+  if (!normalized || normalized === "any" || normalized === "any time" || normalized === "not set") {
+    return 1;
+  }
+
+  if (
+    normalized === "24h" ||
+    normalized === "1d" ||
+    normalized === "past 24 hours" ||
+    normalized === "past day" ||
+    normalized === "past 1 day" ||
+    normalized === "last 24 hours"
+  ) {
+    return 0.1;
+  }
+
+  if (
+    normalized === "3d" ||
+    normalized === "past 3 days" ||
+    normalized === "past three days"
+  ) {
+    return 0.3;
+  }
+
+  if (
+    normalized === "1w" ||
+    normalized === "7d" ||
+    normalized === "past week" ||
+    normalized === "past 7 days"
+  ) {
+    return 0.5;
+  }
+
+  if (
+    normalized === "2w" ||
+    normalized === "14d" ||
+    normalized === "past 2 weeks" ||
+    normalized === "past two weeks"
+  ) {
+    return 0.75;
+  }
+
+  if (
+    normalized === "1m" ||
+    normalized === "30d" ||
+    normalized === "past month" ||
+    normalized === "past 30 days"
+  ) {
+    return 1;
+  }
+
+  return 1;
+}
+
+export function resolveYcRecencyFraction(source = {}, globalCriteria = {}) {
+  const criteria =
+    source?.searchCriteria && typeof source.searchCriteria === "object"
+      ? source.searchCriteria
+      : source?.criteria && typeof source.criteria === "object"
+        ? source.criteria
+        : null;
+  const datePosted =
+    (criteria && criteria.datePosted) ||
+    source?.datePosted ||
+    (globalCriteria && globalCriteria.datePosted) ||
+    "";
+
+  return getYcRecencyFraction(datePosted);
+}
+
 function assertYcSource(source) {
   if (!source || source.type !== "yc_jobs") {
     throw new Error("YC capture write requires a yc_jobs source.");
@@ -177,6 +249,23 @@ function isProductManagerRoute(searchUrl) {
   }
 }
 
+function parseYcRoleValue(searchUrl) {
+  const normalized = String(searchUrl || "").trim();
+  if (!normalized) {
+    return "";
+  }
+
+  try {
+    const parsed = new URL(normalized, "https://www.workatastartup.com");
+    const role = normalizeText(parsed.searchParams.get("role")).toLowerCase();
+    if (role) {
+      return role;
+    }
+  } catch {}
+
+  return isProductManagerRoute(normalized) ? "product" : "";
+}
+
 function normalizeStringArray(value) {
   if (!Array.isArray(value)) {
     return [];
@@ -200,7 +289,8 @@ function parseYcSearchState(searchInput) {
     hardIncludeTerms: [],
     includeTerms: [],
     keywordMode: "",
-    roleFamily: ""
+    roleFamily: "",
+    assumeQueryFiltered: false
   };
 
   if (!searchInput) {
@@ -211,33 +301,28 @@ function parseYcSearchState(searchInput) {
     const searchUrl = normalizeText(searchInput);
     const next = {
       ...baseState,
-      searchUrl
+      searchUrl,
+      assumeQueryFiltered: Boolean(searchInput?.assumeQueryFiltered || searchInput?.domCards)
     };
 
     try {
       const parsed = new URL(searchUrl);
       next.title = normalizeText(parsed.searchParams.get("search"));
       next.location = normalizeText(parsed.searchParams.get("location"));
+      const queryTerms = normalizeStringArray(
+        String(parsed.searchParams.get("query") || "")
+          .split(/\s+/)
+          .map((term) => term.trim())
+          .filter(Boolean)
+      );
+      if (queryTerms.length > 0) {
+        next.hardIncludeTerms = queryTerms;
+        next.includeTerms = queryTerms;
+      }
       next.keywordMode = normalizeText(parsed.searchParams.get("keywordMode")).toLowerCase();
-      next.hardIncludeTerms = normalizeStringArray(
-        String(parsed.searchParams.get("hardIncludeTerms") || "")
-          .split(",")
-          .map((term) => term.trim())
-          .filter(Boolean)
-      );
-      next.includeTerms = normalizeStringArray(
-        String(parsed.searchParams.get("includeTerms") || "")
-          .split(",")
-          .map((term) => term.trim())
-          .filter(Boolean)
-      );
-      if (isProductManagerRoute(searchUrl)) {
-        next.roleFamily = "product";
-      }
+      next.roleFamily = parseYcRoleValue(searchUrl);
     } catch {
-      if (isProductManagerRoute(searchUrl)) {
-        next.roleFamily = "product";
-      }
+      next.roleFamily = parseYcRoleValue(searchUrl);
     }
 
     return next;
@@ -256,7 +341,8 @@ function parseYcSearchState(searchInput) {
     const keywordMode = normalizeText(criteria.keywordMode).toLowerCase();
     const roleFamily =
       normalizeText(criteria.roleFamily).toLowerCase() ||
-      (isProductManagerRoute(searchUrl) ? "product" : title.toLowerCase().includes("product") ? "product" : "");
+      parseYcRoleValue(searchUrl) ||
+      (title.toLowerCase().includes("product") ? "product" : "");
 
     return {
       searchUrl,
@@ -265,7 +351,8 @@ function parseYcSearchState(searchInput) {
       hardIncludeTerms,
       includeTerms,
       keywordMode,
-      roleFamily
+      roleFamily,
+      assumeQueryFiltered: Boolean(searchInput?.assumeQueryFiltered || searchInput?.domCards)
     };
   }
 
@@ -328,6 +415,112 @@ function buildSearchableYcText(rawJob) {
   ).toLowerCase();
 }
 
+function parseYcCardLines(cardText) {
+  return String(cardText || "")
+    .split(/\n+/)
+    .map((line) => normalizeText(line))
+    .filter(Boolean);
+}
+
+function detectLocationFromLines(lines) {
+  if (!Array.isArray(lines)) {
+    return "";
+  }
+  return (
+    lines.find((line) => /remote/i.test(line) || /,\s*[A-Z]{2}\b/.test(line)) ||
+    ""
+  );
+}
+
+function detectJobTypeFromLines(lines) {
+  if (!Array.isArray(lines)) {
+    return "";
+  }
+  return (
+    lines.find((line) =>
+      /(full[-\s]?time|part[-\s]?time|contract|intern|cofounder)/i.test(line)
+    ) || ""
+  );
+}
+
+function detectSalaryFromLines(lines) {
+  if (!Array.isArray(lines)) {
+    return "";
+  }
+  return lines.find((line) => /\$\d|\bK\b|\bUSD\b/i.test(line)) || "";
+}
+
+function detectCompanyFromLines(lines, title) {
+  if (!Array.isArray(lines)) {
+    return "";
+  }
+  const deny = new Set([
+    "job match",
+    "us citizen/visa only",
+    "us citizen visa only",
+    "will sponsor",
+    "see all jobs",
+    "view job",
+    "inbox",
+    "remote",
+    "fulltime",
+    "parttime",
+    "contract",
+    "intern",
+    "cofounder",
+    "hybrid",
+    "on-site",
+    "onsite"
+  ]);
+  const normalizedTitle = normalizeText(title).toLowerCase();
+  for (const line of lines) {
+    const normalized = normalizeText(line).toLowerCase();
+    if (!normalized || normalized === normalizedTitle) {
+      continue;
+    }
+    if (deny.has(normalized)) {
+      continue;
+    }
+    if (/^see all\b/i.test(normalized)) {
+      continue;
+    }
+    if (
+      /\bproduct manager\b/i.test(normalized) ||
+      /\bproduct owner\b/i.test(normalized) ||
+      /\bproduct lead\b/i.test(normalized) ||
+      /\bhead of product\b/i.test(normalized) ||
+      /\bvp product\b/i.test(normalized) ||
+      /\bdirector of product\b/i.test(normalized)
+    ) {
+      continue;
+    }
+    if (
+      /\$\d/.test(line) ||
+      /\b\d+\s*\+?\s*years?\b/i.test(normalized) ||
+      /\b\d+\s*\+?\s*yrs?\b/i.test(normalized) ||
+      /\bjob(s)?\b/i.test(normalized) ||
+      /\bview\b/i.test(normalized) ||
+      /\bsponsor\b/i.test(normalized) ||
+      /\bvisa\b/i.test(normalized)
+    ) {
+      continue;
+    }
+    if (/,\s*[A-Z]{2}\b/.test(line)) {
+      continue;
+    }
+    if (
+      /\barea\b/i.test(normalized) &&
+      !/(inc|llc|ltd|corp|company|co\.|labs|systems|technologies|tech|ai|software)/i.test(
+        normalized
+      )
+    ) {
+      continue;
+    }
+    return line;
+  }
+  return "";
+}
+
 function matchesAllTerms(text, terms) {
   if (!terms.length) {
     return true;
@@ -354,16 +547,18 @@ function shouldIncludeYcJob(rawJob, searchState) {
     return false;
   }
 
-  const hardTerms = normalizeStringArray(searchState.hardIncludeTerms);
-  if (!matchesAllTerms(text, hardTerms)) {
-    return false;
-  }
+  if (!searchState.assumeQueryFiltered) {
+    const hardTerms = normalizeStringArray(searchState.hardIncludeTerms);
+    if (!matchesAllTerms(text, hardTerms)) {
+      return false;
+    }
 
-  if (
-    searchState.keywordMode === "and" &&
-    !matchesAllTerms(text, normalizeStringArray(searchState.includeTerms))
-  ) {
-    return false;
+    if (
+      searchState.keywordMode === "and" &&
+      !matchesAllTerms(text, normalizeStringArray(searchState.includeTerms))
+    ) {
+      return false;
+    }
   }
 
   return true;
@@ -400,7 +595,7 @@ function toJobRecord(rawJob, searchUrl) {
     postedAt: null,
     employmentType: normalizeText(rawJob?.jobType) || null,
     easyApply: false,
-    salaryText: null,
+    salaryText: normalizeText(rawJob?.salaryText) || null,
     summary: summary || `${title} at ${company}`,
     description: description || `${title} at ${company}`,
     url,
@@ -408,7 +603,93 @@ function toJobRecord(rawJob, searchUrl) {
   };
 }
 
+function normalizeYcDomCard(card) {
+  if (!card || typeof card !== "object") {
+    return null;
+  }
+
+  const title = normalizeText(card.title);
+  const href = normalizeText(card.href);
+  if (!title || !href) {
+    return null;
+  }
+
+  const cardLines = parseYcCardLines(card.cardText || "");
+  const companyFromLines = detectCompanyFromLines(cardLines, title);
+  const companyUrl = normalizeText(card.companyUrl);
+  const normalizedCompanyUrl = companyUrl.includes("/companies/") ? companyUrl : "";
+  const companySlug =
+    normalizedCompanyUrl.split("/companies/")[1]?.split(/[?#]/)[0] || "";
+  const slugCompanyName = companySlug
+    ? companySlug
+        .replace(/[-_]+/g, " ")
+        .replace(/\b\w/g, (match) => match.toUpperCase())
+        .trim()
+    : "";
+  const rawCompany = normalizeText(card.company);
+  const isInvalidCompany =
+    !rawCompany ||
+    /^see all\b/i.test(rawCompany) ||
+    /\bjobs?\b/i.test(rawCompany) ||
+    /^inbox$/i.test(rawCompany);
+  const company =
+    (!isInvalidCompany ? rawCompany : "") ||
+    normalizeText(companyFromLines) ||
+    normalizeText(slugCompanyName);
+  if (!company || !companySlug) {
+    if (/\bjobs?\b/i.test(title) && !companySlug) {
+      return null;
+    }
+  }
+  const location = detectLocationFromLines(cardLines);
+  const jobType = detectJobTypeFromLines(cardLines);
+
+  return {
+    id: href.split("/jobs/")[1]?.split(/[?#]/)[0] || "",
+    title,
+    companyName: company,
+    companySlug,
+    location,
+    jobType,
+    roleType: "",
+    companyBatch: "",
+    companyOneLiner: "",
+    applyUrl: href,
+    salaryText: detectSalaryFromLines(cardLines)
+  };
+}
+
+export function parseYcJobsFromDomCards(cards, searchInput) {
+  if (!Array.isArray(cards) || cards.length === 0) {
+    return [];
+  }
+
+  const searchState = parseYcSearchState(searchInput);
+  const jobs = [];
+
+  for (const card of cards) {
+    const rawJob = normalizeYcDomCard(card);
+    if (!rawJob) {
+      continue;
+    }
+    if (!shouldIncludeYcJob(rawJob, searchState)) {
+      continue;
+    }
+    const job = toJobRecord(rawJob, searchState.searchUrl || card.href);
+    if (!job) {
+      continue;
+    }
+    jobs.push(job);
+  }
+
+  return jobs;
+}
+
 export function parseYcJobsPayload(rawPayload, searchInput) {
+  if (Array.isArray(rawPayload)) {
+    return parseYcJobsFromDomCards(rawPayload, searchInput);
+  }
+
   const payload = parseDataPagePayload(rawPayload);
   if (!payload) {
     return [];

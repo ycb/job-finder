@@ -18,10 +18,10 @@ The run is successful only when the latest-run source deltas and the queue outpu
 
 ## Progress
 
-- [ ] (2026-04-03 03:15Z) Add hardening observability for source capture so each run records actual URLs, live filter state, pagination trace, trigger start/finish/failure, and explicit blocked/challenged states.
+- [ ] (2026-04-03 03:15Z) Add hardening observability for source capture so each run records actual URLs, live filter state, pagination trace, trigger start/finish/failure, and explicit blocked/challenged states. Completed: persisted `captureTelemetry` in artifacts and exposed it on source rows in `/api/dashboard`; verified on fresh QA Indeed capture. Remaining: blocked/challenged/error states and richer per-page counts.
 - [ ] Reproduce the current QA defects from one fresh live run and capture a per-source evidence pack (screens, URLs, capture files, telemetry, and latest-run API payload).
-- [ ] Fix duplicate source triggering so each enabled source is loaded at most once per `run-all` batch and per single-source run.
-- [ ] Fix queue/accounting mismatch so `Imported`, `New`, and `Unread` reflect the same latest-batch semantics and do not imply missing jobs.
+- [x] (2026-04-03 03:35Z) Fix duplicate source triggering so each enabled source is loaded at most once per `run-all` batch and per single-source run. Completed: removed the separate route-level auth-preflight from `POST /api/sources/run-all`, added a regression test around the request handler, and verified a fresh QA `run-all` completed one capture pass per source with a single sync batch.
+- [x] (2026-04-03 05:05Z) Fix queue/accounting mismatch so `Imported`, `New`, and `Unread` reflect the same latest-batch semantics and do not imply missing jobs. Completed: latest batch stamping now matches imported-kept rows exactly, low-signal rows remain in the active queue unless hard-filtered, and source latest-run `importedCount` / `hardFilteredCount` are finalized from the scored batch state rather than pre-score guesses. Verified on QA batch `0492aa30-bd9e-4a0e-b0b7-8eb37c1eae20`: per-source latest-run `Imported` totals sum to `25`, which matches the `25` queue-eligible rows stamped with that batch id.
 - [ ] Fix `YC Jobs` native query construction to use the browser/app-state route that actually reflects the search field (`query=ai`) and role filter (`role=product`) instead of the current `/jobs/l/product-manager?...` URL.
 - [ ] Review and fix `Built In` source parity if the low-yield import is due to wrong query construction or extraction loss rather than true scarcity.
 - [ ] Review and fix `LinkedIn` filtering semantics if `68 found / 59 filtered` is caused by scoring/hard-filter drift rather than the user’s active criteria.
@@ -38,6 +38,12 @@ The run is successful only when the latest-run source deltas and the queue outpu
 
 - Observation: `YC Jobs` is not a normal static URL source; the logged-in page exposes app-state filters and search results that are richer than the current builder path.
   Evidence: live inspection previously showed `data-page.props.currentRole = "product"` and a search UI with `query`, `role`, `location`, and `remote` controls, while the current URL still used `/jobs/l/product-manager?...`.
+
+- Observation: The first telemetry slice is already useful enough to explain live Indeed behavior without relying on screenshots.
+  Evidence: fresh QA capture `/Users/admin/job-finder/data/captures/indeed-ai-pm.json` now includes `captureTelemetry` with `initialUrl`, `visitedUrls`, `finalUrl`, `pageTitlesVisited`, `triggeredAt`, `finishedAt`, and `stopReason`, and the same telemetry appears on the `indeed-ai-pm` source row in `/api/dashboard`.
+
+- Observation: The latest-batch stamping bug and the queue-count mismatch were two different issues. Stamping was wrong because every normalized job got the batch id; after fixing that, the remaining `Imported` vs `New` gap came from queue gating, not stale batch ids.
+  Evidence: fresh QA `run-all` returned batch `b6a544e9-4aa8-4a38-8434-7f00471c80d4` with latest-run imported totals summing to `45`, and the DB now shows exactly `45` jobs stamped with that batch id. Of those, only `20` are active-queue eligible because the same batch also contains `16` low-signal rows (`bucket = reject`) and `9` terminal/viewed rows.
 
 ## Decision Log
 

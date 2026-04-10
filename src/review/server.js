@@ -46,7 +46,6 @@ import { normalizeJobRecord } from "../jobs/normalize.js";
 import { applyRetentionPolicyCleanup, writeRetentionCleanupAudit } from "../jobs/retention.js";
 import {
   countActiveJobsByIds,
-  countDeduplicatedQueueJobsForRun,
   finalizeSourceRunDeltasForBatch,
   getLatestImportedRunId,
   listAllJobs,
@@ -1107,7 +1106,17 @@ export function buildSourceRefreshMeta(source, options = {}) {
     lastAttemptOutcome !== "success" &&
     Number.isFinite(lastAttemptMs) &&
     (!Number.isFinite(lastLiveMs) || lastAttemptMs >= lastLiveMs);
-  let statusReason = "eligible";
+  let statusReason = decision.reason || "eligible";
+  const statusLabelMap = {
+    eligible: "ready_live",
+    force_refresh: "ready_live",
+    qa_live: "ready_live",
+    cache_fresh: "cache_fresh",
+    cooldown: "cooldown",
+    min_interval: "throttled",
+    daily_cap: "daily_cap",
+    mock_profile: "cache_only"
+  };
   if (latestAttemptFailed) {
     statusReason = lastAttemptOutcome === "challenge" ? "challenge" : "attempt_failed";
   }
@@ -1404,8 +1413,7 @@ function runSyncAndScore(options = {}) {
         newCount: deltas.newCount,
         updatedCount: deltas.updatedCount,
         unchangedCount: deltas.unchangedCount,
-        // Initial value; overwritten by finalizeSourceRunDeltasForBatch after scoring.
-        importedCount: semanticMetrics.importedKeptCount,
+        importedCount: countActiveJobsByIds(db, semanticMetrics.importedKeptJobIds),
         refreshMode: refreshMeta.refreshMode,
         servedFrom: refreshMeta.servedFrom,
         statusReason: refreshMeta.statusReason,
@@ -1427,13 +1435,6 @@ function runSyncAndScore(options = {}) {
     const evaluations = evaluateJobsFromSearchCriteria(criteria, jobs);
     upsertEvaluations(db, evaluations);
     finalizeSourceRunDeltasForBatch(db, runId);
-
-    // Compute the run-level imported count deduplicated across sources.
-    // Per-source importedCount values overcount when the same job is imported
-    // by multiple sources (each source counts its own copy). This single query
-    // counts distinct normalizedHash values from the current batch so it matches
-    // what the user sees as "New" in the Jobs-tab queue.
-    const deduplicatedQueueImportedCount = countDeduplicatedQueueJobsForRun(db, runId);
 
     return {
       runId,
@@ -1711,14 +1712,26 @@ async function runAllCaptures() {
 export async function handleRunAllSourcesRequest(parsedBody = {}, overrides = {}) {
   const applySourceQaOverridesFn =
     overrides.applySourceQaOverridesFn || applySourceQaOverrides;
+  const normalizeRefreshProfileFn =
+    overrides.normalizeRefreshProfileFn || normalizeRefreshProfile;
   const runAllCapturesWithOptionsFn =
     overrides.runAllCapturesWithOptionsFn || runAllCapturesWithOptions;
 
   const qaRunOptions = applySourceQaOverridesFn({
+    refreshProfile:
+      typeof parsedBody.refreshProfile === "string"
+        ? parsedBody.refreshProfile
+        : undefined,
     forceRefresh: parsedBody.forceRefresh === true
   });
+  const refreshProfile =
+    typeof qaRunOptions.refreshProfile === "string"
+      ? qaRunOptions.refreshProfile
+      : undefined;
+  const normalizedRefreshProfile = normalizeRefreshProfileFn(refreshProfile || "safe");
   const forceRefresh = qaRunOptions.forceRefresh === true;
   const result = await runAllCapturesWithOptionsFn({
+    refreshProfile: normalizedRefreshProfile,
     forceRefresh
   });
 
@@ -4435,6 +4448,13 @@ export function renderDashboardPage(dashboard, options = {}) {
         return "12h";
       }
 
+      function runCadencePayload() {
+        if (selectedSearchRunCadence === "weekly" || selectedSearchRunCadence === "daily") {
+          return { refreshProfile: "safe" };
+        }
+        return { refreshProfile: "safe" };
+      }
+
       function formatDurationFromNow(value) {
         const targetMs = Date.parse(String(value || ""));
         if (!Number.isFinite(targetMs)) {
@@ -6064,17 +6084,22 @@ export function renderDashboardPage(dashboard, options = {}) {
                 safeName +
                 ' <span class="external-link-icon" aria-hidden="true">&#8599;</span></a>'
               : '<span class="search-name search-link-label">' + safeName + "</span>";
-            const foundLabel =
-              hasCountValue(source.foundCount)
-                ? String(Math.max(0, Math.round(Number(source.foundCount))))
+            const foundLabel = source.hasUnknownExpectedCount
+              ? hasCountValue(source.importedCount)
+                ? String(source.importedCount) + "/?"
+                : "—"
+              : hasCountValue(source.importedCount) && hasCountValue(source.expectedFoundCount)
+                ? String(source.importedCount) +
+                  "/" +
+                  String(Math.max(0, Math.round(source.expectedFoundCount)))
                 : "—";
             const filteredLabel =
-              hasCountValue(source.filteredCount)
-                ? String(Math.max(0, Math.round(Number(source.filteredCount))))
+              hasCountValue(source.droppedByHardFilterCount)
+                ? String(Math.max(0, Math.round(Number(source.droppedByHardFilterCount))))
                 : "—";
             const dedupedLabel =
-              hasCountValue(source.dedupedCount)
-                ? String(Math.max(0, Math.round(Number(source.dedupedCount))))
+              hasCountValue(source.droppedByDedupeCount)
+                ? String(Math.max(0, Math.round(Number(source.droppedByDedupeCount))))
                 : "—";
             const disableControls = busy || onboardingBusy || Boolean(authFlowSourceId);
             const authBlocked = source.enabled && source.authRequired && source.status.tone === "warn";
@@ -7885,6 +7910,10 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
         const result = await runSourceCaptureWithOptions(
           decodeURIComponent(match[1]),
           applySourceQaOverrides({
+            refreshProfile:
+              typeof parsedBody.refreshProfile === "string"
+                ? parsedBody.refreshProfile
+                : undefined,
             forceRefresh: parsedBody.forceRefresh === true,
             skipSync: parsedBody.skipSync === true
           })

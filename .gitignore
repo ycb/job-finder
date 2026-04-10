@@ -1,4 +1,5 @@
 .codex/
+.worktrees/
 config/profile.json
 config/my-goals.json
 config/profile-source.json

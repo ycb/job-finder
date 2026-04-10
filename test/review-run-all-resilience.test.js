@@ -13,6 +13,7 @@ test("run-all request handler executes capture without separate auth preflight",
     {},
     {
       applySourceQaOverridesFn: (options) => options,
+      normalizeRefreshProfileFn: (profile) => profile || "safe",
       runAuthPreflightForEnabledSourcesFn: async () => {
         preflightCalls.push("called");
         return [{ sourceId: "linkedin-live-capture" }];
@@ -25,7 +26,7 @@ test("run-all request handler executes capture without separate auth preflight",
   );
 
   assert.deepEqual(preflightCalls, []);
-  assert.deepEqual(captureCalls, [{ forceRefresh: false }]);
+  assert.deepEqual(captureCalls, [{ refreshProfile: "safe", forceRefresh: false }]);
   assert.deepEqual(result, { ok: true, captures: [], sync: { collected: 0 } });
 });
 
