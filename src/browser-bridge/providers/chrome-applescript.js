@@ -4899,6 +4899,7 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
   let domProbe = null;
   let domScrollPasses = 0;
   let domCapturedCount = 0;
+  const domScrollTrace = [];
 
   try {
     const rawProbe = executeInAutomationWindowFrontEncoded(
@@ -5029,10 +5030,17 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
         break;
       }
 
-      executeInAutomationWindowFrontEncoded(
+      const scrollRaw = executeInAutomationWindowFrontEncoded(
         buildLevelsFyiDomScrollScript(),
         timeoutMs
       );
+      const scrollPayload = parseBridgeJsonPayload(scrollRaw);
+      if (domScrollTrace.length < 5) {
+        domScrollTrace.push(scrollPayload);
+      }
+      if (scrollPayload && scrollPayload.prev === scrollPayload.next) {
+        break;
+      }
       sleepSync(900);
     }
 
@@ -5094,6 +5102,7 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
       domProbe,
       domScrollPasses,
       domCapturedCount,
+      domScrollTrace,
       stopReason,
       usedFallback
     }
