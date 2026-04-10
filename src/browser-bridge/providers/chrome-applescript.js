@@ -4532,25 +4532,14 @@ function parseBridgeJsonPayload(raw) {
   }
 }
 
-function buildLevelsFyiApiFetchScript(apiUrl) {
+function buildLevelsFyiApiBodyScript() {
   return `
 (() => {
-  try {
-    const xhr = new XMLHttpRequest();
-    xhr.open("GET", ${JSON.stringify(String(apiUrl || ""))}, false);
-    xhr.setRequestHeader("accept", "application/json");
-    xhr.send(null);
-    return JSON.stringify({
-      status: xhr.status,
-      responseText: xhr.responseText || "",
-      responseUrl: xhr.responseURL || ""
-    });
-  } catch (error) {
-    return JSON.stringify({
-      status: 0,
-      error: String(error || "unknown")
-    });
-  }
+  const body = document.body || document.documentElement;
+  const text = body ? String(body.innerText || "") : "";
+  return JSON.stringify({
+    text
+  });
 })()
   `.trim();
 }
@@ -4688,8 +4677,10 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
     });
     let payloadWrapper = null;
     try {
+      navigateAutomationTab(apiUrl, "Fetching Levels.fyi API...");
+      sleepSync(900);
       const raw = executeInAutomationWindowFrontEncoded(
-        buildLevelsFyiApiFetchScript(apiUrl),
+        buildLevelsFyiApiBodyScript(),
         timeoutMs
       );
       payloadWrapper = parseBridgeJsonPayload(raw);
@@ -4698,12 +4689,12 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
       break;
     }
 
-    if (!payloadWrapper || payloadWrapper.status < 200 || payloadWrapper.status >= 300) {
+    if (!payloadWrapper || !payloadWrapper.text) {
       apiFailures += 1;
       break;
     }
 
-    const apiPayload = parseBridgeJsonPayload(payloadWrapper.responseText);
+    const apiPayload = parseBridgeJsonPayload(payloadWrapper.text);
     if (!apiPayload) {
       apiFailures += 1;
       break;
@@ -4748,6 +4739,8 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
   }
 
   if (collected.length === 0) {
+    navigateAutomationTab(searchUrl, "Refreshing Levels.fyi source...");
+    sleepSync(settleMs);
     const raw = executeInAutomationWindowFrontEncoded(
       buildLevelsFyiNextDataScript(),
       timeoutMs
@@ -4787,6 +4780,7 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
       offsets,
       expectedCount,
       apiFailures,
+      apiFetchMode: "navigate",
       stopReason,
       usedFallback
     }
