@@ -4782,6 +4782,57 @@ function buildLevelsFyiDomScrollScript() {
   `.trim();
 }
 
+function buildLevelsFyiCompanyListScript() {
+  return `
+(() => {
+  const container =
+    document.querySelector('div[class*="companiesListContainer"]') ||
+    document.body;
+  const nodes = Array.from(
+    container.querySelectorAll('a,button,[role="button"]')
+  );
+  const companies = nodes
+    .map((node, index) => {
+      const text = String(node.textContent || "").trim().replace(/\\s+/g, " ");
+      const href = node.href || null;
+      if (!text || text.length < 2) {
+        return null;
+      }
+      if (href && href.includes("jobId=")) {
+        return null;
+      }
+      return { index, text: text.slice(0, 120), href };
+    })
+    .filter(Boolean);
+  return JSON.stringify({
+    count: companies.length,
+    companies: companies.slice(0, 200)
+  });
+})()
+  `.trim();
+}
+
+function buildLevelsFyiCompanyClickScript(index) {
+  const indexLiteral = JSON.stringify(Number(index));
+  return `
+(() => {
+  const container =
+    document.querySelector('div[class*="companiesListContainer"]') ||
+    document.body;
+  const nodes = Array.from(
+    container.querySelectorAll('a,button,[role="button"]')
+  );
+  const target = nodes[${indexLiteral}];
+  if (!target) {
+    return JSON.stringify({ clicked: false });
+  }
+  target.scrollIntoView({ block: "center" });
+  target.click();
+  return JSON.stringify({ clicked: true });
+})()
+  `.trim();
+}
+
 function runDetailEnrichment(source, jobs, options = {}) {
   const sourceType = String(source?.type || "").trim().toLowerCase();
   const sourceDefaultMaxJobs = sourceType === "linkedin_capture_file" ? 80 : 25;
@@ -4900,6 +4951,8 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
   let domScrollPasses = 0;
   let domCapturedCount = 0;
   const domScrollTrace = [];
+  let companyVisitedCount = 0;
+  const companyKeys = new Set();
 
   try {
     const rawProbe = executeInAutomationWindowFrontEncoded(
@@ -5005,34 +5058,60 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
 
     for (let pass = 0; pass < maxDomPasses; pass += 1) {
       domScrollPasses += 1;
-      const raw = executeInAutomationWindowFrontEncoded(
-        buildLevelsFyiDomCaptureScript(),
+      const companyRaw = executeInAutomationWindowFrontEncoded(
+        buildLevelsFyiCompanyListScript(),
         timeoutMs
       );
-      const payload = parseBridgeJsonPayload(raw);
-      const jobs = Array.isArray(payload?.jobs) ? payload.jobs : [];
+      const companyPayload = parseBridgeJsonPayload(companyRaw);
+      const companies = Array.isArray(companyPayload?.companies)
+        ? companyPayload.companies
+        : [];
+
+      for (const company of companies) {
+        const key = `${company.text || ""}|${company.href || ""}`;
+        if (!key.trim() || companyKeys.has(key)) {
+          continue;
+        }
+        companyKeys.add(key);
+        companyVisitedCount += 1;
+        executeInAutomationWindowFrontEncoded(
+          buildLevelsFyiCompanyClickScript(company.index),
+          timeoutMs
+        );
+        sleepSync(700);
+
+        const raw = executeInAutomationWindowFrontEncoded(
+          buildLevelsFyiDomCaptureScript(),
+          timeoutMs
+        );
+        const payload = parseBridgeJsonPayload(raw);
+        const jobs = Array.isArray(payload?.jobs) ? payload.jobs : [];
+        const priorSize = domSeen.size;
+        for (const job of jobs) {
+          const jobKey = String(job?.externalId || "").trim();
+          if (!jobKey || domSeen.has(jobKey)) {
+            continue;
+          }
+          domSeen.add(jobKey);
+          collected.push(job);
+        }
+        if (domSeen.size === priorSize) {
+          noGrowth += 1;
+        } else {
+          noGrowth = 0;
+        }
+        if (noGrowth >= 2) {
+          break;
+        }
+      }
+
       if (domScrollTrace.length < 5) {
         domScrollTrace.push({
           pass,
-          jobCount: jobs.length,
-          sampleIds: jobs.slice(0, 3).map((job) => job.externalId || null)
+          jobCount: domSeen.size,
+          sampleIds: Array.from(domSeen).slice(0, 3)
         });
       }
-      const priorSize = domSeen.size;
-      for (const job of jobs) {
-        const key = String(job?.externalId || "").trim();
-        if (!key || domSeen.has(key)) {
-          continue;
-        }
-        domSeen.add(key);
-        collected.push(job);
-      }
-      if (domSeen.size === priorSize) {
-        noGrowth += 1;
-      } else {
-        noGrowth = 0;
-      }
-
       if (noGrowth >= 2) {
         break;
       }
@@ -5109,6 +5188,7 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
       domProbe,
       domScrollPasses,
       domCapturedCount,
+      companyVisitedCount,
       domScrollTrace,
       stopReason,
       usedFallback
