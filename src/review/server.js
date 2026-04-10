@@ -1073,6 +1073,7 @@ function isBrowserCaptureSource(source) {
     source?.type === "google_search" ||
     source?.type === "indeed_search" ||
     source?.type === "ziprecruiter_search" ||
+    source?.type === "levelsfyi_search" ||
     source?.type === "yc_jobs" ||
     source?.type === "remoteok_search"
   );

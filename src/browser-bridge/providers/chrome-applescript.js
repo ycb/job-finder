@@ -11,6 +11,12 @@ import {
   INDEED_EXPECTED_COUNT_SELECTORS,
   writeIndeedCaptureFile
 } from "../../sources/indeed-jobs.js";
+import {
+  buildLevelsFyiApiUrlFromSearchUrl,
+  parseLevelsFyiSearchHtml,
+  parseLevelsFyiSearchPayload,
+  writeLevelsFyiCaptureFile
+} from "../../sources/levelsfyi-jobs.js";
 import { sanitizeLinkedInJob } from "../../sources/linkedin-cleanup.js";
 import { extractLinkedInStructuredPageFromResponseBody } from "../../sources/linkedin-structured-payload.js";
 import { writeLinkedInCaptureFile } from "../../sources/linkedin-saved-search.js";
@@ -4511,6 +4517,42 @@ function parseBridgeJsonPayload(raw) {
   }
 }
 
+function buildLevelsFyiApiFetchScript(apiUrl) {
+  return `
+(() => {
+  try {
+    const xhr = new XMLHttpRequest();
+    xhr.open("GET", ${JSON.stringify(String(apiUrl || ""))}, false);
+    xhr.setRequestHeader("accept", "application/json");
+    xhr.send(null);
+    return JSON.stringify({
+      status: xhr.status,
+      responseText: xhr.responseText || "",
+      responseUrl: xhr.responseURL || ""
+    });
+  } catch (error) {
+    return JSON.stringify({
+      status: 0,
+      error: String(error || "unknown")
+    });
+  }
+})()
+  `.trim();
+}
+
+function buildLevelsFyiNextDataScript() {
+  return `
+(() => {
+  const el = document.getElementById("__NEXT_DATA__");
+  return JSON.stringify({
+    href: String(location.href || ""),
+    title: String(document.title || ""),
+    nextData: el ? String(el.textContent || "") : "",
+  });
+})()
+  `.trim();
+}
+
 function runDetailEnrichment(source, jobs, options = {}) {
   const sourceType = String(source?.type || "").trim().toLowerCase();
   const sourceDefaultMaxJobs = sourceType === "linkedin_capture_file" ? 80 : 25;
@@ -4599,6 +4641,138 @@ function parseMinSalaryFromSource(source) {
   }
 
   return null;
+}
+
+function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
+  const settleMs = Number(options.settleMs) > 0 ? Number(options.settleMs) : 2200;
+  const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 20_000;
+  const maxPages = Number(options.maxPages) > 0 ? Number(options.maxPages) : 12;
+  const limitPerCompany = "25";
+  const limit = Number(options.limit) > 0 ? Math.min(200, Number(options.limit)) : 200;
+  const expectedStopBuffer = Number(options.expectedStopBuffer) > 0 ? Number(options.expectedStopBuffer) : 0;
+
+  navigateAutomationTab(searchUrl, "Refreshing Levels.fyi source...");
+  sleepSync(settleMs);
+
+  const collected = [];
+  const seen = new Set();
+  const offsets = [];
+  let expectedCount = null;
+  let stopReason = "maxPages";
+  let lastCount = 0;
+  let apiFailures = 0;
+  let usedFallback = false;
+
+  for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
+    const offset = pageIndex * limit;
+    offsets.push(offset);
+    const apiUrl = buildLevelsFyiApiUrlFromSearchUrl(searchUrl, {
+      offset: String(offset),
+      limit: String(limit),
+      limitPerCompany
+    });
+    let payloadWrapper = null;
+    try {
+      const raw = executeInAutomationWindowFront(
+        buildLevelsFyiApiFetchScript(apiUrl),
+        timeoutMs
+      );
+      payloadWrapper = parseBridgeJsonPayload(raw);
+    } catch (error) {
+      apiFailures += 1;
+      break;
+    }
+
+    if (!payloadWrapper || payloadWrapper.status < 200 || payloadWrapper.status >= 300) {
+      apiFailures += 1;
+      break;
+    }
+
+    const apiPayload = parseBridgeJsonPayload(payloadWrapper.responseText);
+    if (!apiPayload) {
+      apiFailures += 1;
+      break;
+    }
+
+    if (expectedCount === null) {
+      const parsedExpected = Number(apiPayload.totalMatchingJobs || apiPayload.total || null);
+      if (Number.isFinite(parsedExpected) && parsedExpected > 0) {
+        expectedCount = Math.round(parsedExpected);
+      }
+    }
+
+    const pageJobs = parseLevelsFyiSearchPayload(apiPayload, searchUrl);
+    if (!Array.isArray(pageJobs) || pageJobs.length === 0) {
+      stopReason = "emptyPage";
+      break;
+    }
+
+    for (const job of pageJobs) {
+      const key = String(job?.externalId || "").trim();
+      if (!key || seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      collected.push(job);
+    }
+
+    if (collected.length === lastCount) {
+      stopReason = "noGrowth";
+      break;
+    }
+    lastCount = collected.length;
+
+    if (
+      Number.isFinite(expectedCount) &&
+      expectedCount > 0 &&
+      collected.length + expectedStopBuffer >= expectedCount
+    ) {
+      stopReason = "expectedCount";
+      break;
+    }
+  }
+
+  if (collected.length === 0) {
+    const raw = executeInAutomationWindowFront(buildLevelsFyiNextDataScript(), timeoutMs);
+    const payload = parseBridgeJsonPayload(raw);
+    if (payload?.nextData) {
+      usedFallback = true;
+      const html = `<script id="__NEXT_DATA__" type="application/json">${payload.nextData}</script>`;
+      const fallbackJobs = parseLevelsFyiSearchHtml(html, searchUrl);
+      for (const job of Array.isArray(fallbackJobs) ? fallbackJobs : []) {
+        const key = String(job?.externalId || "").trim();
+        if (!key || seen.has(key)) {
+          continue;
+        }
+        seen.add(key);
+        collected.push(job);
+      }
+      try {
+        const parsed = JSON.parse(payload.nextData);
+        const total =
+          parsed?.props?.pageProps?.initialJobsData?.totalMatchingJobs ||
+          parsed?.props?.pageProps?.initialJobsData?.total ||
+          null;
+        if (Number.isFinite(Number(total)) && Number(total) > 0) {
+          expectedCount = Math.round(Number(total));
+        }
+      } catch {}
+    }
+  }
+
+  return {
+    pageUrl: searchUrl,
+    capturedAt: new Date().toISOString(),
+    expectedCount,
+    jobs: collected,
+    captureDiagnostics: {
+      offsets,
+      expectedCount,
+      apiFailures,
+      stopReason,
+      usedFallback
+    }
+  };
 }
 
 function applySearchFilterInferences(source, jobs) {
@@ -5410,6 +5584,43 @@ export function captureZipRecruiterSourceWithChromeAppleScript(
   };
 }
 
+export function captureLevelsFyiSourceWithChromeAppleScript(
+  source,
+  _snapshotPath,
+  options = {}
+) {
+  if (!source || source.type !== "levelsfyi_search") {
+    throw new Error("Chrome AppleScript capture requires a levelsfyi_search source.");
+  }
+
+  const startedAt = new Date().toISOString();
+  const payload = readLevelsFyiJobsFromChrome(source.searchUrl, {
+    ...options,
+    maxPages: Number(source.maxPages) > 0 ? Number(source.maxPages) : options.maxPages
+  });
+  const enrichedJobs = applySearchFilterInferences(source, payload.jobs);
+  const telemetry = buildCaptureTelemetry(source, payload, {
+    startedAt,
+    tabInfo: readAutomationTabInfo()
+  });
+
+  if (payload.captureDiagnostics) {
+    telemetry.captureDiagnostics = payload.captureDiagnostics;
+  }
+
+  return {
+    ...writeLevelsFyiCaptureFile(source, enrichedJobs, {
+      capturedAt: payload.capturedAt,
+      pageUrl: payload.pageUrl,
+      expectedCount: payload.expectedCount,
+      captureDiagnostics: payload.captureDiagnostics,
+      captureTelemetry: telemetry
+    }),
+    provider: "chrome_applescript",
+    status: "completed"
+  };
+}
+
 export function captureRemoteOkSourceWithChromeAppleScript(
   source,
   _snapshotPath,
@@ -5463,6 +5674,10 @@ export function captureSourceWithChromeAppleScript(source, snapshotPath, options
     return captureZipRecruiterSourceWithChromeAppleScript(source, snapshotPath, options);
   }
 
+  if (source?.type === "levelsfyi_search") {
+    return captureLevelsFyiSourceWithChromeAppleScript(source, snapshotPath, options);
+  }
+
   if (source?.type === "yc_jobs") {
     return captureYcSourceWithChromeAppleScript(source, snapshotPath, options);
   }
@@ -5472,6 +5687,6 @@ export function captureSourceWithChromeAppleScript(source, snapshotPath, options
   }
 
   throw new Error(
-    `Chrome AppleScript provider currently supports linkedin_capture_file, wellfound_search, ashby_search, google_search, indeed_search, ziprecruiter_search, yc_jobs, and remoteok_search. "${source?.name || "unknown"}" is ${source?.type || "unknown"}.`
+    `Chrome AppleScript provider currently supports linkedin_capture_file, wellfound_search, ashby_search, google_search, indeed_search, ziprecruiter_search, levelsfyi_search, yc_jobs, and remoteok_search. "${source?.name || "unknown"}" is ${source?.type || "unknown"}.`
   );
 }

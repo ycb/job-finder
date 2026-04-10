@@ -662,7 +662,7 @@ function extractCriteriaFromSearchUrl(searchUrl) {
   return criteria;
 }
 
-function buildLevelsFyiApiUrlFromSearchUrl(searchUrl, overrides = {}) {
+export function buildLevelsFyiApiUrlFromSearchUrl(searchUrl, overrides = {}) {
   const criteria = extractCriteriaFromSearchUrl(searchUrl);
   return buildLevelsFyiApiUrl(criteria, overrides);
 }
