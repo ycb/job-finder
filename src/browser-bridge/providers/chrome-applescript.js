@@ -4637,14 +4637,31 @@ function buildLevelsFyiDomProbeScript() {
   return `
 (() => {
   const anchors = Array.from(document.querySelectorAll('a[href*="/jobs/"]'));
+  const jobIdLinks = Array.from(document.querySelectorAll('a[href*="jobId="]'));
+  const viewJobNodes = Array.from(document.querySelectorAll("a,button")).filter((node) =>
+    /view job/i.test(String(node.textContent || ""))
+  );
+  const testIds = Array.from(document.querySelectorAll("[data-testid]"));
   const sample = anchors.slice(0, 3).map((anchor) => ({
     href: anchor.href,
     text: String(anchor.textContent || "").trim().slice(0, 80),
     html: String(anchor.outerHTML || "").slice(0, 200)
   }));
+  const viewJobSample = viewJobNodes.slice(0, 3).map((node) => ({
+    tag: node.tagName,
+    href: node.href || null,
+    text: String(node.textContent || "").trim().slice(0, 80),
+    html: String(node.outerHTML || "").slice(0, 200)
+  }));
+  const testIdSample = testIds.slice(0, 5).map((node) => node.getAttribute("data-testid"));
   return JSON.stringify({
     anchorCount: anchors.length,
-    sample
+    jobIdLinkCount: jobIdLinks.length,
+    viewJobCount: viewJobNodes.length,
+    testIdCount: testIds.length,
+    sample,
+    viewJobSample,
+    testIdSample
   });
 })()
   `.trim();
