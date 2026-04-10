@@ -333,6 +333,24 @@ test("parseLevelsFyiSearchPayload extracts jobs from the API response shape", ()
   assert.equal(jobs[0].description, "Lead the product surface.");
 });
 
+test("parseLevelsFyiSearchPayload decodes wrapped base64 payloads", () => {
+  const wrappedPayload = {
+    payload: Buffer.from(
+      JSON.stringify(buildLevelsApiPayload({ includeDetail: true, total: 1 })),
+      "utf8"
+    ).toString("base64")
+  };
+
+  const jobs = parseLevelsFyiSearchPayload(
+    wrappedPayload,
+    "https://www.levels.fyi/jobs/title/product-manager/location/san-francisco-bay-area?minBaseCompensation=200000&postedAfterTimeType=days&postedAfterValue=3&searchText=ai"
+  );
+
+  assert.equal(jobs.length, 2);
+  assert.equal(jobs[0].title, "Product Manager");
+  assert.equal(jobs[0].company, "Meta");
+});
+
 test("collectLevelsFyiJobsFromSearch writes a capture payload and respects maxJobs", () => {
   const { tempDir, capturePath } = createTempCapturePath("job-finder-levels-collect-");
   const source = {

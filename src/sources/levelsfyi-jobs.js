@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import zlib from "node:zlib";
 
 import { getFreshCachedJobs, writeSourceCapturePayload } from "./cache-policy.js";
 
@@ -460,10 +461,49 @@ export function buildLevelsFyiSearchUrl(criteria = {}) {
   return baseUrl.toString();
 }
 
+function decodeWrappedPayload(payload = {}) {
+  if (!payload || typeof payload.payload !== "string") {
+    return null;
+  }
+
+  const raw = payload.payload.trim();
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const buffer = Buffer.from(raw, "base64");
+    if (!buffer || buffer.length === 0) {
+      return null;
+    }
+
+    let decoded = buffer;
+    if (buffer[0] === 0x1f && buffer[1] === 0x8b) {
+      decoded = zlib.gunzipSync(buffer);
+    } else if (buffer[0] === 0x78) {
+      decoded = zlib.inflateSync(buffer);
+    }
+
+    const text = decoded.toString("utf8").trim();
+    if (!text) {
+      return null;
+    }
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
 function normalizeJobSearchPayload(payload = {}) {
   if (payload && Array.isArray(payload.results)) {
     return payload;
   }
+
+  const decoded = decodeWrappedPayload(payload);
+  if (decoded && Array.isArray(decoded.results)) {
+    return decoded;
+  }
+
   return null;
 }
 
