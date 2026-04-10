@@ -5058,6 +5058,7 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
 
     for (let pass = 0; pass < maxDomPasses; pass += 1) {
       domScrollPasses += 1;
+      let passNewJobs = 0;
       const companyRaw = executeInAutomationWindowFrontEncoded(
         buildLevelsFyiCompanyListScript(),
         timeoutMs
@@ -5094,14 +5095,7 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
           }
           domSeen.add(jobKey);
           collected.push(job);
-        }
-        if (domSeen.size === priorSize) {
-          noGrowth += 1;
-        } else {
-          noGrowth = 0;
-        }
-        if (noGrowth >= 2) {
-          break;
+          passNewJobs += 1;
         }
       }
 
@@ -5111,6 +5105,11 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
           jobCount: domSeen.size,
           sampleIds: Array.from(domSeen).slice(0, 3)
         });
+      }
+      if (passNewJobs === 0) {
+        noGrowth += 1;
+      } else {
+        noGrowth = 0;
       }
       if (noGrowth >= 2) {
         break;
