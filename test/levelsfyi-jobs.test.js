@@ -287,8 +287,18 @@ test("buildLevelsFyiApiUrl uses a stable API search query shape", () => {
 
   assert.equal(
     url,
-    "https://api.levels.fyi/v1/job/search?limitPerCompany=25&limit=200&offset=0&sortBy=relevance&searchText=ai&minBaseCompensation=200000&postedAfterTimeType=days&postedAfterValue=3&jobFamilySlugs%5B0%5D=product-manager&locationSlugs%5B0%5D=san-francisco-bay-area"
+    "https://api.levels.fyi/v1/job/search?limitPerCompany=25&limit=25&offset=0&sortBy=relevance&searchText=ai&minBaseCompensation=200000&postedAfterTimeType=days&postedAfterValue=3&jobFamilySlugs%5B0%5D=product-manager&locationSlugs%5B0%5D=san-francisco-bay-area"
   );
+});
+
+test("buildLevelsFyiApiUrl caps the API limit to the documented maximum", () => {
+  const url = buildLevelsFyiApiUrl({
+    title: "Product Manager",
+    location: "San Francisco, USA",
+    searchText: "ai"
+  });
+
+  assert.match(url, /limit=25(?:&|$)/);
 });
 
 test("parseLevelsFyiSearchHtml extracts canonical review targets and salary-rich metadata", () => {

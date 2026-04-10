@@ -533,7 +533,9 @@ function extractJobPostingData(pageProps = {}) {
 function buildApiSearchParams(criteria = {}, overrides = {}) {
   const params = new URLSearchParams();
   const limitPerCompany = normalizeText(overrides.limitPerCompany) || "25";
-  const limit = normalizeText(overrides.limit) || "200";
+  const rawLimit = normalizeText(overrides.limit) || "25";
+  const limitValue = Math.min(25, Number(rawLimit) || 25);
+  const limit = String(limitValue);
   const offset = normalizeText(overrides.offset) || "0";
   params.set("limitPerCompany", limitPerCompany);
   params.set("limit", limit);
@@ -770,7 +772,8 @@ export function collectLevelsFyiJobsFromSearch(source, options = {}) {
 
   const maxJobs =
     Number.isInteger(source.maxJobs) && source.maxJobs > 0 ? source.maxJobs : null;
-  const pageLimit = maxJobs && maxJobs < 200 ? String(maxJobs) : "200";
+  const pageLimitValue = Math.min(25, maxJobs && maxJobs > 0 ? maxJobs : 25);
+  const pageLimit = String(pageLimitValue);
   const limitPerCompany = "25";
 
   const dedupeByExternalId = (items) => {
