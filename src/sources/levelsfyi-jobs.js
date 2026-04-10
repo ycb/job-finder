@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 
-import { writeSourceCapturePayload } from "./cache-policy.js";
+import { getFreshCachedJobs, writeSourceCapturePayload } from "./cache-policy.js";
 
 const DEFAULT_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36";
