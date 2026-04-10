@@ -4656,7 +4656,24 @@ function buildLevelsFyiDomProbeScript() {
   const jobIdSample = jobIdLinks.slice(0, 3).map((node) => ({
     href: node.href || null,
     text: String(node.textContent || "").trim().slice(0, 80),
-    html: String(node.outerHTML || "").slice(0, 800)
+    html: String(node.outerHTML || "").slice(0, 800),
+    containerHtml: (() => {
+      const container =
+        node.closest('div[class*="company-jobs-preview-card"]') ||
+        node.closest('div[class*="company"]') ||
+        node.parentElement;
+      return container ? String(container.outerHTML || "").slice(0, 400) : null;
+    })(),
+    companyText: (() => {
+      const container =
+        node.closest('div[class*="company-jobs-preview-card"]') ||
+        node.closest('div[class*="company"]') ||
+        node.parentElement;
+      const companyNode = container
+        ? container.querySelector('[class*="companyName"],[class*="companyTitle"],[class*="company"]')
+        : null;
+      return companyNode ? String(companyNode.textContent || "").trim().slice(0, 80) : null;
+    })()
   }));
   const testIdSample = testIds.slice(0, 5).map((node) => node.getAttribute("data-testid"));
   return JSON.stringify({
