@@ -4653,6 +4653,11 @@ function buildLevelsFyiDomProbeScript() {
     text: String(node.textContent || "").trim().slice(0, 80),
     html: String(node.outerHTML || "").slice(0, 200)
   }));
+  const jobIdSample = jobIdLinks.slice(0, 3).map((node) => ({
+    href: node.href || null,
+    text: String(node.textContent || "").trim().slice(0, 80),
+    html: String(node.outerHTML || "").slice(0, 200)
+  }));
   const testIdSample = testIds.slice(0, 5).map((node) => node.getAttribute("data-testid"));
   return JSON.stringify({
     anchorCount: anchors.length,
@@ -4660,6 +4665,7 @@ function buildLevelsFyiDomProbeScript() {
     viewJobCount: viewJobNodes.length,
     testIdCount: testIds.length,
     sample,
+    jobIdSample,
     viewJobSample,
     testIdSample
   });
