@@ -4656,7 +4656,7 @@ function buildLevelsFyiDomProbeScript() {
   const jobIdSample = jobIdLinks.slice(0, 3).map((node) => ({
     href: node.href || null,
     text: String(node.textContent || "").trim().slice(0, 80),
-    html: String(node.outerHTML || "").slice(0, 200)
+    html: String(node.outerHTML || "").slice(0, 800)
   }));
   const testIdSample = testIds.slice(0, 5).map((node) => node.getAttribute("data-testid"));
   return JSON.stringify({
