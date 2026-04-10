@@ -4666,6 +4666,8 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
   let lastCount = 0;
   let apiFailures = 0;
   let usedFallback = false;
+  let apiSample = null;
+  let apiParsedKeys = null;
 
   for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
     const offset = pageIndex * limit;
@@ -4694,10 +4696,19 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
       break;
     }
 
+    if (apiSample === null) {
+      apiSample =
+        typeof payloadWrapper.text === "string"
+          ? payloadWrapper.text.slice(0, 400)
+          : null;
+    }
     const apiPayload = parseBridgeJsonPayload(payloadWrapper.text);
     if (!apiPayload) {
       apiFailures += 1;
       break;
+    }
+    if (apiParsedKeys === null && apiPayload && typeof apiPayload === "object") {
+      apiParsedKeys = Object.keys(apiPayload).slice(0, 8);
     }
 
     if (expectedCount === null) {
@@ -4781,6 +4792,8 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
       expectedCount,
       apiFailures,
       apiFetchMode: "navigate",
+      apiSample,
+      apiParsedKeys,
       stopReason,
       usedFallback
     }
