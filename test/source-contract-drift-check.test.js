@@ -61,7 +61,7 @@ test("evaluateSourceContractDrift classifies low coverage as error and stale-onl
       version: "test",
       contracts: [
         buildContract("indeed_search", {
-          lastVerified: "2026-03-07",
+          lastVerified: "2026-04-06",
           requiredFields: ["title", "salaryText", "location"]
         }),
         buildContract("ziprecruiter_search", {
@@ -73,7 +73,7 @@ test("evaluateSourceContractDrift classifies low coverage as error and stale-onl
 
     writeJson(indeedCapturePath, {
       sourceId: "indeed-main",
-      capturedAt: "2026-03-07T00:00:00.000Z",
+      capturedAt: "2026-04-06T00:00:00.000Z",
       jobs: [
         { title: "AI PM", salaryText: "", location: "San Francisco, CA" },
         { title: "Senior PM", salaryText: "unknown", location: "San Jose, CA" }
@@ -82,7 +82,7 @@ test("evaluateSourceContractDrift classifies low coverage as error and stale-onl
 
     writeJson(zipCapturePath, {
       sourceId: "zip-main",
-      capturedAt: "2026-03-07T00:00:00.000Z",
+      capturedAt: "2026-04-06T00:00:00.000Z",
       jobs: [{ title: "PM", company: "ZipCo", location: "Remote" }]
     });
 
@@ -135,7 +135,7 @@ test("evaluateSourceContractDrift reports missing contracts as errors", () => {
 
     writeJson(capturePath, {
       sourceId: "google-main",
-      capturedAt: "2026-03-07T00:00:00.000Z",
+      capturedAt: "2026-04-06T00:00:00.000Z",
       jobs: [{ title: "PM", company: "ACME", location: "Remote", salaryText: "$200k" }]
     });
 
@@ -173,14 +173,14 @@ test("evaluateSourceContractDrift emits null coverage for empty captures", () =>
       contracts: [
         buildContract("builtin_search", {
           requiredFields: ["title", "company", "location"],
-          lastVerified: "2026-03-07"
+          lastVerified: "2026-04-06"
         })
       ]
     });
 
     writeJson(capturePath, {
       sourceId: "builtin-main",
-      capturedAt: "2026-03-07T00:00:00.000Z",
+      capturedAt: "2026-04-06T00:00:00.000Z",
       jobs: []
     });
 
@@ -219,7 +219,7 @@ test("evaluateSourceContractDrift applies rolling coverage gate with configurabl
       contracts: [
         buildContract("indeed_search", {
           requiredFields: ["salaryText"],
-          lastVerified: "2026-03-07"
+          lastVerified: "2026-04-06"
         })
       ]
     });
@@ -314,7 +314,7 @@ test("evaluateSourceContractDrift excludes stale history runs from rolling cover
       contracts: [
         buildContract("ziprecruiter_search", {
           requiredFields: ["postedAt"],
-          lastVerified: "2026-03-07"
+          lastVerified: "2026-04-06"
         })
       ]
     });
@@ -380,12 +380,12 @@ test("evaluateSourceContractDrift defaults to enabled sources only", () => {
     });
     writeJson(capturePathEnabled, {
       sourceId: "enabled-indeed",
-      capturedAt: "2026-03-07T00:00:00.000Z",
+      capturedAt: "2026-04-06T00:00:00.000Z",
       jobs: [{ title: "PM", company: "Acme", location: "Remote", salaryText: "$200k" }]
     });
     writeJson(capturePathDisabled, {
       sourceId: "disabled-google",
-      capturedAt: "2026-03-07T00:00:00.000Z",
+      capturedAt: "2026-04-06T00:00:00.000Z",
       jobs: [{ title: "PM", company: "Acme", location: "Remote", salaryText: "$200k" }]
     });
 

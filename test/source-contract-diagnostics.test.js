@@ -60,13 +60,13 @@ test("evaluateSourceContractDrift includes field-level coverage mismatch context
       contracts: [
         buildContract("indeed_search", {
           requiredFields: ["salaryText"],
-          lastVerified: "2026-03-07"
+          lastVerified: "2026-04-06"
         })
       ]
     });
     writeJson(capturePath, {
       sourceId: "indeed-main",
-      capturedAt: "2026-03-07T00:00:00.000Z",
+      capturedAt: "2026-04-06T00:00:00.000Z",
       jobs: [{ salaryText: "" }, { salaryText: "unknown" }]
     });
 
@@ -103,13 +103,13 @@ test("evaluateSourceContractDrift reports healthy captures with no mismatches", 
       contracts: [
         buildContract("indeed_search", {
           requiredFields: ["salaryText"],
-          lastVerified: "2026-03-07"
+          lastVerified: "2026-04-06"
         })
       ]
     });
     writeJson(capturePath, {
       sourceId: "indeed-main",
-      capturedAt: "2026-03-07T00:00:00.000Z",
+      capturedAt: "2026-04-06T00:00:00.000Z",
       jobs: [{ salaryText: "$250k" }, { salaryText: "$225k" }]
     });
 
@@ -149,7 +149,7 @@ test("runSourceContractDiagnostics persists latest diagnostics artifact", () => 
     });
     writeJson(capturePath, {
       sourceId: "indeed-main",
-      capturedAt: "2026-03-07T00:00:00.000Z",
+      capturedAt: "2026-04-06T00:00:00.000Z",
       jobs: [{ salaryText: "" }, { salaryText: "unknown" }]
     });
 

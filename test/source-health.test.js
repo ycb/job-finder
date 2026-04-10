@@ -30,7 +30,7 @@ test("recordSourceHealthRun writes and deduplicates entries by capturedAt", () =
 
   try {
     const first = recordSourceHealthRun("linkedin-main", {
-      capturedAt: "2026-03-07T20:00:00.000Z",
+      capturedAt: "2026-04-06T20:00:00.000Z",
       sourceType: "linkedin_capture_file",
       outcome: "accept",
       sampleSize: 30,
@@ -44,7 +44,7 @@ test("recordSourceHealthRun writes and deduplicates entries by capturedAt", () =
     });
 
     const second = recordSourceHealthRun("linkedin-main", {
-      capturedAt: "2026-03-07T20:00:00.000Z",
+      capturedAt: "2026-04-06T20:00:00.000Z",
       sourceType: "linkedin_capture_file",
       outcome: "quarantine",
       sampleSize: 2,
@@ -74,7 +74,7 @@ test("computeSourceHealthStatus marks reject outcomes as failing", () => {
 
   try {
     recordSourceHealthRun("indeed-main", {
-      capturedAt: "2026-03-07T20:00:00.000Z",
+      capturedAt: "2026-04-06T20:00:00.000Z",
       sourceType: "indeed_search",
       outcome: "reject",
       sampleSize: 0,
@@ -109,7 +109,7 @@ test("computeSourceHealthStatus detects volume anomaly as degraded", () => {
 
   try {
     recordSourceHealthRun("zip-main", {
-      capturedAt: "2026-03-07T18:00:00.000Z",
+      capturedAt: "2026-04-06T18:00:00.000Z",
       sourceType: "ziprecruiter_search",
       outcome: "accept",
       sampleSize: 90,
@@ -123,7 +123,7 @@ test("computeSourceHealthStatus detects volume anomaly as degraded", () => {
     });
 
     recordSourceHealthRun("zip-main", {
-      capturedAt: "2026-03-07T19:00:00.000Z",
+      capturedAt: "2026-04-06T19:00:00.000Z",
       sourceType: "ziprecruiter_search",
       outcome: "accept",
       sampleSize: 88,
@@ -137,7 +137,7 @@ test("computeSourceHealthStatus detects volume anomaly as degraded", () => {
     });
 
     recordSourceHealthRun("zip-main", {
-      capturedAt: "2026-03-07T20:00:00.000Z",
+      capturedAt: "2026-04-06T20:00:00.000Z",
       sourceType: "ziprecruiter_search",
       outcome: "accept",
       sampleSize: 4,
@@ -172,7 +172,7 @@ test("recordSourceHealthFromCaptureEvaluation maps evaluation metrics into histo
         type: "google_search"
       },
       {
-        capturedAt: "2026-03-07T20:00:00.000Z",
+        capturedAt: "2026-04-06T20:00:00.000Z",
         expectedCount: 40,
         jobs: [{ title: "Job A", company: "A", url: "https://example.com/a" }]
       },

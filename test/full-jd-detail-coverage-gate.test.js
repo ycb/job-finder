@@ -36,7 +36,7 @@ function buildContract(sourceType) {
   return {
     sourceType,
     contractVersion: "1.0.0",
-    lastVerified: "2026-03-08",
+    lastVerified: "2026-04-06",
     criteriaMapping: {},
     extraction: {
       requiredFields: ["title"],
@@ -71,7 +71,7 @@ test("evaluateSourceContractDrift computes detail-description coverage and fails
     });
     writeJson(capturePath, {
       sourceId: "indeed-main",
-      capturedAt: "2026-03-08T20:00:00.000Z",
+      capturedAt: "2026-04-06T20:00:00.000Z",
       jobs: [
         buildJob("AI Product Manager", "detail"),
         buildJob("Senior Product Manager", "detail"),
