@@ -271,7 +271,7 @@ test("buildLevelsFyiSearchUrl maps criteria to a direct Levels.fyi jobs URL", ()
 
   assert.equal(
     url,
-    "https://www.levels.fyi/jobs/title/product-manager/location/san-francisco-bay-area?searchText=ai&minBaseCompensation=200000&postedAfterTimeType=days&postedAfterValue=3&sortBy=relevance"
+    "https://www.levels.fyi/jobs/title/product-manager/location/san-francisco-bay-area?searchText=ai&locationSlug=united-states&minBaseCompensation=200000&postedAfterTimeType=days&postedAfterValue=3&sortBy=relevance"
   );
 });
 

@@ -50,6 +50,7 @@ As of 2026-03-06.
 - When proposing cross-source data contracts, include user-critical fields (`salary`, `location`) immediately with explicit placeholder semantics (for example `unknown`) instead of downgrading them out of the required set.
 - Do not include disabled sources in “current-state” quality analysis unless the user asks for projected analysis; label them as out-of-scope for the snapshot.
 - Sequence planning as parser-hardening first, then final schema/threshold commitments. Data-structure decisions should be based on measured parser output, not inferred capability.
+- Default to DOM-based retrieval when it is already proven for the source. If proposing an alternate approach (API/other), prove necessity with a targeted POC before refactoring the pipeline.
 
 ## Multi-Agent Phase Execution
 
@@ -182,6 +183,7 @@ As of 2026-03-06.
 - When a source exposes a canonical detail URL distinct from the search page, keep the canonical detail URL as the review target and treat search URLs as query builders only.
 - Do not stop at the adapter. A source is not integrated until the shared query builder, criteria-accountability output, generic collection dispatch, and source contract all agree on the same truth.
 - If a criterion is folded into generic text search, report it as supported-but-lossy in the contract/audit and mark it applied in runtime accountability. Do not call it unsupported just because the source lacks a dedicated filter chip.
+- When adding pagination for a new source, reuse existing pagination primitives (for example `capturePaginatedGenericBoardJobs` or the LinkedIn page loop) before inventing a source-specific loop. Only add new primitives when existing ones cannot represent the behavior.
 
 ## QA Handoff Discipline
 
@@ -487,3 +489,5 @@ As of 2026-03-06.
 - When validating AppleScript behavior, reproduce with the same multi-line `tell application "Google Chrome"` block syntax the provider uses. The one-liner `execute javascript ... in active tab of front window` has a known grammar ambiguity and can fail with `-2740`, which is not representative of production behavior.
 - YC companies pages include navigation/footer links under `/jobs/` (e.g., `/jobs/l/...`). Only treat numeric `/jobs/<id>` URLs as job cards to avoid importing non-job rows like "Product Manager Jobs".
 - When asserting a source needs a different extraction approach, prove it with a focused POC that meets the baseline (or clearly demonstrates why it cannot) before committing to a new strategy. No more unproven structural claims.
+- When a user provides explicit screenshots and error messages, treat that as a valid repro. Move directly into diagnosis and fix rather than asking for more context.
+- When QA infrastructure already exists (for example `qa/current` + `review:follow`), follow the existing process instead of creating new ExecPlans or alternate QA flows.
