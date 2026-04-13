@@ -4886,38 +4886,94 @@ export function buildLevelsFyiSetDatePostedValueScript(value) {
 export function buildLevelsFyiPaginationInfoScript() {
   return `
 (() => {
-  const buttons = Array.from(document.querySelectorAll("button,a,[role='button']"));
-  const nextButton = buttons.find((node) => {
-    const text = String(node.textContent || "").trim().toLowerCase();
-    const aria = String(node.getAttribute ? node.getAttribute("aria-label") || "" : "")
-      .trim()
-      .toLowerCase();
-    return text === "next" || aria === "next" || text.includes("next") || aria.includes("next");
+  const container =
+    document.querySelector('div[class*="jobs-pagination-module"]') ||
+    document.querySelector('[class*="paginationButton"]') ||
+    null;
+  const root = container || document;
+  const buttons = Array.from(root.querySelectorAll("button,a,[role='button']"));
+  const numericButtons = buttons
+    .map((node) => ({
+      node,
+      text: String(node.textContent || "").trim()
+    }))
+    .filter((entry) => /^\\d+$/.test(entry.text))
+    .map((entry) => ({
+      node: entry.node,
+      page: Number(entry.text)
+    }))
+    .filter((entry) => Number.isFinite(entry.page));
+  const pages = numericButtons.map((entry) => entry.page);
+  let currentPage = null;
+  for (const entry of numericButtons) {
+    const ariaCurrent = entry.node.getAttribute
+      ? entry.node.getAttribute("aria-current")
+      : null;
+    const className = String(entry.node.className || "");
+    if (
+      ariaCurrent === "page" ||
+      /active|selected|current/i.test(className) ||
+      /MuiButton-outlined/i.test(className)
+    ) {
+      currentPage = entry.page;
+      break;
+    }
+  }
+  if (!currentPage && pages.length) {
+    currentPage = pages[0];
+  }
+  const nextPage = currentPage && pages.includes(currentPage + 1) ? currentPage + 1 : null;
+  const arrowButton = buttons.find((node) => {
+    const svg = node.querySelector ? node.querySelector('[data-testid="KeyboardArrowRightIcon"]') : null;
+    return Boolean(svg);
   });
   return JSON.stringify({
-    nextExists: Boolean(nextButton),
-    nextLabel: nextButton ? String(nextButton.textContent || "").trim() : null
+    pages,
+    currentPage,
+    nextPage,
+    nextExists: Boolean(nextPage || arrowButton),
+    hasArrow: Boolean(arrowButton)
   });
 })()
   `.trim();
 }
 
-export function buildLevelsFyiPaginationClickNextScript() {
+export function buildLevelsFyiPaginationClickNextScript(nextPage) {
+  const nextLiteral = JSON.stringify(
+    Number.isFinite(Number(nextPage)) ? Number(nextPage) : null
+  );
   return `
 (() => {
-  const buttons = Array.from(document.querySelectorAll("button,a,[role='button']"));
-  const nextButton = buttons.find((node) => {
-    const text = String(node.textContent || "").trim().toLowerCase();
-    const aria = String(node.getAttribute ? node.getAttribute("aria-label") || "" : "")
-      .trim()
-      .toLowerCase();
-    return text === "next" || aria === "next" || text.includes("next") || aria.includes("next");
-  });
-  if (!nextButton) {
-    return JSON.stringify({ clicked: false, reason: "missing" });
+  const targetPage = ${nextLiteral};
+  if (!targetPage) {
+    return JSON.stringify({ clicked: false, reason: "missing_target" });
   }
-  nextButton.click();
-  return JSON.stringify({ clicked: true });
+  const container =
+    document.querySelector('div[class*="jobs-pagination-module"]') ||
+    document.querySelector('[class*="paginationButton"]') ||
+    null;
+  const root = container || document;
+  const buttons = Array.from(root.querySelectorAll("button,a,[role='button']"));
+  let target = buttons.find((node) => {
+    const text = String(node.textContent || "").trim();
+    return text === String(targetPage);
+  });
+  if (!target) {
+    target = buttons.find((node) => {
+      const svg = node.querySelector ? node.querySelector('[data-testid="KeyboardArrowRightIcon"]') : null;
+      return Boolean(svg);
+    });
+  }
+  if (!target) {
+    return JSON.stringify({ clicked: false, reason: "missing_button" });
+  }
+  if (typeof target.scrollIntoView === "function") {
+    try {
+      target.scrollIntoView({ block: "center" });
+    } catch {}
+  }
+  target.click();
+  return JSON.stringify({ clicked: true, page: targetPage || null });
 })()
   `.trim();
 }
@@ -4927,7 +4983,11 @@ export function buildLevelsFyiPaginationWaitScript(previousJobId) {
   return `
 (() => {
   const previous = ${prevLiteral};
-  const link = document.querySelector('a[href*="jobId="]');
+  const root =
+    document.querySelector('div[class*="companiesListContainer"]') ||
+    document.querySelector('div[class*="companiesList"]') ||
+    document;
+  const link = root.querySelector('a[href*="jobId="]');
   const href = link ? String(link.getAttribute("href") || "") : "";
   const match = href.match(/jobId=([^&]+)/);
   const id = match ? match[1] : null;
@@ -5947,89 +6007,96 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
     }
   }
 
-  if (
-    domTotals?.totalJobs &&
-    domTotals.totalJobs > 0 &&
-    collected.length > 0 &&
-    collected.length < domTotals.totalJobs
-  ) {
+  const runDomPagination = () => {
+    if (!domTotals?.totalJobs || domTotals.totalJobs <= 0) {
+      return;
+    }
+    if (collected.length === 0 || collected.length >= domTotals.totalJobs) {
+      return;
+    }
+    navigateAutomationTab(searchUrl, "Refreshing Levels.fyi source...");
+    sleepSync(settleMs);
     const paginationInfoRaw = executeInAutomationWindowFrontEncoded(
       buildLevelsFyiPaginationInfoScript(),
       timeoutMs
     );
     const paginationInfo = parseBridgeJsonPayload(paginationInfoRaw);
-    if (shouldPaginateLevels(paginationInfo)) {
-      let lastFirstId = null;
-      const paginationResult = capturePaginatedJobsWithNavigator({
-        maxPages,
-        readPage: () => {
-          const raw = executeInAutomationWindowFrontEncoded(
-            buildLevelsFyiDomCaptureScript(),
-            timeoutMs
-          );
-          const payload = parseBridgeJsonPayload(raw);
-          const jobs = Array.isArray(payload?.jobs) ? payload.jobs : [];
-          const firstId = jobs[0]?.externalId;
-          if (firstId) {
-            lastFirstId = String(firstId);
-          }
-          return {
-            jobs,
-            expectedCount: domTotals?.totalJobs || expectedCount || null
-          };
-        },
-        navigatePage: () => {
-          const infoRaw = executeInAutomationWindowFrontEncoded(
-            buildLevelsFyiPaginationInfoScript(),
-            timeoutMs
-          );
-          const info = parseBridgeJsonPayload(infoRaw);
-          if (!shouldPaginateLevels(info)) {
-            return false;
-          }
-          const clickRaw = executeInAutomationWindowFrontEncoded(
-            buildLevelsFyiPaginationClickNextScript(),
-            timeoutMs
-          );
-          const clickPayload = parseBridgeJsonPayload(clickRaw);
-          if (!clickPayload?.clicked) {
-            return false;
-          }
-          const waitAttempts = Number(options.pageWaitAttempts) > 0
-            ? Number(options.pageWaitAttempts)
-            : 8;
-          const waitDelayMs = Number(options.pageWaitDelayMs) > 0
-            ? Number(options.pageWaitDelayMs)
-            : 900;
-          for (let attempt = 0; attempt < waitAttempts; attempt += 1) {
-            const waitRaw = executeInAutomationWindowFrontEncoded(
-              buildLevelsFyiPaginationWaitScript(lastFirstId),
-              timeoutMs
-            );
-            const waitPayload = parseBridgeJsonPayload(waitRaw);
-            if (waitPayload?.ready) {
-              if (waitPayload?.id) {
-                lastFirstId = String(waitPayload.id);
-              }
-              return true;
-            }
-            sleepSync(waitDelayMs);
-          }
-          return true;
-        }
-      });
-
-      if (paginationResult?.jobs?.length) {
-        const merged = mergeLevelsFyiJobsById(collected, paginationResult.jobs);
-        if (merged.length > collected.length) {
-          collected.length = 0;
-          collected.push(...merged);
-        }
-        domPaginationUsed = true;
-        domPaginationPages = paginationResult.pagesVisited || null;
-      }
+    if (!shouldPaginateLevels(paginationInfo)) {
+      return;
     }
-  }
+
+    let lastFirstId = null;
+    const paginationResult = capturePaginatedJobsWithNavigator({
+      maxPages,
+      readPage: () => {
+        const raw = executeInAutomationWindowFrontEncoded(
+          buildLevelsFyiDomCaptureScript(),
+          timeoutMs
+        );
+        const payload = parseBridgeJsonPayload(raw);
+        const jobs = Array.isArray(payload?.jobs) ? payload.jobs : [];
+        const firstId = jobs[0]?.externalId;
+        if (firstId) {
+          lastFirstId = String(firstId);
+        }
+        return {
+          jobs,
+          expectedCount: domTotals?.totalJobs || expectedCount || null
+        };
+      },
+      navigatePage: () => {
+        const infoRaw = executeInAutomationWindowFrontEncoded(
+          buildLevelsFyiPaginationInfoScript(),
+          timeoutMs
+        );
+        const info = parseBridgeJsonPayload(infoRaw);
+        if (!shouldPaginateLevels(info)) {
+          return false;
+        }
+        const clickRaw = executeInAutomationWindowFrontEncoded(
+          buildLevelsFyiPaginationClickNextScript(info?.nextPage),
+          timeoutMs
+        );
+        const clickPayload = parseBridgeJsonPayload(clickRaw);
+        if (!clickPayload?.clicked) {
+          return false;
+        }
+        const waitAttempts = Number(options.pageWaitAttempts) > 0
+          ? Number(options.pageWaitAttempts)
+          : 8;
+        const waitDelayMs = Number(options.pageWaitDelayMs) > 0
+          ? Number(options.pageWaitDelayMs)
+          : 900;
+        for (let attempt = 0; attempt < waitAttempts; attempt += 1) {
+          const waitRaw = executeInAutomationWindowFrontEncoded(
+            buildLevelsFyiPaginationWaitScript(lastFirstId),
+            timeoutMs
+          );
+          const waitPayload = parseBridgeJsonPayload(waitRaw);
+          if (waitPayload?.ready) {
+            if (waitPayload?.id) {
+              lastFirstId = String(waitPayload.id);
+            }
+            return true;
+          }
+          sleepSync(waitDelayMs);
+        }
+        return true;
+      }
+    });
+
+    if (paginationResult?.jobs?.length) {
+      const merged = mergeLevelsFyiJobsById(collected, paginationResult.jobs);
+      if (merged.length > collected.length) {
+        collected.length = 0;
+        collected.push(...merged);
+      }
+      domPaginationUsed = true;
+      domPaginationPages = paginationResult.pagesVisited || null;
+    }
+  };
+
+  runDomPagination();
 
   if (collected.length === 0) {
     const domSeen = new Set();
@@ -6189,6 +6256,10 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
         usedFallback = true;
       }
     }
+  }
+
+  if (!domPaginationUsed) {
+    runDomPagination();
   }
 
   {

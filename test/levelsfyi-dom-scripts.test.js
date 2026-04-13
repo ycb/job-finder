@@ -337,18 +337,25 @@ test("Levels search input helper respects existing value", () => {
   assert.equal(shouldApplyLevelsFyiSearchText("ml", probe), true);
 });
 
-test("Levels pagination scripts detect next and wait for job id change", () => {
+test("Levels pagination scripts detect pages and click next page number", () => {
   const html = `
     <div class="jobs">
       <a href="/jobs?jobId=1"><div class="companyJobTitle">Job 1</div></a>
     </div>
-    <div class="pagination">
-      <button aria-label="Next">Next</button>
+    <div class="jobs-pagination-module-scss-module__LWhr7G__paginationButton">
+      <div>
+        <button class="MuiButton-outlined">1</button>
+        <button>2</button>
+        <button>3</button>
+        <button><svg></svg></button>
+      </div>
     </div>
   `;
   const { context, document } = createDomContext(html);
-  const nextButton = document.querySelector("[aria-label='Next']");
-  nextButton.addEventListener("click", () => {
+  const pageTwo = Array.from(document.querySelectorAll("button")).find((node) =>
+    String(node.textContent || "").trim() === "2"
+  );
+  pageTwo.addEventListener("click", () => {
     const link = document.createElement("a");
     link.href = "/jobs?jobId=2";
     link.innerHTML = "<div class='companyJobTitle'>Job 2</div>";
@@ -356,15 +363,35 @@ test("Levels pagination scripts detect next and wait for job id change", () => {
   });
 
   const info = JSON.parse(vm.runInContext(buildLevelsFyiPaginationInfoScript(), context));
-  assert.equal(info.nextExists, true);
+  assert.deepEqual(info.pages, [1, 2, 3]);
+  assert.equal(info.currentPage, 1);
+  assert.equal(info.nextPage, 2);
 
-  const clickPayload = JSON.parse(vm.runInContext(buildLevelsFyiPaginationClickNextScript(), context));
+  const clickPayload = JSON.parse(
+    vm.runInContext(buildLevelsFyiPaginationClickNextScript(info.nextPage), context)
+  );
   assert.equal(clickPayload.clicked, true);
 
   const waitPayload = JSON.parse(
     vm.runInContext(buildLevelsFyiPaginationWaitScript("1"), context)
   );
   assert.equal(waitPayload.ready, true);
+});
+
+test("Levels pagination wait uses companies list container", () => {
+  const html = `
+    <div class="jobs-directory-body-module-scss-module__XmM6sq__companiesListContainer">
+      <a href="/jobs?jobId=111"><div class="companyJobTitle">List Job</div></a>
+    </div>
+    <div class="jobs-directory-body-module-scss-module__XmM6sq__jobDetailContainer">
+      <a href="/jobs?jobId=999"><div class="companyJobTitle">Detail Job</div></a>
+    </div>
+  `;
+  const { context } = createDomContext(html);
+  const waitPayload = JSON.parse(
+    vm.runInContext(buildLevelsFyiPaginationWaitScript("111"), context)
+  );
+  assert.equal(waitPayload.ready, false);
 });
 
 test("capturePaginatedJobsWithNavigator invokes navigation before page 2", () => {
