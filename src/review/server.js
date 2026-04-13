@@ -1935,7 +1935,7 @@ export async function runAllCapturesWithOptions(options = {}, overrides = {}) {
   };
 }
 
-function buildDashboardData(limit = 200) {
+export function buildDashboardData(limit = 200) {
   const activeProfile = loadActiveProfile();
   const profile = activeProfile.profile;
   const searchCriteria = loadSearchCriteria();
@@ -3925,6 +3925,10 @@ export function renderDashboardPage(dashboard, options = {}) {
           .replaceAll(">", "&gt;")
           .replaceAll('"', "&quot;")
           .replaceAll("'", "&#39;");
+      }
+
+      function hasCountValue(value) {
+        return value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
       }
 
       function filterBySource(jobs) {

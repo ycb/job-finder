@@ -105,6 +105,19 @@ function normalizeLocationSlug(value) {
   return LOCATION_SLUG_ALIASES[slug] || slug;
 }
 
+function resolveLocationSlugParam(criteria = {}) {
+  const explicit = normalizeText(criteria.locationSlug);
+  if (explicit) {
+    return slugifyPathSegment(explicit);
+  }
+
+  const location = normalizeText(criteria.location);
+  if (!location) {
+    return "";
+  }
+  return "united-states";
+}
+
 function toAbsoluteUrl(inputUrl, baseUrl = "https://www.levels.fyi") {
   const normalized = String(inputUrl || "").trim();
   if (!normalized) {
@@ -432,6 +445,11 @@ export function buildLevelsFyiSearchUrl(criteria = {}) {
   const searchText = normalizeSearchText(criteria);
   if (searchText) {
     baseUrl.searchParams.set("searchText", searchText);
+  }
+
+  const locationSlug = resolveLocationSlugParam(criteria);
+  if (locationSlug) {
+    baseUrl.searchParams.set("locationSlug", locationSlug);
   }
 
   const minBaseCompensation = Number(criteria.minBaseCompensation ?? criteria.minSalary);

@@ -489,3 +489,5 @@ As of 2026-03-06.
 - When validating AppleScript behavior, reproduce with the same multi-line `tell application "Google Chrome"` block syntax the provider uses. The one-liner `execute javascript ... in active tab of front window` has a known grammar ambiguity and can fail with `-2740`, which is not representative of production behavior.
 - YC companies pages include navigation/footer links under `/jobs/` (e.g., `/jobs/l/...`). Only treat numeric `/jobs/<id>` URLs as job cards to avoid importing non-job rows like "Product Manager Jobs".
 - When asserting a source needs a different extraction approach, prove it with a focused POC that meets the baseline (or clearly demonstrates why it cannot) before committing to a new strategy. No more unproven structural claims.
+- When a user provides explicit screenshots and error messages, treat that as a valid repro. Move directly into diagnosis and fix rather than asking for more context.
+- When QA infrastructure already exists (for example `qa/current` + `review:follow`), follow the existing process instead of creating new ExecPlans or alternate QA flows.
