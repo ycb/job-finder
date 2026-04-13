@@ -2,6 +2,8 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import zlib from "node:zlib";
+import LZString from "lz-string";
 
 import { writeAshbyCaptureFile } from "../../sources/ashby-jobs.js";
 import { writeGoogleCaptureFile } from "../../sources/google-jobs.js";
@@ -3164,13 +3166,7 @@ export function buildZipRecruiterPageUrl(urlText, pageNumber) {
   }
 }
 
-function capturePaginatedGenericBoardJobs({
-  searchUrl,
-  extractionScript,
-  maxPages,
-  pageUrlForIndex,
-  options = {}
-}) {
+export function capturePaginatedJobsWithNavigator({ maxPages, readPage, navigatePage }) {
   const resolvedMaxPages = Number(maxPages);
   const pages = Number.isInteger(resolvedMaxPages) && resolvedMaxPages > 0
     ? resolvedMaxPages
@@ -3179,11 +3175,18 @@ function capturePaginatedGenericBoardJobs({
   const collected = [];
   let lastPayload = null;
   let expectedCount = null;
+  let pagesVisited = 0;
 
   for (let index = 0; index < pages; index += 1) {
-    const pageUrl = pageUrlForIndex(index);
-    const payload = readGenericBoardJobsFromChrome(pageUrl, extractionScript, options);
+    if (index > 0 && typeof navigatePage === "function") {
+      const navigated = navigatePage(index);
+      if (navigated === false) {
+        break;
+      }
+    }
+    const payload = typeof readPage === "function" ? readPage(index) : null;
     lastPayload = payload;
+    pagesVisited += 1;
     const payloadExpectedCount = Number(payload?.expectedCount);
     if (Number.isFinite(payloadExpectedCount) && payloadExpectedCount > 0) {
       const parsedExpected = Math.round(payloadExpectedCount);
@@ -3211,12 +3214,34 @@ function capturePaginatedGenericBoardJobs({
     }
   }
 
-  if (collected.length > 0 || lastPayload) {
+  return { jobs: collected, expectedCount, lastPayload, pagesVisited };
+}
+
+function capturePaginatedGenericBoardJobs({
+  searchUrl,
+  extractionScript,
+  maxPages,
+  pageUrlForIndex,
+  options = {}
+}) {
+  const resolvedMaxPages = Number(maxPages);
+  const pages = Number.isInteger(resolvedMaxPages) && resolvedMaxPages > 0
+    ? resolvedMaxPages
+    : 1;
+  const result = capturePaginatedJobsWithNavigator({
+    maxPages: pages,
+    readPage: (index) => {
+      const pageUrl = pageUrlForIndex(index);
+      return readGenericBoardJobsFromChrome(pageUrl, extractionScript, options);
+    }
+  });
+
+  if (result.jobs.length > 0 || result.lastPayload) {
     return {
       pageUrl: searchUrl,
       capturedAt: new Date().toISOString(),
-      jobs: collected,
-      expectedCount
+      jobs: result.jobs,
+      expectedCount: result.expectedCount
     };
   }
 
@@ -4620,6 +4645,298 @@ function buildLevelsFyiApiFetchScript(apiUrl) {
   `.trim();
 }
 
+export function buildLevelsFyiCookieDismissScript() {
+  return `
+(() => {
+  const buttons = Array.from(document.querySelectorAll("button"));
+  const candidates = [
+    "accept all",
+    "accept",
+    "agree",
+    "close"
+  ];
+  const target = buttons.find((button) => {
+    const text = String(button.textContent || "").trim().toLowerCase();
+    return candidates.some((label) => text === label || text.includes(label));
+  });
+  let clicked = false;
+  let bannerRemoved = false;
+  if (target) {
+    target.click();
+    clicked = true;
+    const dialog = target.closest('[role="dialog"]');
+    if (dialog && dialog.style) {
+      dialog.style.display = "none";
+      bannerRemoved = true;
+    }
+  }
+  const cookieNodes = Array.from(
+    document.querySelectorAll(
+      '[class*="cky"],[id*="cookie"],[class*="cookie"],[id*="onetrust"],[class*="onetrust"],[id*="ot-"],[class*="ot-"]'
+    )
+  );
+  for (const node of cookieNodes) {
+    if (node && node.style) {
+      node.style.display = "none";
+      bannerRemoved = true;
+    }
+  }
+  return JSON.stringify({
+    clicked,
+    label: target ? String(target.textContent || "").trim() : null,
+    bannerRemoved
+  });
+})()
+  `.trim();
+}
+
+function buildLevelsFyiSearchTextApplyScript(searchText) {
+  const textLiteral = JSON.stringify(String(searchText || ""));
+  return `
+(() => {
+  const searchText = ${textLiteral};
+  if (!searchText) {
+    return JSON.stringify({ applied: false, reason: "empty" });
+  }
+  const input = Array.from(document.querySelectorAll("input")).find((node) => {
+    const placeholder = String(node.placeholder || "").toLowerCase();
+    return placeholder.includes("search");
+  });
+  if (!input) {
+    return JSON.stringify({ applied: false, reason: "missing_input" });
+  }
+  input.focus();
+  input.value = searchText;
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+  input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "Enter" }));
+
+  const searchButton = Array.from(document.querySelectorAll("button")).find((button) => {
+    const text = String(button.textContent || "").trim().toLowerCase();
+    return text === "search";
+  });
+  if (searchButton) {
+    searchButton.click();
+  }
+  return JSON.stringify({ applied: true, buttonClicked: Boolean(searchButton) });
+})()
+  `.trim();
+}
+
+function buildLevelsFyiOpenFilterScript(labelText) {
+  const labelLiteral = JSON.stringify(String(labelText || ""));
+  return `
+(() => {
+  const label = ${labelLiteral}.toLowerCase();
+  if (!label) {
+    return JSON.stringify({ clicked: false, reason: "empty" });
+  }
+  const buttons = Array.from(document.querySelectorAll("button,[role='button']"));
+  const target = buttons.find((button) => {
+    const text = String(button.textContent || "").trim().toLowerCase();
+    return text === label || text.includes(label);
+  });
+  if (!target) {
+    return JSON.stringify({ clicked: false, reason: "missing" });
+  }
+  target.click();
+  return JSON.stringify({ clicked: true, label: String(target.textContent || "").trim() });
+})()
+  `.trim();
+}
+
+export function buildLevelsFyiSelectFilterOptionScript(optionText) {
+  const optionLiteral = JSON.stringify(String(optionText || ""));
+  return `
+(() => {
+  const label = ${optionLiteral}.toLowerCase();
+  if (!label) {
+    return JSON.stringify({ clicked: false, reason: "empty" });
+  }
+  const candidates = Array.from(document.querySelectorAll("button,li,div"))
+    .map((node) => {
+      const aria = String(node.getAttribute ? node.getAttribute("aria-label") || "" : "")
+        .trim()
+        .replace(/\\s+/g, " ");
+      const text = String(node.textContent || "").trim().replace(/\\s+/g, " ");
+      return {
+        node,
+        text,
+        aria
+      };
+    })
+    .filter((entry) => (entry.text || entry.aria) && (entry.text.length <= 40 || entry.aria.length <= 40));
+  const target = candidates.find((entry) => entry.text.toLowerCase() === label);
+  const ariaTarget = !target
+    ? candidates.find((entry) => entry.aria.toLowerCase() === label)
+    : null;
+  const choice = target || ariaTarget;
+  if (!choice) {
+    return JSON.stringify({ clicked: false, reason: "missing" });
+  }
+  choice.node.click();
+  return JSON.stringify({ clicked: true, label: choice.text || choice.aria });
+})()
+  `.trim();
+}
+
+export function buildLevelsFyiListFilterOptionsScript() {
+  return `
+(() => {
+  const options = Array.from(document.querySelectorAll("button,li,div"))
+    .map((node) => {
+      const text = String(node.textContent || "").trim().replace(/\\s+/g, " ");
+      const aria = String(node.getAttribute ? node.getAttribute("aria-label") || "" : "")
+        .trim()
+        .replace(/\\s+/g, " ");
+      return [text, aria].filter(Boolean);
+    })
+    .flat()
+    .filter((text) => text && text.length <= 40);
+  const unique = [];
+  const seen = new Set();
+  for (const text of options) {
+    if (seen.has(text)) continue;
+    seen.add(text);
+    unique.push(text);
+  }
+  return JSON.stringify({ options: unique.slice(0, 20) });
+})()
+  `.trim();
+}
+
+export function buildLevelsFyiSetMinCompScript(amount) {
+  const amountLiteral = JSON.stringify(String(amount || ""));
+  return `
+(() => {
+  const value = ${amountLiteral};
+  if (!value) {
+    return JSON.stringify({ applied: false, reason: "empty" });
+  }
+  const inputs = Array.from(document.querySelectorAll("input"))
+    .map((input) => {
+      const label = String(input.placeholder || input.getAttribute("aria-label") || "")
+        .toLowerCase();
+      return { input, label };
+    })
+    .filter((entry) => {
+      const type = String(entry.input.type || "").toLowerCase();
+      if (type !== "number" && type !== "text") {
+        return false;
+      }
+      return !entry.label.includes("search");
+    });
+  const targetEntry =
+    inputs.find((entry) => entry.label.includes("min") || entry.label.includes("minimum")) ||
+    inputs.find((entry) => entry.label.includes("$")) ||
+    inputs[0];
+  const target = targetEntry ? targetEntry.input : null;
+  if (!target) {
+    return JSON.stringify({ applied: false, reason: "missing_input" });
+  }
+  target.focus();
+  target.value = value;
+  target.dispatchEvent(new Event("input", { bubbles: true }));
+  target.dispatchEvent(new Event("change", { bubbles: true }));
+  target.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "Enter" }));
+  return JSON.stringify({ applied: true, value });
+})()
+  `.trim();
+}
+
+export function buildLevelsFyiSetDatePostedValueScript(value) {
+  const valueLiteral = JSON.stringify(String(value || ""));
+  return `
+(() => {
+  const value = ${valueLiteral};
+  if (!value) {
+    return JSON.stringify({ applied: false, reason: "empty" });
+  }
+  const inputs = Array.from(document.querySelectorAll("input"))
+    .map((input) => {
+      const label = String(input.placeholder || input.getAttribute("aria-label") || "")
+        .toLowerCase();
+      return { input, label };
+    })
+    .filter((entry) => {
+      const type = String(entry.input.type || "").toLowerCase();
+      if (type !== "number" && type !== "text") {
+        return false;
+      }
+      return !entry.label.includes("search");
+    });
+  const targetEntry =
+    inputs.find((entry) => /^\\d+$/.test(entry.label)) ||
+    inputs.find((entry) => entry.label.includes("day")) ||
+    inputs[0];
+  const target = targetEntry ? targetEntry.input : null;
+  if (!target) {
+    return JSON.stringify({ applied: false, reason: "missing_input" });
+  }
+  target.focus();
+  target.value = value;
+  target.dispatchEvent(new Event("input", { bubbles: true }));
+  target.dispatchEvent(new Event("change", { bubbles: true }));
+  target.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "Enter" }));
+  return JSON.stringify({ applied: true, value });
+})()
+  `.trim();
+}
+
+export function buildLevelsFyiPaginationInfoScript() {
+  return `
+(() => {
+  const buttons = Array.from(document.querySelectorAll("button,a,[role='button']"));
+  const nextButton = buttons.find((node) => {
+    const text = String(node.textContent || "").trim().toLowerCase();
+    const aria = String(node.getAttribute ? node.getAttribute("aria-label") || "" : "")
+      .trim()
+      .toLowerCase();
+    return text === "next" || aria === "next" || text.includes("next") || aria.includes("next");
+  });
+  return JSON.stringify({
+    nextExists: Boolean(nextButton),
+    nextLabel: nextButton ? String(nextButton.textContent || "").trim() : null
+  });
+})()
+  `.trim();
+}
+
+export function buildLevelsFyiPaginationClickNextScript() {
+  return `
+(() => {
+  const buttons = Array.from(document.querySelectorAll("button,a,[role='button']"));
+  const nextButton = buttons.find((node) => {
+    const text = String(node.textContent || "").trim().toLowerCase();
+    const aria = String(node.getAttribute ? node.getAttribute("aria-label") || "" : "")
+      .trim()
+      .toLowerCase();
+    return text === "next" || aria === "next" || text.includes("next") || aria.includes("next");
+  });
+  if (!nextButton) {
+    return JSON.stringify({ clicked: false, reason: "missing" });
+  }
+  nextButton.click();
+  return JSON.stringify({ clicked: true });
+})()
+  `.trim();
+}
+
+export function buildLevelsFyiPaginationWaitScript(previousJobId) {
+  const prevLiteral = JSON.stringify(String(previousJobId || ""));
+  return `
+(() => {
+  const previous = ${prevLiteral};
+  const link = document.querySelector('a[href*="jobId="]');
+  const href = link ? String(link.getAttribute("href") || "") : "";
+  const match = href.match(/jobId=([^&]+)/);
+  const id = match ? match[1] : null;
+  const ready = Boolean(id && id !== previous);
+  return JSON.stringify({ ready, id });
+})()
+  `.trim();
+}
+
 function buildLevelsFyiNextDataScript() {
   return `
 (() => {
@@ -4633,7 +4950,7 @@ function buildLevelsFyiNextDataScript() {
   `.trim();
 }
 
-function buildLevelsFyiDomProbeScript() {
+export function buildLevelsFyiDomProbeScript() {
   return `
 (() => {
   const anchors = Array.from(document.querySelectorAll('a[href*="/jobs/"]'));
@@ -4642,6 +4959,24 @@ function buildLevelsFyiDomProbeScript() {
     /view job/i.test(String(node.textContent || ""))
   );
   const testIds = Array.from(document.querySelectorAll("[data-testid]"));
+  const textInputs = Array.from(document.querySelectorAll("input"))
+    .filter((input) => {
+      const type = String(input.type || "").toLowerCase();
+      return !type || type === "text" || type === "search";
+    })
+    .map((input) => ({
+      type: input.type || null,
+      placeholder: input.placeholder || null,
+      value: input.value || null,
+      ariaLabel: input.getAttribute("aria-label")
+    }))
+    .slice(0, 6);
+  const filterButtons = Array.from(document.querySelectorAll("button"))
+    .map((button) => String(button.textContent || "").trim().replace(/\\s+/g, " "))
+    .filter((text) => text && text.length <= 40);
+  const filterButtonMatches = filterButtons.filter((text) =>
+    /salary|date|location|title|level|remote|comp/i.test(text)
+  );
   const sample = anchors.slice(0, 3).map((anchor) => ({
     href: anchor.href,
     text: String(anchor.textContent || "").trim().slice(0, 80),
@@ -4692,6 +5027,28 @@ function buildLevelsFyiDomProbeScript() {
   const companiesContainerHtml = companiesContainer
     ? String(companiesContainer.outerHTML || "").slice(0, 800)
     : null;
+  const companyRowNodes = companiesContainer
+    ? Array.from(companiesContainer.querySelectorAll("div")).filter((node) =>
+        node.querySelector('[class*="companyName"],[class*="companyTitle"]')
+      )
+    : [];
+  const companyNameNodes = companiesContainer
+    ? Array.from(
+        companiesContainer.querySelectorAll('[class*="companyName"],[class*="companyTitle"],h2')
+      )
+    : [];
+  const companyRowSample = companyRowNodes.slice(0, 3).map((node) => {
+    const companyNode = node.querySelector('[class*="companyName"],[class*="companyTitle"]');
+    return {
+      text: companyNode ? String(companyNode.textContent || "").trim().slice(0, 80) : "",
+      html: String(node.outerHTML || "").slice(0, 400),
+      role: node.getAttribute ? node.getAttribute("role") : null,
+      testId: node.getAttribute ? node.getAttribute("data-testid") : null
+    };
+  });
+  const companyNameSample = companyNameNodes.slice(0, 5).map((node) =>
+    String(node.textContent || "").trim().slice(0, 80)
+  );
 
   return JSON.stringify({
     anchorCount: anchors.length,
@@ -4702,17 +5059,28 @@ function buildLevelsFyiDomProbeScript() {
     jobIdSample,
     viewJobSample,
     testIdSample,
+    textInputs,
+    filterButtons: filterButtons.slice(0, 12),
+    filterButtonMatches: filterButtonMatches.slice(0, 12),
     scrollContainers,
-    companiesContainerHtml
+    companiesContainerHtml,
+    companyRowSample,
+    companyNameCount: companyNameNodes.length,
+    companyNameSample
   });
 })()
   `.trim();
 }
 
-function buildLevelsFyiDomCaptureScript() {
+export function buildLevelsFyiDomCaptureScript() {
   return `
 (() => {
-  const anchors = Array.from(document.querySelectorAll('a[href*="jobId="]'));
+  const companiesContainer = document.querySelector('div[class*="companiesListContainer"]');
+  const scope =
+    companiesContainer && companiesContainer.querySelector('a[href*="jobId="]')
+      ? companiesContainer
+      : document;
+  const anchors = Array.from(scope.querySelectorAll('a[href*="jobId="]'));
   const jobs = anchors.map((anchor) => {
     const href = anchor.href || "";
     let jobId = null;
@@ -4767,80 +5135,250 @@ function buildLevelsFyiDomCaptureScript() {
   `.trim();
 }
 
-function buildLevelsFyiDomScrollScript() {
+export function buildLevelsFyiDomScrollScript() {
   return `
 (() => {
   const pickContainer = () => {
+    const findScrollableAncestor = (node) => {
+      let cursor = node;
+      while (cursor && cursor !== document.body) {
+        if (cursor.scrollHeight > cursor.clientHeight + 40) {
+          return cursor;
+        }
+        cursor = cursor.parentElement;
+      }
+      return null;
+    };
     const preferred = document.querySelector('div[class*="companiesListContainer"]');
     if (preferred) {
-      return preferred;
+    const preferredScrollable = preferred.scrollHeight > preferred.clientHeight + 40;
+    if (preferredScrollable) {
+      const innerCandidates = Array.from(preferred.querySelectorAll("div")).filter(
+        (el) => el.scrollHeight > el.clientHeight + 40
+      );
+      const inner = innerCandidates.length
+        ? innerCandidates.reduce((best, next) =>
+            next.scrollHeight > best.scrollHeight ? next : best
+          )
+        : null;
+      return {
+        el: inner || preferred,
+        withinCompaniesList: true,
+        via: "companiesList"
+      };
+    }
+  }
+    const jobAnchor = document.querySelector('a[href*="jobId="]');
+    if (jobAnchor) {
+      const ancestor = findScrollableAncestor(jobAnchor);
+      if (ancestor) {
+        return {
+          el: ancestor,
+          withinCompaniesList: false,
+          via: "jobLinkAncestor"
+        };
+      }
     }
     const candidates = Array.from(document.querySelectorAll("div"))
       .filter((el) => el.scrollHeight > el.clientHeight + 40);
     if (!candidates.length) {
-      return document.scrollingElement || document.documentElement || document.body;
+      return {
+        el: document.scrollingElement || document.documentElement || document.body,
+        withinCompaniesList: false,
+        via: "document"
+      };
     }
-    return candidates.reduce((best, next) =>
+    const best = candidates.reduce((best, next) =>
       next.scrollHeight > best.scrollHeight ? next : best
     );
+    return { el: best, withinCompaniesList: false, via: "fallback" };
   };
-  const el = pickContainer();
+  const picked = pickContainer();
+  const el = picked ? picked.el : null;
   const prev = el ? el.scrollTop : 0;
   const height = el ? el.scrollHeight : 0;
   const delta = Math.max(400, Math.round(window.innerHeight * 0.85));
   if (el) {
     el.scrollTop = Math.min(prev + delta, height);
+    try {
+      el.dispatchEvent(new Event("scroll", { bubbles: true }));
+      window.dispatchEvent(new Event("scroll"));
+    } catch {}
   }
   const next = el ? el.scrollTop : 0;
-  return JSON.stringify({ prev, next, height });
-})()
-  `.trim();
-}
-
-function buildLevelsFyiCompanyListScript() {
-  return `
-(() => {
-  const pickContainer = () => {
-    const preferred = document.querySelector('div[class*="companiesListContainer"]');
-    if (preferred) {
-      return preferred;
-    }
-    const candidates = Array.from(document.querySelectorAll("div"))
-      .filter((el) => el.scrollHeight > el.clientHeight + 40);
-    if (!candidates.length) {
-      return document.body;
-    }
-    return candidates.reduce((best, next) =>
-      next.scrollHeight > best.scrollHeight ? next : best
-    );
-  };
-  const container = pickContainer();
-  const nodes = Array.from(
-    container.querySelectorAll('a,button,[role="button"]')
-  );
-  const companies = nodes
-    .map((node, index) => {
-      const text = String(node.textContent || "").trim().replace(/\\s+/g, " ");
-      const href = node.href || null;
-      if (!text || text.length < 2) {
-        return null;
-      }
-      if (href && href.includes("jobId=")) {
-        return null;
-      }
-      return { index, text: text.slice(0, 120), href };
-    })
-    .filter(Boolean);
   return JSON.stringify({
-    count: companies.length,
-    companies: companies.slice(0, 200)
+    prev,
+    next,
+    height,
+    pickedClass: el ? String(el.className || "") : null,
+    pickedId: el ? String(el.id || "") : null
+    ,
+    pickedWithinCompaniesList: picked ? Boolean(picked.withinCompaniesList) : false,
+    pickedVia: picked ? String(picked.via || "") : ""
   });
 })()
   `.trim();
 }
 
-function buildLevelsFyiCompanyClickScript(index) {
-  const indexLiteral = JSON.stringify(Number(index));
+export function parseLevelsFyiDomTotalsFromHtml(rawHtml) {
+  const html = String(rawHtml || "");
+  if (!html) {
+    return { totalJobs: null, totalCompanies: null };
+  }
+  const sanitized = html.replace(/<!--.*?-->/g, " ").replace(/<[^>]+>/g, " ");
+  const jobsMatch = sanitized.match(/([\d,]+)\s+total\s+jobs/i);
+  const companiesMatch = sanitized.match(/([\d,]+)\s+companies\s+hiring/i);
+  const totalJobs = jobsMatch
+    ? Number.parseInt(jobsMatch[1].replace(/,/g, ""), 10)
+    : null;
+  const totalCompanies = companiesMatch
+    ? Number.parseInt(companiesMatch[1].replace(/,/g, ""), 10)
+    : null;
+
+  return {
+    totalJobs: Number.isFinite(totalJobs) ? totalJobs : null,
+    totalCompanies: Number.isFinite(totalCompanies) ? totalCompanies : null
+  };
+}
+
+export function isLevelsFyiSearchReady(probe) {
+  if (!probe || typeof probe !== "object") {
+    return false;
+  }
+  const matches = Array.isArray(probe.filterButtonMatches) ? probe.filterButtonMatches : [];
+  if (matches.some((text) => /total comp|date posted|location|title/i.test(String(text || "")))) {
+    return true;
+  }
+  const html = String(probe.companiesContainerHtml || "");
+  return /total\s+jobs/i.test(html);
+}
+
+export function getLevelsFyiSearchInputValue(probe) {
+  if (!probe || typeof probe !== "object") {
+    return null;
+  }
+  const inputs = Array.isArray(probe.textInputs) ? probe.textInputs : [];
+  const target = inputs.find((input) => {
+    const placeholder = String(input?.placeholder || "").toLowerCase();
+    return placeholder.includes("search");
+  });
+  const value = target ? String(target.value || "").trim() : "";
+  return value || null;
+}
+
+export function shouldApplyLevelsFyiSearchText(searchText, probe) {
+  const desired = String(searchText || "").trim();
+  if (!desired) {
+    return false;
+  }
+  const current = getLevelsFyiSearchInputValue(probe);
+  if (!current) {
+    return true;
+  }
+  return current.toLowerCase() !== desired.toLowerCase();
+}
+
+export function shouldPaginateLevels(info) {
+  return Boolean(info && info.nextExists);
+}
+
+export function decodeLevelsFyiApiPayload(rawPayload) {
+  const input =
+    typeof rawPayload === "string"
+      ? rawPayload
+      : rawPayload && typeof rawPayload.payload === "string"
+        ? rawPayload.payload
+        : "";
+  if (!input) {
+    return null;
+  }
+
+  const attemptDecode = (buffer, decoderLabel) => {
+    try {
+      const text = buffer.toString("utf8");
+      const parsed = JSON.parse(text);
+      return { payload: parsed, decoder: decoderLabel };
+    } catch {
+      return null;
+    }
+  };
+
+  const buffer = Buffer.from(input, "base64");
+  try {
+    const lzDecoded = LZString.decompressFromBase64(input);
+    if (lzDecoded) {
+      const parsed = JSON.parse(lzDecoded);
+      return { payload: parsed, decoder: "lz-string" };
+    }
+  } catch {}
+
+  const direct = attemptDecode(buffer, "node:base64");
+  if (direct) {
+    return direct;
+  }
+
+  const tryInflate = (fn, label) => {
+    try {
+      const out = fn(buffer);
+      const parsed = attemptDecode(out, label);
+      if (parsed) {
+        return parsed;
+      }
+    } catch {}
+    return null;
+  };
+
+  return (
+    tryInflate(zlib.gunzipSync, "node:gzip") ||
+    tryInflate(zlib.inflateSync, "node:deflate") ||
+    tryInflate(zlib.brotliDecompressSync, "node:brotli")
+  );
+}
+
+export function mergeLevelsFyiJobsById(baseJobs, incomingJobs) {
+  const merged = [];
+  const seen = new Set();
+  const pushJob = (job) => {
+    if (!job || typeof job !== "object") {
+      return;
+    }
+    const key = String(job.externalId || "").trim();
+    if (!key || seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    merged.push(job);
+  };
+
+  for (const job of Array.isArray(baseJobs) ? baseJobs : []) {
+    pushJob(job);
+  }
+  for (const job of Array.isArray(incomingJobs) ? incomingJobs : []) {
+    pushJob(job);
+  }
+  return merged;
+}
+
+export function nextLevelsFyiDomNoGrowthState(state, passNewJobs, scrollPayload) {
+  const current = state && typeof state === "object" ? state : { noGrowth: 0, stop: false };
+  const scrollStalled =
+    scrollPayload &&
+    Number.isFinite(Number(scrollPayload.prev)) &&
+    Number.isFinite(Number(scrollPayload.next)) &&
+    Number(scrollPayload.prev) === Number(scrollPayload.next);
+
+  if (passNewJobs > 0) {
+    return { noGrowth: 0, stop: false };
+  }
+  if (!scrollStalled) {
+    return { noGrowth: 0, stop: false };
+  }
+
+  const nextNoGrowth = Number(current.noGrowth || 0) + 1;
+  return { noGrowth: nextNoGrowth, stop: nextNoGrowth >= 2 };
+}
+
+export function buildLevelsFyiCompanyListScript() {
   return `
 (() => {
   const pickContainer = () => {
@@ -4858,16 +5396,154 @@ function buildLevelsFyiCompanyClickScript(index) {
     );
   };
   const container = pickContainer();
-  const nodes = Array.from(
-    container.querySelectorAll('a,button,[role="button"]')
+  const innerCandidates = Array.from(container.querySelectorAll("div")).filter(
+    (el) => el.scrollHeight > el.clientHeight + 40
   );
-  const target = nodes[${indexLiteral}];
+  const innerScrollable = innerCandidates.length
+    ? innerCandidates.reduce((best, next) =>
+        next.scrollHeight > best.scrollHeight ? next : best
+      )
+    : null;
+  const listRoot = container;
+  const roleButtons = Array.from(listRoot.querySelectorAll('[role="button"]'));
+  const nodes = roleButtons.length
+    ? roleButtons
+    : Array.from(listRoot.querySelectorAll('a,button,[role="button"]'));
+  let companies = nodes
+    .map((node, index) => {
+      const nameNode =
+        node.querySelector('[class*="companyName"],[class*="companyTitle"]') ||
+        node.querySelector("h2");
+      const name = String(nameNode?.textContent || node.textContent || "")
+        .trim()
+        .replace(/\\s+/g, " ");
+      const href = node.href || null;
+      if (!name || name.length < 2) {
+        return null;
+      }
+      if (href && href.includes("jobId=")) {
+        return null;
+      }
+      return { index, name: name.slice(0, 120), href };
+    })
+    .filter(Boolean);
+
+  if (!companies.length) {
+    const nameNodes = Array.from(
+      listRoot.querySelectorAll('[class*="companyName"],[class*="companyTitle"],h2')
+    );
+    companies = nameNodes
+      .map((node, index) => {
+        const name = String(node.textContent || "").trim().replace(/\\s+/g, " ");
+        if (!name || name.length < 2) {
+          return null;
+        }
+        return { index, name: name.slice(0, 120), href: null };
+      })
+      .filter(Boolean);
+  }
+
+  if (companies.length > 1) {
+    const unique = [];
+    const seen = new Set();
+    for (const company of companies) {
+      if (seen.has(company.name)) continue;
+      seen.add(company.name);
+      unique.push(company);
+    }
+    companies = unique;
+  }
+  return JSON.stringify({
+    count: companies.length,
+    companies: companies.slice(0, 200),
+    scrollTop: innerScrollable ? innerScrollable.scrollTop : listRoot.scrollTop,
+    scrollHeight: innerScrollable ? innerScrollable.scrollHeight : listRoot.scrollHeight,
+    clientHeight: innerScrollable ? innerScrollable.clientHeight : listRoot.clientHeight
+  });
+})()
+  `.trim();
+}
+
+export function buildLevelsFyiCompanyClickScript(companyName) {
+  const nameLiteral = JSON.stringify(String(companyName || ""));
+  return `
+(() => {
+  const pickContainer = () => {
+    const preferred = document.querySelector('div[class*="companiesListContainer"]');
+    if (preferred) {
+      return preferred;
+    }
+    const candidates = Array.from(document.querySelectorAll("div"))
+      .filter((el) => el.scrollHeight > el.clientHeight + 40);
+    if (!candidates.length) {
+      return document.body;
+    }
+    return candidates.reduce((best, next) =>
+      next.scrollHeight > best.scrollHeight ? next : best
+    );
+  };
+  const container = pickContainer();
+  const innerCandidates = Array.from(container.querySelectorAll("div")).filter(
+    (el) => el.scrollHeight > el.clientHeight + 40
+  );
+  const innerScrollable = innerCandidates.length
+    ? innerCandidates.reduce((best, next) =>
+        next.scrollHeight > best.scrollHeight ? next : best
+      )
+    : null;
+  const listRoot = container;
+  const nodes = Array.from(
+    listRoot.querySelectorAll('[role="button"],a,button')
+  );
+  const target = nodes.find((node) => {
+    const nameNode =
+      node.querySelector('[class*="companyName"],[class*="companyTitle"]') ||
+      node.querySelector("h2");
+    const name = String(nameNode?.textContent || node.textContent || "")
+      .trim()
+      .replace(/\\s+/g, " ");
+    return name && name === ${nameLiteral};
+  });
   if (!target) {
     return JSON.stringify({ clicked: false });
   }
   target.scrollIntoView({ block: "center" });
   target.click();
   return JSON.stringify({ clicked: true });
+})()
+  `.trim();
+}
+
+export function buildLevelsFyiCompanyScrollScript() {
+  return `
+(() => {
+  const container = document.querySelector('div[class*="companiesListContainer"]');
+  if (!container) {
+    return JSON.stringify({ scrolled: false, prev: null, next: null });
+  }
+  const innerCandidates = Array.from(container.querySelectorAll("div")).filter(
+    (el) => el.scrollHeight > el.clientHeight + 40
+  );
+  const innerScrollable = innerCandidates.length
+    ? innerCandidates.reduce((best, next) =>
+        next.scrollHeight > best.scrollHeight ? next : best
+      )
+    : null;
+  const target = innerScrollable || container;
+  const prev = target.scrollTop;
+  const delta = Math.max(260, Math.round(target.clientHeight * 0.8));
+  target.scrollTop = Math.min(prev + delta, target.scrollHeight);
+  try {
+    target.dispatchEvent(new Event("scroll", { bubbles: true }));
+    window.dispatchEvent(new Event("scroll"));
+  } catch {}
+  return JSON.stringify({
+    scrolled: true,
+    prev,
+    next: target.scrollTop,
+    scrollHeight: target.scrollHeight,
+    clientHeight: target.clientHeight
+  });
 })()
   `.trim();
 }
@@ -4972,6 +5648,129 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
 
   navigateAutomationTab(searchUrl, "Refreshing Levels.fyi source...");
   sleepSync(settleMs);
+  try {
+    const cookieRaw = executeInAutomationWindowFrontEncoded(
+      buildLevelsFyiCookieDismissScript(),
+      timeoutMs
+    );
+    const cookiePayload = parseBridgeJsonPayload(cookieRaw);
+    if (cookiePayload?.clicked) {
+      sleepSync(1200);
+    }
+  } catch {
+    // ignore cookie banner failures
+  }
+
+  let readinessProbe = null;
+  let readinessOk = false;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const probeRaw = executeInAutomationWindowFrontEncoded(
+      buildLevelsFyiDomProbeScript(),
+      timeoutMs
+    );
+    const probePayload = parseBridgeJsonPayload(probeRaw);
+    readinessProbe = probePayload;
+    readinessOk = isLevelsFyiSearchReady(probePayload);
+    if (readinessOk) {
+      break;
+    }
+    try {
+      executeInAutomationWindowFrontEncoded(buildLevelsFyiCookieDismissScript(), timeoutMs);
+    } catch {
+      // ignore cookie failures during readiness
+    }
+    sleepSync(700);
+  }
+
+  let searchTextApplied = null;
+  const filterApplication = {};
+  try {
+    const parsedUrl = new URL(String(searchUrl || ""));
+    const searchText = parsedUrl.searchParams.get("searchText") || "";
+    if (searchText && readinessOk && shouldApplyLevelsFyiSearchText(searchText, readinessProbe)) {
+      const searchRaw = executeInAutomationWindowFrontEncoded(
+        buildLevelsFyiSearchTextApplyScript(searchText),
+        timeoutMs
+      );
+      const searchPayload = parseBridgeJsonPayload(searchRaw);
+      searchTextApplied = searchPayload;
+      filterApplication.searchText = searchPayload;
+      if (searchPayload?.applied) {
+        sleepSync(1400);
+      }
+    }
+
+    const minComp = parsedUrl.searchParams.get("minBaseCompensation") || "";
+    if (minComp) {
+      const openRaw = executeInAutomationWindowFrontEncoded(
+        buildLevelsFyiOpenFilterScript("Total Comp"),
+        timeoutMs
+      );
+      const openPayload = parseBridgeJsonPayload(openRaw);
+      filterApplication.totalCompOpen = openPayload;
+      if (openPayload?.clicked) {
+        sleepSync(600);
+        const applyRaw = executeInAutomationWindowFrontEncoded(
+          buildLevelsFyiSetMinCompScript(minComp),
+          timeoutMs
+        );
+        filterApplication.totalCompApply = parseBridgeJsonPayload(applyRaw);
+        sleepSync(800);
+      }
+    }
+
+    const postedAfterValue = parsedUrl.searchParams.get("postedAfterValue") || "";
+    if (postedAfterValue) {
+      const openRaw = executeInAutomationWindowFrontEncoded(
+        buildLevelsFyiOpenFilterScript("Date Posted"),
+        timeoutMs
+      );
+      const openPayload = parseBridgeJsonPayload(openRaw);
+      filterApplication.datePostedOpen = openPayload;
+      if (openPayload?.clicked) {
+        sleepSync(600);
+        const dayValue = Number.parseInt(postedAfterValue, 10);
+        const labelCandidates = Number.isFinite(dayValue)
+          ? [
+              `Past ${dayValue} days`,
+              `Past ${dayValue} day`,
+              `Within ${dayValue} days`,
+              `Last ${dayValue} days`
+            ]
+          : [String(postedAfterValue)];
+        let applied = null;
+        for (const label of labelCandidates) {
+          const applyRaw = executeInAutomationWindowFrontEncoded(
+            buildLevelsFyiSelectFilterOptionScript(label),
+            timeoutMs
+          );
+          const applyPayload = parseBridgeJsonPayload(applyRaw);
+          if (applyPayload?.clicked) {
+            applied = applyPayload;
+            break;
+          }
+        }
+        filterApplication.datePostedApply = applied;
+        if (!applied) {
+          const valueRaw = executeInAutomationWindowFrontEncoded(
+            buildLevelsFyiSetDatePostedValueScript(postedAfterValue),
+            timeoutMs
+          );
+          filterApplication.datePostedValueApply = parseBridgeJsonPayload(valueRaw);
+        }
+        if (!applied) {
+          const optionsRaw = executeInAutomationWindowFrontEncoded(
+            buildLevelsFyiListFilterOptionsScript(),
+            timeoutMs
+          );
+          filterApplication.datePostedOptions = parseBridgeJsonPayload(optionsRaw);
+        }
+        sleepSync(800);
+      }
+    }
+  } catch {
+    // ignore search text hydration failures
+  }
 
   const collected = [];
   const seen = new Set();
@@ -4986,19 +5785,53 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
   let apiDecoder = null;
   let apiError = null;
   let apiCapabilities = null;
+  let apiPayloadLength = null;
+  let apiPayloadSignature = null;
+  let apiPayloadBase64 = null;
   let domProbe = null;
+  let domTotals = null;
   let domScrollPasses = 0;
   let domCapturedCount = 0;
   const domScrollTrace = [];
+  let domPaginationUsed = false;
+  let domPaginationPages = null;
+  let filterProbePasses = 0;
   let companyVisitedCount = 0;
-  const companyKeys = new Set();
+  let companyListCount = 0;
+  let companyTraversalCount = 0;
+  let companyTraversalNewJobs = 0;
+  let companyListPasses = 0;
+  let companyNamesCount = 0;
+  let companyListMetrics = null;
 
   try {
-    const rawProbe = executeInAutomationWindowFrontEncoded(
-      buildLevelsFyiDomProbeScript(),
-      timeoutMs
-    );
-    domProbe = parseBridgeJsonPayload(rawProbe);
+    const expectsNarrowing = /minBaseCompensation|postedAfter/i.test(searchUrl || "");
+    const filterSettleMs = Number(options.filterSettleMs) > 0 ? Number(options.filterSettleMs) : 7000;
+    const filterPollMs = Number(options.filterPollMs) > 0 ? Number(options.filterPollMs) : 850;
+    const maxPasses = expectsNarrowing ? Math.ceil(filterSettleMs / filterPollMs) : 1;
+
+    for (let pass = 0; pass < maxPasses; pass += 1) {
+      filterProbePasses = pass + 1;
+      const rawProbe = executeInAutomationWindowFrontEncoded(
+        buildLevelsFyiDomProbeScript(),
+        timeoutMs
+      );
+      domProbe = parseBridgeJsonPayload(rawProbe);
+      if (domProbe?.companiesContainerHtml) {
+        domTotals = parseLevelsFyiDomTotalsFromHtml(domProbe.companiesContainerHtml);
+        if (
+          domTotals?.totalJobs &&
+          (!Number.isFinite(expectedCount) || !expectedCount || !apiDecoder)
+        ) {
+          expectedCount = domTotals.totalJobs;
+        }
+        if (!expectsNarrowing || (domTotals?.totalJobs && domTotals.totalJobs <= 1000)) {
+          break;
+        }
+      }
+
+      sleepSync(filterPollMs);
+    }
   } catch {
     domProbe = null;
   }
@@ -5047,7 +5880,31 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
     if (!apiCapabilities && payloadWrapper?.capabilities) {
       apiCapabilities = payloadWrapper.capabilities;
     }
-    const apiPayload = payloadWrapper.payload;
+    let apiPayload = payloadWrapper.payload;
+    const payloadString =
+      typeof apiPayload === "string"
+        ? apiPayload
+        : apiPayload && typeof apiPayload === "object" && typeof apiPayload.payload === "string"
+          ? apiPayload.payload
+          : null;
+    if (payloadString) {
+      apiPayloadLength = payloadString.length;
+      try {
+        apiPayloadSignature = Buffer.from(payloadString, "base64")
+          .slice(0, 6)
+          .toString("hex");
+      } catch {}
+      if (payloadString.length <= 10000) {
+        apiPayloadBase64 = payloadString;
+      }
+    }
+    if (apiPayload && (typeof apiPayload === "string" || typeof apiPayload === "object")) {
+      const decoded = decodeLevelsFyiApiPayload(apiPayload);
+      if (decoded?.payload) {
+        apiPayload = decoded.payload;
+        apiDecoder = decoded.decoder;
+      }
+    }
     if (apiParsedKeys === null && apiPayload && typeof apiPayload === "object") {
       apiParsedKeys = Object.keys(apiPayload).slice(0, 8);
     }
@@ -5090,52 +5947,113 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
     }
   }
 
+  if (
+    domTotals?.totalJobs &&
+    domTotals.totalJobs > 0 &&
+    collected.length > 0 &&
+    collected.length < domTotals.totalJobs
+  ) {
+    const paginationInfoRaw = executeInAutomationWindowFrontEncoded(
+      buildLevelsFyiPaginationInfoScript(),
+      timeoutMs
+    );
+    const paginationInfo = parseBridgeJsonPayload(paginationInfoRaw);
+    if (shouldPaginateLevels(paginationInfo)) {
+      let lastFirstId = null;
+      const paginationResult = capturePaginatedJobsWithNavigator({
+        maxPages,
+        readPage: () => {
+          const raw = executeInAutomationWindowFrontEncoded(
+            buildLevelsFyiDomCaptureScript(),
+            timeoutMs
+          );
+          const payload = parseBridgeJsonPayload(raw);
+          const jobs = Array.isArray(payload?.jobs) ? payload.jobs : [];
+          const firstId = jobs[0]?.externalId;
+          if (firstId) {
+            lastFirstId = String(firstId);
+          }
+          return {
+            jobs,
+            expectedCount: domTotals?.totalJobs || expectedCount || null
+          };
+        },
+        navigatePage: () => {
+          const infoRaw = executeInAutomationWindowFrontEncoded(
+            buildLevelsFyiPaginationInfoScript(),
+            timeoutMs
+          );
+          const info = parseBridgeJsonPayload(infoRaw);
+          if (!shouldPaginateLevels(info)) {
+            return false;
+          }
+          const clickRaw = executeInAutomationWindowFrontEncoded(
+            buildLevelsFyiPaginationClickNextScript(),
+            timeoutMs
+          );
+          const clickPayload = parseBridgeJsonPayload(clickRaw);
+          if (!clickPayload?.clicked) {
+            return false;
+          }
+          const waitAttempts = Number(options.pageWaitAttempts) > 0
+            ? Number(options.pageWaitAttempts)
+            : 8;
+          const waitDelayMs = Number(options.pageWaitDelayMs) > 0
+            ? Number(options.pageWaitDelayMs)
+            : 900;
+          for (let attempt = 0; attempt < waitAttempts; attempt += 1) {
+            const waitRaw = executeInAutomationWindowFrontEncoded(
+              buildLevelsFyiPaginationWaitScript(lastFirstId),
+              timeoutMs
+            );
+            const waitPayload = parseBridgeJsonPayload(waitRaw);
+            if (waitPayload?.ready) {
+              if (waitPayload?.id) {
+                lastFirstId = String(waitPayload.id);
+              }
+              return true;
+            }
+            sleepSync(waitDelayMs);
+          }
+          return true;
+        }
+      });
+
+      if (paginationResult?.jobs?.length) {
+        const merged = mergeLevelsFyiJobsById(collected, paginationResult.jobs);
+        if (merged.length > collected.length) {
+          collected.length = 0;
+          collected.push(...merged);
+        }
+        domPaginationUsed = true;
+        domPaginationPages = paginationResult.pagesVisited || null;
+      }
+    }
+  }
+
   if (collected.length === 0) {
     const domSeen = new Set();
-    let noGrowth = 0;
+    let noGrowthState = { noGrowth: 0, stop: false };
     const maxDomPasses = Number(options.domMaxPasses) > 0 ? Number(options.domMaxPasses) : 30;
 
     for (let pass = 0; pass < maxDomPasses; pass += 1) {
       domScrollPasses += 1;
       let passNewJobs = 0;
-      const companyRaw = executeInAutomationWindowFrontEncoded(
-        buildLevelsFyiCompanyListScript(),
+
+      const raw = executeInAutomationWindowFrontEncoded(
+        buildLevelsFyiDomCaptureScript(),
         timeoutMs
       );
-      const companyPayload = parseBridgeJsonPayload(companyRaw);
-      const companies = Array.isArray(companyPayload?.companies)
-        ? companyPayload.companies
-        : [];
-
-      for (const company of companies) {
-        const key = `${company.text || ""}|${company.href || ""}`;
-        if (!key.trim() || companyKeys.has(key)) {
+      const payload = parseBridgeJsonPayload(raw);
+      const jobs = Array.isArray(payload?.jobs) ? payload.jobs : [];
+      for (const job of jobs) {
+        const jobKey = String(job?.externalId || "").trim();
+        if (!jobKey || domSeen.has(jobKey)) {
           continue;
         }
-        companyKeys.add(key);
-        companyVisitedCount += 1;
-        executeInAutomationWindowFrontEncoded(
-          buildLevelsFyiCompanyClickScript(company.index),
-          timeoutMs
-        );
-        sleepSync(1200);
-
-        const raw = executeInAutomationWindowFrontEncoded(
-          buildLevelsFyiDomCaptureScript(),
-          timeoutMs
-        );
-        const payload = parseBridgeJsonPayload(raw);
-        const jobs = Array.isArray(payload?.jobs) ? payload.jobs : [];
-        const priorSize = domSeen.size;
-        for (const job of jobs) {
-          const jobKey = String(job?.externalId || "").trim();
-          if (!jobKey || domSeen.has(jobKey)) {
-            continue;
-          }
-          domSeen.add(jobKey);
-          collected.push(job);
-          passNewJobs += 1;
-        }
+        domSeen.add(jobKey);
+        collected.push(job);
+        passNewJobs += 1;
       }
 
       if (domScrollTrace.length < 5) {
@@ -5145,15 +6063,6 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
           sampleIds: Array.from(domSeen).slice(0, 3)
         });
       }
-      if (passNewJobs === 0) {
-        noGrowth += 1;
-      } else {
-        noGrowth = 0;
-      }
-      if (noGrowth >= 2) {
-        break;
-      }
-
       const scrollRaw = executeInAutomationWindowFrontEncoded(
         buildLevelsFyiDomScrollScript(),
         timeoutMs
@@ -5162,7 +6071,12 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
       if (domScrollTrace.length < 5) {
         domScrollTrace.push({ scroll: scrollPayload });
       }
-      if (scrollPayload && scrollPayload.prev === scrollPayload.next) {
+      noGrowthState = nextLevelsFyiDomNoGrowthState(
+        noGrowthState,
+        passNewJobs,
+        scrollPayload
+      );
+      if (noGrowthState.stop) {
         break;
       }
       sleepSync(900);
@@ -5173,9 +6087,111 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
       stopReason = "domScroll";
       usedFallback = true;
     }
+
+    if (
+      domTotals?.totalJobs &&
+      domCapturedCount > 0 &&
+      domCapturedCount < domTotals.totalJobs
+    ) {
+      const seenCompanies = new Set();
+      const companyNames = [];
+      let scrollStalls = 0;
+      const maxCompanyPasses =
+        Number(options.companyListPasses) > 0 ? Number(options.companyListPasses) : 18;
+
+      for (let pass = 0; pass < maxCompanyPasses; pass += 1) {
+        companyListPasses = pass + 1;
+        const rawCompanies = executeInAutomationWindowFrontEncoded(
+          buildLevelsFyiCompanyListScript(),
+          timeoutMs
+        );
+        const companyPayload = parseBridgeJsonPayload(rawCompanies);
+        const companies = Array.isArray(companyPayload?.companies)
+          ? companyPayload.companies
+          : [];
+        companyListCount = Math.max(companyListCount, companies.length);
+        if (companyPayload && typeof companyPayload === "object") {
+          companyListMetrics = {
+            scrollTop: companyPayload.scrollTop ?? null,
+            scrollHeight: companyPayload.scrollHeight ?? null,
+            clientHeight: companyPayload.clientHeight ?? null
+          };
+        }
+
+        for (const company of companies) {
+          const name = String(company?.name || "").trim();
+          if (!name || seenCompanies.has(name)) {
+            continue;
+          }
+          seenCompanies.add(name);
+          companyNames.push(name);
+        }
+        companyNamesCount = companyNames.length;
+
+        const rawScroll = executeInAutomationWindowFrontEncoded(
+          buildLevelsFyiCompanyScrollScript(),
+          timeoutMs
+        );
+        const scrollPayload = parseBridgeJsonPayload(rawScroll);
+        if (
+          scrollPayload &&
+          Number.isFinite(Number(scrollPayload.prev)) &&
+          Number.isFinite(Number(scrollPayload.next)) &&
+          Number(scrollPayload.prev) === Number(scrollPayload.next)
+        ) {
+          scrollStalls += 1;
+          if (scrollStalls >= 2) {
+            break;
+          }
+        } else {
+          scrollStalls = 0;
+        }
+        sleepSync(450);
+      }
+
+      for (const name of companyNames) {
+        const rawClick = executeInAutomationWindowFrontEncoded(
+          buildLevelsFyiCompanyClickScript(name),
+          timeoutMs
+        );
+        const clickPayload = parseBridgeJsonPayload(rawClick);
+        if (!clickPayload?.clicked) {
+          continue;
+        }
+        companyTraversalCount += 1;
+        companyVisitedCount = companyTraversalCount;
+        sleepSync(600);
+
+        const rawJobs = executeInAutomationWindowFrontEncoded(
+          buildLevelsFyiDomCaptureScript(),
+          timeoutMs
+        );
+        const payload = parseBridgeJsonPayload(rawJobs);
+        const jobs = Array.isArray(payload?.jobs) ? payload.jobs : [];
+        for (const job of jobs) {
+          const jobKey = String(job?.externalId || "").trim();
+          if (!jobKey || domSeen.has(jobKey)) {
+            continue;
+          }
+          domSeen.add(jobKey);
+          collected.push(job);
+          companyTraversalNewJobs += 1;
+        }
+
+        domCapturedCount = domSeen.size;
+        if (domTotals?.totalJobs && domCapturedCount >= domTotals.totalJobs) {
+          break;
+        }
+      }
+
+      if (companyTraversalNewJobs > 0) {
+        stopReason = "companyTraversal";
+        usedFallback = true;
+      }
+    }
   }
 
-  if (collected.length === 0) {
+  {
     navigateAutomationTab(searchUrl, "Refreshing Levels.fyi source...");
     sleepSync(settleMs);
     const raw = executeInAutomationWindowFrontEncoded(
@@ -5184,16 +6200,13 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
     );
     const payload = parseBridgeJsonPayload(raw);
     if (payload?.nextData) {
-      usedFallback = true;
       const html = `<script id="__NEXT_DATA__" type="application/json">${payload.nextData}</script>`;
       const fallbackJobs = parseLevelsFyiSearchHtml(html, searchUrl);
-      for (const job of Array.isArray(fallbackJobs) ? fallbackJobs : []) {
-        const key = String(job?.externalId || "").trim();
-        if (!key || seen.has(key)) {
-          continue;
-        }
-        seen.add(key);
-        collected.push(job);
+      const merged = mergeLevelsFyiJobsById(collected, fallbackJobs);
+      if (merged.length > collected.length) {
+        collected.length = 0;
+        collected.push(...merged);
+        usedFallback = true;
       }
       try {
         const parsed = JSON.parse(payload.nextData);
@@ -5222,11 +6235,26 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
       apiParsedKeys,
       apiDecoder,
       apiError,
+      apiPayloadLength,
+      apiPayloadSignature,
+      apiPayloadBase64,
       apiCapabilities,
       domProbe,
+      domTotals,
       domScrollPasses,
       domCapturedCount,
+      domPaginationUsed,
+      domPaginationPages,
       companyVisitedCount,
+      companyListCount,
+      companyTraversalCount,
+      companyTraversalNewJobs,
+      companyListPasses,
+      companyNamesCount,
+      companyListMetrics,
+      filterProbePasses,
+      searchTextApplied,
+      filterApplication,
       domScrollTrace,
       stopReason,
       usedFallback
