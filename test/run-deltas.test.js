@@ -535,7 +535,7 @@ test("listImportedJobCountsBySourceId reports distinct surviving jobs, not the i
        VALUES (?, ?, ?, ?, '[]', ?, ?, ?, ?)`
     ).run("job-2", 10, "reject", "Role", 40, 1, 1, "2026-03-09T07:00:10.000Z");
 
-    assert.deepEqual(listImportedJobCountsBySourceId(db), [
+    assert.deepEqual(listImportedJobCountsBySourceId(db).map((row) => ({ ...row })), [
       { sourceId, importedCount: 1 }
     ]);
   } finally {
