@@ -1,0 +1,17 @@
+{
+  "_provenance": "Modeled on LinkedIn Easy Apply's standard multi-step modal (contact info step, resume step, additional-questions step). Labels/types reflect the common Easy Apply patterns: LinkedIn pre-fills contact fields from the member profile; screeners are select/radio/number inputs. To be reconciled against a live capture in Milestone 4.",
+  "url": "https://www.linkedin.com/jobs/view/4392864954",
+  "adapter": "linkedin_easy_apply",
+  "fields": [
+    { "fieldId": "step_contact", "label": "", "type": "multistep_marker", "required": false, "options": null, "sectionLabel": "Contact info" },
+    { "fieldId": "email_select", "label": "Email address", "type": "select", "required": true, "options": [ { "value": "0", "label": "peter.spannagle@gmail.com" } ], "sectionLabel": "Contact info" },
+    { "fieldId": "phone_number", "label": "Mobile phone number", "type": "text", "required": true, "options": null, "sectionLabel": "Contact info" },
+    { "fieldId": "step_resume", "label": "", "type": "multistep_marker", "required": false, "options": null, "sectionLabel": "Resume" },
+    { "fieldId": "resume_upload", "label": "Upload resume", "type": "file", "required": false, "options": null, "sectionLabel": "Resume" },
+    { "fieldId": "step_questions", "label": "", "type": "multistep_marker", "required": false, "options": null, "sectionLabel": "Additional Questions" },
+    { "fieldId": "q_work_auth", "label": "Are you legally authorized to work in the United States?", "type": "radio", "required": true, "options": [ { "value": "yes", "label": "Yes" }, { "value": "no", "label": "No" } ], "sectionLabel": "Additional Questions" },
+    { "fieldId": "q_sponsorship", "label": "Will you now or in the future require sponsorship for employment visa status?", "type": "radio", "required": true, "options": [ { "value": "yes", "label": "Yes" }, { "value": "no", "label": "No" } ], "sectionLabel": "Additional Questions" },
+    { "fieldId": "q_years_pm", "label": "How many years of product management experience do you have?", "type": "text", "required": true, "options": null, "sectionLabel": "Additional Questions" },
+    { "fieldId": "q_salary", "label": "What are your salary expectations?", "type": "text", "required": false, "options": null, "sectionLabel": "Additional Questions" }
+  ]
+}
