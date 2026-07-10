@@ -62,6 +62,10 @@ Two explicit non-goals for this plan: no zero-click ("full auto") submission any
   Rationale: The dashboard becomes the answer library's primary management UI in Milestone 3 (designed under the UX Standards section); building a second interactive surface in the CLI now would duplicate that work. Flags keep seeding scriptable and testable; the ExecPlan's original "interactive" wording is superseded by this decision.
   Date/Author: 2026-07-10 / Claude (autonomous, within plan scope).
 
+- Decision: The answer library lives in the stable database at `/Users/admin/job-finder/data/jobs.db`, never in a worktree copy. `openDatabase()` now honors a `JOB_FINDER_DB` environment variable so any checkout/worktree operates on that one database (`071e993`).
+  Rationale: Stakeholder correctly flagged worktree-local storage as fragile — worktrees are disposable, real answers are not. This also aligns with the known checkout-relative-storage architectural bug in docs/learnings.md and with Milestone 3, whose dashboard flow reads the same stable DB. The full canonical machine-local data-dir migration stays a separate backlog item.
+  Date/Author: 2026-07-10 / Peter Spannagle (direction), Claude (implementation).
+
 - Decision: One shared apply engine with per-site adapters; adapter order is Greenhouse, then LinkedIn Easy Apply, then Lever/Ashby.
   Rationale: Greenhouse forms are the most schema-predictable and prove the engine with the least adversarial surface. Easy Apply is the highest-volume surface and stakeholder-required, but is a semi-structured multi-step modal on an automation-hostile site, so it goes second, after the engine is proven. Stakeholder wanted "both in parallel"; the compromise is a shared engine so both are in the MVP without divergent codepaths.
   Date/Author: 2026-07-10 / agreed in stakeholder session.
