@@ -21,3 +21,40 @@ export function probeSourceAccessWithNoop(source) {
     ].join(" ")
   );
 }
+
+// Apply-surface (apply_v1) noop implementations. These return deterministic
+// canned payloads so the HTTP surface, consent gating, and route wiring can
+// be tested without a real browser. Real fills use chrome_applescript or
+// playwright_cli providers.
+export function extractApplyFormSchemaWithNoop({ url } = {}) {
+  return {
+    url: String(url || ""),
+    adapter: "noop",
+    fields: [
+      {
+        fieldId: "first_name",
+        label: "First name",
+        type: "text",
+        required: true,
+        options: null,
+        sectionLabel: null
+      }
+    ]
+  };
+}
+
+export function applyTypeTextWithNoop({ fieldId, value } = {}) {
+  return {
+    filled: true,
+    fieldId: String(fieldId || ""),
+    valueLength: String(value ?? "").length
+  };
+}
+
+export function applyUploadFileWithNoop({ fieldId, filePath } = {}) {
+  return {
+    uploaded: true,
+    fieldId: String(fieldId || ""),
+    filePath: String(filePath || "")
+  };
+}
