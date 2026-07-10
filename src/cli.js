@@ -40,6 +40,10 @@ import { buildAnalyticsEvent, recordAnalyticsEvent } from "./analytics/events.js
 import { isAnalyticsEnabledByFlag } from "./config/feature-flags.js";
 import { loadRetentionPolicy } from "./config/retention-policy.js";
 import { openDatabase } from "./db/client.js";
+import {
+  createAnswerStore,
+  IDENTITY_QUESTION_KEYS
+} from "./apply/answer-store.js";
 import { runMigrations } from "./db/migrations.js";
 import { normalizeJobRecord } from "./jobs/normalize.js";
 import { applyRetentionPolicyCleanup, writeRetentionCleanupAudit } from "./jobs/retention.js";
@@ -818,6 +822,139 @@ function runList(limitArg) {
   const rows = listTopJobs(db, limit);
   db.close();
   printJobRows(rows);
+}
+
+function runAnswers() {
+  const { db } = withDatabase();
+  const store = createAnswerStore(db);
+  const answers = store.listAnswers();
+  db.close();
+
+  if (answers.length === 0) {
+    console.log(
+      "Answer library is empty. Seed it with: jf answers-seed --full-name \"...\" --email \"...\" (see jf help)."
+    );
+    return;
+  }
+
+  for (const entry of answers) {
+    const preview =
+      entry.answerType === "file_path" || entry.answerType === "url"
+        ? entry.answerValue
+        : entry.answerValue.length > 60
+          ? `${entry.answerValue.slice(0, 57)}...`
+          : entry.answerValue;
+    const approval = entry.approved ? "" : " [unapproved]";
+    console.log(
+      `${entry.questionKey}  (${entry.kind}/${entry.answerType}, used ${entry.usageCount}x)${approval}\n  ${preview}`
+    );
+  }
+}
+
+const ANSWER_SEED_FLAGS = [
+  { flag: "--full-name", key: IDENTITY_QUESTION_KEYS.FULL_NAME, kind: "identity", type: "text" },
+  { flag: "--first-name", key: IDENTITY_QUESTION_KEYS.FIRST_NAME, kind: "identity", type: "text" },
+  { flag: "--last-name", key: IDENTITY_QUESTION_KEYS.LAST_NAME, kind: "identity", type: "text" },
+  { flag: "--email", key: IDENTITY_QUESTION_KEYS.EMAIL, kind: "identity", type: "text" },
+  { flag: "--phone", key: IDENTITY_QUESTION_KEYS.PHONE, kind: "identity", type: "text" },
+  { flag: "--location", key: IDENTITY_QUESTION_KEYS.LOCATION, kind: "identity", type: "text" },
+  { flag: "--linkedin", key: IDENTITY_QUESTION_KEYS.LINKEDIN_URL, kind: "link", type: "url" },
+  { flag: "--website", key: IDENTITY_QUESTION_KEYS.WEBSITE_URL, kind: "link", type: "url" },
+  { flag: "--resume", key: IDENTITY_QUESTION_KEYS.RESUME_PATH, kind: "document", type: "file_path" },
+  {
+    flag: "--work-auth-us",
+    key: IDENTITY_QUESTION_KEYS.WORK_AUTHORIZATION_US,
+    kind: "screener",
+    type: "boolean",
+    questionText: "Are you authorized to work in the United States?"
+  },
+  {
+    flag: "--sponsorship",
+    key: IDENTITY_QUESTION_KEYS.REQUIRES_SPONSORSHIP,
+    kind: "screener",
+    type: "boolean",
+    questionText: "Will you now or in the future require sponsorship for employment visa status?"
+  },
+  {
+    flag: "--salary",
+    key: IDENTITY_QUESTION_KEYS.SALARY_EXPECTATION,
+    kind: "screener",
+    type: "number",
+    questionText: "What are your salary expectations?"
+  }
+];
+
+function runAnswersSeed(args = []) {
+  const values = new Map();
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    const spec = ANSWER_SEED_FLAGS.find((candidate) => candidate.flag === arg);
+    if (!spec) {
+      throw new Error(
+        `Unknown answers-seed flag "${arg}". Supported: ${ANSWER_SEED_FLAGS.map((s) => s.flag).join(", ")}.`
+      );
+    }
+    const value = args[index + 1];
+    if (value === undefined || value.startsWith("--")) {
+      throw new Error(`Flag "${arg}" requires a value.`);
+    }
+    values.set(spec.flag, value);
+    index += 1;
+  }
+
+  // Bootstrap identity/resume from the active profile when flags omit them.
+  if (!values.has("--full-name") || !values.has("--resume")) {
+    try {
+      const profile = loadActiveProfile();
+      if (!values.has("--full-name") && profile?.candidateName) {
+        values.set("--full-name", profile.candidateName);
+      }
+      if (!values.has("--resume") && profile?.resumePath) {
+        values.set("--resume", profile.resumePath);
+      }
+    } catch {
+      // No profile configured yet — flags are the only input, which is fine.
+    }
+  }
+
+  if (values.size === 0) {
+    throw new Error(
+      `Nothing to seed. Provide flags (${ANSWER_SEED_FLAGS.map((s) => s.flag).join(", ")}) or configure a profile first.`
+    );
+  }
+
+  const { db } = withDatabase();
+  const store = createAnswerStore(db);
+  const seeded = [];
+
+  for (const spec of ANSWER_SEED_FLAGS) {
+    if (!values.has(spec.flag)) {
+      continue;
+    }
+
+    let answerValue = values.get(spec.flag);
+    if (spec.type === "boolean") {
+      const normalized = String(answerValue).trim().toLowerCase();
+      if (!["yes", "no", "true", "false"].includes(normalized)) {
+        db.close();
+        throw new Error(`Flag "${spec.flag}" expects yes|no, got "${answerValue}".`);
+      }
+      answerValue = ["yes", "true"].includes(normalized) ? "true" : "false";
+    }
+
+    const entry = store.saveAnswer({
+      kind: spec.kind,
+      questionKey: spec.key,
+      questionText: spec.questionText || null,
+      answerValue,
+      answerType: spec.type,
+      approved: true
+    });
+    seeded.push(entry.questionKey);
+  }
+
+  db.close();
+  console.log(`Seeded ${seeded.length} answer(s): ${seeded.join(", ")}`);
 }
 
 function runMark(jobId, status) {
@@ -2005,6 +2142,13 @@ PROFILE CONFIGURATION:
   jf use-my-goals [path]                   Use my-goals.json
   jf connect-narrata-file [path]           Connect Narrata goals file
 
+ANSWER LIBRARY (apply automation):
+  jf answers                               List saved application answers
+  jf answers-seed [--full-name ... --email ... --phone ... --location ...
+                   --linkedin ... --website ... --resume ...
+                   --work-auth-us yes|no --sponsorship yes|no --salary ...]
+                                           Seed identity basics (profile-aware)
+
 ADVANCED:
   jf sync                      Sync jobs only (no scoring)
   jf score                     Score jobs only (no sync)
@@ -2069,6 +2213,12 @@ async function main() {
       break;
     case "list":
       runList(args[0]);
+      break;
+    case "answers":
+      runAnswers();
+      break;
+    case "answers-seed":
+      runAnswersSeed(args);
       break;
     case "sources":
       runListSources();

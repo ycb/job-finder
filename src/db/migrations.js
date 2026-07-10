@@ -166,6 +166,40 @@ export function runMigrations(db) {
         FOREIGN KEY (job_id) REFERENCES jobs (id) ON DELETE CASCADE
       );
 
+      CREATE TABLE IF NOT EXISTS answer_library (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        question_key TEXT NOT NULL,
+        question_text TEXT,
+        answer_value TEXT NOT NULL,
+        answer_type TEXT NOT NULL,
+        tags TEXT,
+        approved INTEGER NOT NULL DEFAULT 1,
+        usage_count INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_answer_library_key
+        ON answer_library (question_key);
+
+      CREATE TABLE IF NOT EXISTS application_drafts (
+        id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL,
+        adapter TEXT NOT NULL,
+        form_schema TEXT NOT NULL,
+        draft_plan TEXT NOT NULL,
+        unanswered TEXT,
+        status TEXT NOT NULL,
+        corrections_count INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (job_id) REFERENCES jobs (id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_application_drafts_job
+        ON application_drafts (job_id, created_at DESC);
+
       CREATE TABLE IF NOT EXISTS source_run_deltas (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         run_id TEXT NOT NULL,
