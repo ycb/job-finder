@@ -264,9 +264,15 @@ test("CLI answers-seed + answers roundtrip (subprocess smoke)", () => {
       path.dirname(new URL(import.meta.url).pathname),
       ".."
     );
-    // openDatabase resolves data/jobs.db relative to cwd, so pointing cwd at
-    // the temp dir fully isolates this subprocess run.
-    const env = { ...process.env };
+    // Isolation must be explicit, not inherited: openDatabase honors the
+    // JOB_FINDER_DB env var, so a user-exported value would silently redirect
+    // this subprocess at their real database (this happened — a "Test User"
+    // row leaked into the stakeholder's stable DB). Always pin the subprocess
+    // to the temp path.
+    const env = {
+      ...process.env,
+      JOB_FINDER_DB: path.join(dir, "data", "jobs.db")
+    };
 
     const seedOutput = execFileSync(
       process.execPath,
