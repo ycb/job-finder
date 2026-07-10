@@ -1,5 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { writeSourceCapturePayload } from "./cache-policy.js";
+import {
+  getFreshCachedJobs,
+  writeSourceCapturePayload
+} from "./cache-policy.js";
 import { enrichJobsWithDetailPages } from "./detail-enrichment.js";
 
 function decodeHtmlEntities(value) {
@@ -110,7 +113,7 @@ function parsePublishedDates(html) {
   return byId;
 }
 
-function parseBuiltInExpectedCount(html) {
+export function parseBuiltInExpectedCount(html) {
   const text = normalizeText(String(html || "").slice(0, 20000));
   if (!text) {
     return null;
@@ -237,10 +240,52 @@ function fetchBuiltInSearchHtml(searchUrl, timeoutMs = 30_000) {
   );
 }
 
-export function collectBuiltInJobsFromSearch(source) {
-  const html = fetchBuiltInSearchHtml(source.searchUrl, source.requestTimeoutMs || 30_000);
+function buildBuiltInCaptureDiagnostics({
+  source,
+  expectedCount,
+  cardsSeen,
+  jobsAccepted,
+  stopReason,
+  runtimeError = null
+}) {
+  return {
+    captureMode: "direct_fetch",
+    generatedUrl: source.searchUrl,
+    pageUrl: source.searchUrl,
+    expectedCount,
+    cardsSeen,
+    jobsAccepted,
+    jobsRejected: Math.max(0, cardsSeen - jobsAccepted),
+    rejectedReasons: cardsSeen > jobsAccepted ? ["missing_required_card_fields"] : [],
+    pagesVisited: 1,
+    stopReason,
+    runtimeError
+  };
+}
+
+export function collectBuiltInJobsFromSearch(source, options = {}) {
+  const cachedJobs = getFreshCachedJobs(source);
+  if (Array.isArray(cachedJobs)) {
+    if (Number.isInteger(source.maxJobs) && source.maxJobs > 0) {
+      return cachedJobs.slice(0, source.maxJobs);
+    }
+
+    return cachedJobs;
+  }
+
+  const fetchHtml =
+    typeof options.fetchHtml === "function"
+      ? options.fetchHtml
+      : (searchUrl, timeoutMs) => fetchBuiltInSearchHtml(searchUrl, timeoutMs);
+  const enrichJobs =
+    typeof options.enrichJobs === "function"
+      ? options.enrichJobs
+      : (jobs, enrichOptions) => enrichJobsWithDetailPages(source.type, jobs, enrichOptions);
+
+  const html = fetchHtml(source.searchUrl, source.requestTimeoutMs || 30_000);
+  const cardsSeen = extractJobCardBlocks(html).length;
   const jobs = parseBuiltInSearchHtml(html, source.searchUrl);
-  const jobsEnriched = enrichJobsWithDetailPages(source.type, jobs, {
+  const jobsEnriched = enrichJobs(jobs, {
     maxJobs: Number(source.maxJobs) > 0 ? Number(source.maxJobs) : 25,
     timeoutMs: Number(source.requestTimeoutMs) > 0 ? Number(source.requestTimeoutMs) : 30_000
   });
@@ -254,8 +299,24 @@ export function collectBuiltInJobsFromSearch(source) {
   writeSourceCapturePayload(source, jobsWithMetadata, {
     capturedAt: retrievedAt,
     pageUrl: source.searchUrl,
-    expectedCount
+    expectedCount,
+    captureDiagnostics: buildBuiltInCaptureDiagnostics({
+      source,
+      expectedCount,
+      cardsSeen,
+      jobsAccepted: jobsWithMetadata.length,
+      stopReason:
+        Number.isFinite(Number(expectedCount)) && expectedCount > jobsWithMetadata.length
+          ? "direct_fetch_under_harvest"
+          : "direct_fetch_complete"
+    })
   });
+
+  if (Number.isFinite(Number(expectedCount)) && expectedCount > jobsWithMetadata.length) {
+    throw new Error(
+      `BuiltIn direct_fetch under-harvested generated URL: captured ${jobsWithMetadata.length}/${expectedCount}.`
+    );
+  }
 
   if (Number.isInteger(source.maxJobs) && source.maxJobs > 0) {
     return jobsWithMetadata.slice(0, source.maxJobs);

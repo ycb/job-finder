@@ -11,6 +11,7 @@ import {
   probeSourceAccessViaBridge,
   resolveBrowserBridgeBaseUrl
 } from "../browser-bridge/client.js";
+import { resolveZipRecruiterJobUrlWithChromeAppleScript } from "../browser-bridge/providers/chrome-applescript.js";
 import { getSourceAggregationIds } from "../config/source-library.js";
 import { startBrowserBridgeServer } from "../browser-bridge/server.js";
 import {
@@ -46,10 +47,12 @@ import { normalizeJobRecord } from "../jobs/normalize.js";
 import { applyRetentionPolicyCleanup, writeRetentionCleanupAudit } from "../jobs/retention.js";
 import {
   countActiveJobsByIds,
+  countDeduplicatedQueueJobsForRun,
   finalizeSourceRunDeltasForBatch,
   getLatestImportedRunId,
   listAllJobs,
   listAllJobsWithStatus,
+  listImportedJobCountsBySourceId,
   listLatestSourceRunDeltas,
   listNormalizedHashesOutsideSources,
   listSourceRunTotals,
@@ -68,6 +71,8 @@ import {
 } from "../jobs/run-deltas.js";
 import { evaluateJobsFromSearchCriteria } from "../jobs/score.js";
 import {
+  getSourceRefreshDecision,
+  normalizeRefreshProfile,
   readSourceCaptureSummary
 } from "../sources/cache-policy.js";
 import { sanitizeLinkedInJob } from "../sources/linkedin-cleanup.js";
@@ -95,6 +100,7 @@ import {
   collectJobsFromSource,
   collectRawJobsFromSource
 } from "../sources/linkedin-saved-search.js";
+import { extractZipRecruiterDeepLinkId } from "../sources/ziprecruiter-jobs.js";
 import { buildAnalyticsEvent, recordAnalyticsEvent } from "../analytics/events.js";
 import { getEntitlementState } from "../monetization/entitlements.js";
 import {
@@ -451,6 +457,23 @@ function aggregateSourceRunTotals(source, sourceRunTotalsBySourceId) {
   aggregate.dedupedCount = aggregate.v2Samples > 0 ? dedupedTotal : null;
 
   return aggregate;
+}
+
+// Distinct-jobs-in-queue count for a source, aggregated across any legacy
+// source-id aliases. See listImportedJobCountsBySourceId for why this is a
+// different (and correct) number from aggregateSourceRunTotals().importedCount.
+function aggregateImportedJobCount(source, importedJobCountsBySourceId) {
+  let total = 0;
+  let seenAny = false;
+  for (const sourceId of getSourceAggregationIds(source)) {
+    const count = importedJobCountsBySourceId.get(sourceId);
+    if (count === undefined) {
+      continue;
+    }
+    total += normalizeCount(count);
+    seenAny = true;
+  }
+  return seenAny ? total : null;
 }
 
 function pickLatestSourceRunDelta(source, latestSourceRunDeltaBySourceId) {
@@ -871,6 +894,106 @@ function isZipRecruiterJobsUrl(rawUrl) {
   }
 }
 
+function zipRecruiterUrlHasLk(rawUrl) {
+  const urlText = String(rawUrl || "").trim();
+  if (!urlText) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(urlText);
+    return Boolean(String(parsed.searchParams.get("lk") || "").trim());
+  } catch {
+    return false;
+  }
+}
+
+function persistZipRecruiterResolvedUrl(normalizedHash, resolvedUrl) {
+  const jobKey = String(normalizedHash || "").trim();
+  const sourceUrl = String(resolvedUrl || "").trim();
+  if (!jobKey || !sourceUrl) {
+    return false;
+  }
+
+  const externalId = extractZipRecruiterDeepLinkId(sourceUrl) || null;
+  const nowIso = new Date().toISOString();
+  return withDatabase((db) => {
+    const result = db
+      .prepare(
+        `
+          UPDATE jobs
+             SET source_url = ?,
+                 external_id = COALESCE(?, external_id),
+                 updated_at = ?
+           WHERE normalized_hash = ?
+             AND source = 'ziprecruiter_search'
+        `
+      )
+      .run(sourceUrl, externalId, nowIso, jobKey);
+    return Number(result?.changes || 0) > 0;
+  });
+}
+
+export function resolveJobOpenTarget(payload = {}) {
+  const normalizedHash = String(payload?.id || payload?.groupKey || "").trim();
+  const sourceUrl = String(
+    payload?.reviewTarget?.url || payload?.sourceUrl || payload?.url || ""
+  ).trim();
+  const sourceType = String(payload?.source || payload?.sourceType || "").trim();
+  const title = String(payload?.title || "").trim();
+  const company = String(payload?.company || "").trim();
+  const location = String(payload?.location || "").trim();
+
+  if (!sourceUrl) {
+    return {
+      url: null,
+      mode: "unavailable",
+      resolved: false,
+      reason: "missing_source_url"
+    };
+  }
+
+  if (
+    sourceType !== "ziprecruiter_search" ||
+    !isZipRecruiterJobsUrl(sourceUrl) ||
+    zipRecruiterUrlHasLk(sourceUrl)
+  ) {
+    return {
+      url: sourceUrl,
+      mode: "direct",
+      resolved: false,
+      reason: "no_resolution_needed"
+    };
+  }
+
+  const resolved = resolveZipRecruiterJobUrlWithChromeAppleScript(
+    {
+      sourceUrl,
+      reviewTargetUrl: sourceUrl,
+      title,
+      company,
+      location
+    },
+    {
+      timeoutMs: 20_000
+    }
+  );
+
+  const resolvedUrl = String(resolved?.url || sourceUrl).trim();
+  const isResolved = Boolean(resolved?.resolved && zipRecruiterUrlHasLk(resolvedUrl));
+  if (isResolved && normalizedHash) {
+    persistZipRecruiterResolvedUrl(normalizedHash, resolvedUrl);
+  }
+
+  return {
+    url: resolvedUrl,
+    mode: "direct",
+    resolved: isResolved,
+    reason: resolved?.reason || (isResolved ? "resolved" : "resolver_no_match"),
+    diagnostics: resolved?.diagnostics || null
+  };
+}
+
 function isRemoteOkJobsUrl(rawUrl) {
   const urlText = String(rawUrl || "").trim();
   if (!urlText) {
@@ -1080,6 +1203,10 @@ function isBrowserCaptureSource(source) {
 }
 
 export function buildSourceRefreshMeta(source, options = {}) {
+  const refreshProfile = normalizeRefreshProfile(
+    options.refreshProfile || process.env.JOB_FINDER_REFRESH_PROFILE || "safe"
+  );
+
   if (!isBrowserCaptureSource(source)) {
     return {
       refreshMode: "safe",
@@ -1095,8 +1222,13 @@ export function buildSourceRefreshMeta(source, options = {}) {
     };
   }
 
-  const refreshStateData = readRefreshState(options.refreshStatePath);
-  const sourceState = resolveSourceRefreshState(refreshStateData, source.id) || {};
+  const decision = getSourceRefreshDecision(source, {
+    profile: refreshProfile,
+    forceRefresh: Boolean(options.forceRefresh),
+    statePath: options.refreshStatePath,
+    nowMs: options.nowMs
+  });
+  const sourceState = decision.sourceState || {};
   const lastAttemptedAt = sourceState.lastAttemptedAt || null;
   const lastAttemptOutcome = sourceState.lastAttemptOutcome || null;
   const lastAttemptError = sourceState.lastError || null;
@@ -1436,6 +1568,8 @@ function runSyncAndScore(options = {}) {
     const evaluations = evaluateJobsFromSearchCriteria(criteria, jobs);
     upsertEvaluations(db, evaluations);
     finalizeSourceRunDeltasForBatch(db, runId);
+
+    const deduplicatedQueueImportedCount = countDeduplicatedQueueJobsForRun(db, runId);
 
     return {
       runId,
@@ -1961,6 +2095,10 @@ export function buildDashboardData(limit = 200) {
   const sourceRunTotalsBySourceId = new Map(
     sourceRunTotals.map((row) => [row.sourceId, row])
   );
+  const importedJobCounts = withDatabase((db) => listImportedJobCountsBySourceId(db));
+  const importedJobCountsBySourceId = new Map(
+    importedJobCounts.map((row) => [row.sourceId, row.importedCount])
+  );
   const queue = filterActiveQueueJobs(statsQueue).slice(0, limit);
   const appliedQueue = statsQueue.filter((job) => job.status === "applied").slice(0, limit);
   const skippedQueue = statsQueue
@@ -2101,9 +2239,11 @@ export function buildDashboardData(limit = 200) {
           ? normalizeExpectedCount(capture.expectedCount)
           : null;
       const jobCount = counts.totalCount;
-      const importedCount = hasCountValue(runTotals.importedCount)
-        ? normalizeCount(runTotals.importedCount)
-        : null;
+      // "Imported" is the distinct-jobs-in-queue count, not the lifetime
+      // funnel-run SUM (runTotals.importedCount over-counts every time a
+      // recurring source re-captures the same listings). See
+      // listImportedJobCountsBySourceId / aggregateImportedJobCount.
+      const importedCount = aggregateImportedJobCount(source, importedJobCountsBySourceId);
       const filteredCount = hasCountValue(runTotals.filteredCount)
         ? normalizeCount(runTotals.filteredCount)
         : null;
@@ -7958,6 +8098,17 @@ export function startReviewServer({ port = 4311, limit = 5000 } = {}) {
       }
 
       if (request.method === "POST" && url.pathname.startsWith("/api/jobs/")) {
+        if (url.pathname === "/api/jobs/open-target") {
+          const rawBody = await readRequestBody(request);
+          const parsedBody = rawBody ? JSON.parse(rawBody) : {};
+          const jobPayload =
+            parsedBody?.job && typeof parsedBody.job === "object" ? parsedBody.job : {};
+          const target = resolveJobOpenTarget(jobPayload);
+          response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+          response.end(JSON.stringify({ ok: true, target }));
+          return;
+        }
+
         const match = url.pathname.match(/^\/api\/jobs\/([^/]+)\/status$/);
         if (!match) {
           response.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });

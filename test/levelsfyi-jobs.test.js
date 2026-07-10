@@ -427,3 +427,53 @@ test("collectLevelsFyiJobsFromSearch paginates API payloads until maxJobs", () =
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test("collectLevelsFyiJobsFromSearch prefers the live capture payload when present", () => {
+  const { tempDir, capturePath } = createTempCapturePath("job-finder-levels-capture-preferred-");
+  const source = {
+    id: "levels-pm",
+    name: "Levels.fyi",
+    type: "levelsfyi_search",
+    searchUrl: "https://www.levels.fyi/jobs?searchText=ai",
+    capturePath,
+    maxJobs: 10
+  };
+
+  fs.writeFileSync(
+    capturePath,
+    `${JSON.stringify({
+      sourceId: source.id,
+      sourceName: source.name,
+      searchUrl: source.searchUrl,
+      capturedAt: "2026-04-14T20:00:00.000Z",
+      expectedCount: 25,
+      jobs: [
+        {
+          id: "levels-job-1",
+          sourceId: source.id,
+          sourceUrl: toLevelsFyiReviewUrl("levels-job-1"),
+          url: toLevelsFyiReviewUrl("levels-job-1"),
+          externalId: "levels-job-1",
+          title: "AI Product Manager",
+          company: "LevelsCo",
+          location: "San Francisco, CA"
+        }
+      ]
+    }, null, 2)}\n`,
+    "utf8"
+  );
+
+  try {
+    const jobs = collectLevelsFyiJobsFromSearch(source, {
+      fetchJson() {
+        throw new Error("API should not be queried when a live capture exists");
+      }
+    });
+
+    assert.equal(jobs.length, 1);
+    assert.equal(jobs[0].externalId, "levels-job-1");
+    assert.equal(jobs[0].title, "AI Product Manager");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  filterIndeedCapturedJobsWithDiagnostics,
   filterIndeedCapturedJobs,
   isIndeedJobUrl
 } from "../src/sources/indeed-jobs.js";
@@ -86,4 +87,27 @@ test("filterIndeedCapturedJobs removes salary and career rows from a mixed captu
       "https://www.indeed.com/rc/clk?jk=abcdef1234567890&vjs=3"
     ]
   );
+});
+
+test("filterIndeedCapturedJobsWithDiagnostics reports extractor rejects separately from product filtering", () => {
+  const result = filterIndeedCapturedJobsWithDiagnostics([
+    {
+      title: "AI Product Manager",
+      url: "https://www.indeed.com/viewjob?jk=2c6a74783ad4c265"
+    },
+    {
+      title: "Product Manager salaries",
+      url: "https://www.indeed.com/career/product-manager/salaries/San-Francisco--CA?fromjk=2c6a74783ad4c265"
+    },
+    {
+      title: "Placeholder",
+      url: "https://www.indeed.com/viewjob?jk=f1e2d3c4b5a67890"
+    }
+  ]);
+
+  assert.equal(result.jobs.length, 1);
+  assert.equal(result.diagnostics.rawUrlCount, 3);
+  assert.equal(result.diagnostics.jobsAccepted, 1);
+  assert.equal(result.diagnostics.jobsRejected, 2);
+  assert.deepEqual(result.diagnostics.rejectedReasons, ["blocked_url_or_job_id"]);
 });

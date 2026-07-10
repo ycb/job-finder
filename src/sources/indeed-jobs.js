@@ -127,10 +127,47 @@ export function filterIndeedCapturedJobs(jobs) {
   return (Array.isArray(jobs) ? jobs : []).filter((job) => isIndeedJobUrl(job?.url));
 }
 
+export function filterIndeedCapturedJobsWithDiagnostics(jobs) {
+  const input = Array.isArray(jobs) ? jobs : [];
+  const accepted = [];
+  const rejectedReasons = new Set();
+
+  for (const job of input) {
+    if (isIndeedJobUrl(job?.url)) {
+      accepted.push(job);
+    } else {
+      rejectedReasons.add("blocked_url_or_job_id");
+    }
+  }
+
+  return {
+    jobs: accepted,
+    diagnostics: {
+      rawUrlCount: input.length,
+      jobsAccepted: accepted.length,
+      jobsRejected: Math.max(0, input.length - accepted.length),
+      rejectedReasons: Array.from(rejectedReasons)
+    }
+  };
+}
+
 export function writeIndeedCaptureFile(source, jobs, options = {}) {
   assertIndeedSource(source);
 
-  const capturePath = writeSourceCapturePayload(source, jobs, options);
+  const captureDiagnostics =
+    options.captureDiagnostics &&
+    typeof options.captureDiagnostics === "object" &&
+    !Array.isArray(options.captureDiagnostics)
+      ? options.captureDiagnostics
+      : {};
+  const capturePath = writeSourceCapturePayload(source, jobs, {
+    ...options,
+    captureDiagnostics: {
+      captureMode: "browser_capture",
+      jobsAccepted: Array.isArray(jobs) ? jobs.length : 0,
+      ...captureDiagnostics
+    }
+  });
   const expectedCount = sanitizeExpectedCount(
     source,
     options.expectedCount,

@@ -1,7 +1,8 @@
 import crypto from "node:crypto";
 import {
   canonicalizeZipRecruiterSourceUrl,
-  extractZipRecruiterDeepLinkId
+  extractZipRecruiterDeepLinkId,
+  parseZipRecruiterDeepLink
 } from "../sources/ziprecruiter-jobs.js";
 
 function normalizeText(value, fallback = "") {
@@ -268,8 +269,26 @@ function inferExternalId(externalId, sourceUrl, sourceType) {
 }
 
 function buildJobIdentity({ sourceType, sourceId, sourceUrl, externalId, title, company, location }) {
+  const providedExternalId = normalizeText(externalId);
   const canonicalSourceUrl = canonicalizeSourceUrl(sourceUrl);
   const inferredExternalId = inferExternalId(externalId, canonicalSourceUrl || sourceUrl, sourceType);
+  const zipLinkIdentity =
+    sourceType === "ziprecruiter_search"
+      ? parseZipRecruiterDeepLink(canonicalSourceUrl || sourceUrl)
+      : { lk: "", uuid: "" };
+  const zipUsesUuidOnlyIdentity =
+    sourceType === "ziprecruiter_search" &&
+    Boolean(zipLinkIdentity.uuid) &&
+    !zipLinkIdentity.lk;
+  const externalIdIsUuidOnly =
+    zipUsesUuidOnlyIdentity &&
+    Boolean(providedExternalId) &&
+    providedExternalId === zipLinkIdentity.uuid;
+  const useExternalIdForIdentity = !(
+    zipUsesUuidOnlyIdentity &&
+    inferredExternalId &&
+    (!providedExternalId || externalIdIsUuidOnly)
+  );
   const normalizedRole = normalizeCompanyAndLocation(title, company, location);
   const roleSeed = `${normalizedRole.company.toLowerCase()}|${normalizeText(title).toLowerCase()}`;
 
@@ -278,17 +297,23 @@ function buildJobIdentity({ sourceType, sourceId, sourceUrl, externalId, title, 
     // Keep LinkedIn dedupe stable across legacy captures (no external id)
     // and newer captures that include `/jobs/view/{id}` URLs.
     dedupeSeed = `linkedin:${roleSeed}`;
-  } else if (inferredExternalId) {
+  } else if (inferredExternalId && useExternalIdForIdentity) {
     dedupeSeed = `${sourceType}:external:${inferredExternalId.toLowerCase()}`;
+  } else if (zipUsesUuidOnlyIdentity) {
+    // Zip company pages can reuse one uuid for multiple listings; keep role context in identity.
+    dedupeSeed = `ziprecruiter:uuid-role:${zipLinkIdentity.uuid.toLowerCase()}|${roleSeed}`;
   } else if (canonicalSourceUrl && !/\/jobs\/search-results\//i.test(canonicalSourceUrl)) {
     dedupeSeed = `url:${canonicalSourceUrl.toLowerCase()}`;
   } else {
     dedupeSeed = `fallback:${roleSeed}`;
   }
 
-  const recordKey = inferredExternalId
-    ? `external:${inferredExternalId}`
-    : canonicalSourceUrl || `${normalizeText(title)}|${normalizedRole.company}|${sourceId}`;
+  const recordKey =
+    inferredExternalId && useExternalIdForIdentity
+      ? `external:${inferredExternalId}`
+      : zipUsesUuidOnlyIdentity
+        ? `ziprecruiter:uuid-role:${zipLinkIdentity.uuid}|${roleSeed}`
+        : canonicalSourceUrl || `${normalizeText(title)}|${normalizedRole.company}|${sourceId}`;
 
   return {
     id: hashValue(`${sourceId}|${recordKey}`),

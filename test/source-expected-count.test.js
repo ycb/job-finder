@@ -54,6 +54,8 @@ test("writeIndeedCaptureFile preserves plausible expectedCount in capture payloa
     assert.equal(writeResult.expectedCount, 412);
     assert.equal(summary.payload?.expectedCount, 412);
     assert.equal(summary.payload?.captureFunnel?.availableCount, 412);
+    assert.equal(summary.payload?.captureDiagnostics?.captureMode, "browser_capture");
+    assert.equal(summary.payload?.captureDiagnostics?.jobsAccepted, 1);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

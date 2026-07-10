@@ -1,6 +1,20 @@
 import fs from "node:fs";
 import path from "node:path";
+import { getRefreshPolicyForSource, isLiveRefreshAllowed } from "./refresh-policy.js";
+import { isSourceQaModeEnabled } from "./qa-mode.js";
+import {
+  countSourceEventsForUtcDay,
+  readRefreshState,
+  resolveSourceRefreshState
+} from "./refresh-state.js";
 
+const HTTP_SOURCE_TYPES = new Set([
+  "builtin_search",
+  "google_search",
+  "yc_jobs",
+  "levelsfyi_search"
+]);
+const REFRESH_PROFILES = new Set(["safe", "probe", "mock"]);
 
 function normalizeExpectedCountValue(value) {
   if (value === null || value === undefined || value === "") {
@@ -36,6 +50,23 @@ export function sanitizeExpectedCount(source, value, jobCount = null) {
   }
 
   return shouldIgnoreExpectedCount(source, normalized, jobCount) ? null : normalized;
+}
+
+export function getDefaultCacheTtlHours(sourceType) {
+  if (HTTP_SOURCE_TYPES.has(String(sourceType || "").trim())) {
+    return 12;
+  }
+
+  return 24;
+}
+
+export function getSourceCacheTtlHours(source) {
+  const configured = Number(source?.cacheTtlHours);
+  if (Number.isFinite(configured) && configured > 0) {
+    return configured;
+  }
+
+  return getDefaultCacheTtlHours(source?.type);
 }
 
 export function readSourceCaptureSummary(source) {

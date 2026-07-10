@@ -522,7 +522,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState("");
   const [jobsView, setJobsView] = useState("all");
-  const [jobsTopTab, setJobsTopTab] = useState("search");
+  const [jobsTopTab, setJobsTopTab] = useState("enabled");
   const [jobsSort, setJobsSort] = useState("score");
   const [jobsSourceFilter, setJobsSourceFilter] = useState("all");
   const [jobsPostedFilter, setJobsPostedFilter] = useState("all");
@@ -1502,7 +1502,30 @@ export default function App() {
       return;
     }
 
-    window.open(currentJob.reviewTarget.url, "job-review-target", "noopener,noreferrer");
+    let targetUrl = currentJob.reviewTarget.url;
+    try {
+      const payload = await requestJson("/api/jobs/open-target", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job: currentJob }),
+      });
+      const resolvedUrl =
+        typeof payload?.target?.url === "string" ? payload.target.url.trim() : "";
+      if (resolvedUrl) {
+        targetUrl = resolvedUrl;
+      }
+    } catch (error) {
+      toast({
+        title: "Using saved job link",
+        description:
+          typeof error?.message === "string"
+            ? error.message
+            : "Could not resolve a job-specific URL before opening.",
+        variant: "destructive",
+      });
+    }
+
+    window.open(targetUrl, "job-review-target", "noopener,noreferrer");
 
     if (currentJob.status !== "new") {
       return;

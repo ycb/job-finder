@@ -138,7 +138,14 @@ export function upsertJobs(db, jobs, options = {}) {
       `);
 
   let inserted = 0;
-  const newJobIds = [];
+  const touchedJobIds = [];
+  const resolvePersistedJobId = db.prepare(`
+    SELECT id
+    FROM jobs
+    WHERE source_id = ?
+      AND source_url = ?
+    LIMIT 1;
+  `);
 
   for (const job of jobs) {
     const params = [
@@ -173,14 +180,16 @@ export function upsertJobs(db, jobs, options = {}) {
 
     if (result.changes > 0) {
       inserted += 1;
-      newJobIds.push({ id: job.id, normalizedHash: job.normalizedHash });
+      const persistedJobId =
+        resolvePersistedJobId.get(job.sourceId, job.sourceUrl)?.id || job.id;
+      touchedJobIds.push({ id: persistedJobId, normalizedHash: job.normalizedHash });
     }
   }
 
   // Inherit application status from existing jobs with the same normalized_hash
   // This ensures that if a user rejected a job, new captures with the same hash
   // are also marked as rejected, preventing them from reappearing in the Active queue
-  if (newJobIds.length > 0) {
+  if (touchedJobIds.length > 0) {
     const inheritStatusStmt = db.prepare(`
       INSERT INTO applications (job_id, status, notes, last_action_at)
       SELECT ?, a.status, a.notes, a.last_action_at
@@ -194,7 +203,7 @@ export function upsertJobs(db, jobs, options = {}) {
       ON CONFLICT(job_id) DO NOTHING;
     `);
 
-    for (const { id, normalizedHash } of newJobIds) {
+    for (const { id, normalizedHash } of touchedJobIds) {
       if (normalizedHash) {
         inheritStatusStmt.run(id, normalizedHash, id);
       }
@@ -423,6 +432,34 @@ export function countActiveJobsByIds(db, jobIds = []) {
   return Math.max(0, Math.round(Number(row?.count) || 0));
 }
 
+export function countDeduplicatedQueueJobsForRun(db, runId) {
+  const normalizedRunId = String(runId || "").trim();
+  if (!normalizedRunId || !jobTableHasColumn(db, "last_import_batch_id")) {
+    return 0;
+  }
+
+  const row = db
+    .prepare(
+      `
+      SELECT COUNT(DISTINCT
+        CASE
+          WHEN j.normalized_hash IS NOT NULL AND TRIM(j.normalized_hash) != '' THEN j.normalized_hash
+          ELSE j.id
+        END
+      ) AS count
+      FROM jobs j
+      LEFT JOIN evaluations e ON e.job_id = j.id
+      LEFT JOIN applications a ON a.job_id = j.id
+      WHERE j.last_import_batch_id = ?
+        AND COALESCE(e.hard_filtered, 0) = 0
+        AND COALESCE(a.status, 'new') IN ('new', 'viewed');
+    `
+    )
+    .get(normalizedRunId);
+
+  return Math.max(0, Math.round(Number(row?.count) || 0));
+}
+
 export function finalizeSourceRunDeltasForBatch(db, runId) {
   const normalizedRunId = String(runId || "").trim();
   if (!normalizedRunId) {
@@ -445,8 +482,6 @@ export function finalizeSourceRunDeltasForBatch(db, runId) {
 
   const summarizeSourceBatch = db.prepare(`
     SELECT
-      COUNT(*) AS importedKeptCount,
-      SUM(CASE WHEN COALESCE(e.hard_filtered, 0) = 1 THEN 1 ELSE 0 END) AS hardFilteredCount,
       SUM(
         CASE
           WHEN COALESCE(a.status, 'new') IN ('new', 'viewed')
@@ -465,8 +500,6 @@ export function finalizeSourceRunDeltasForBatch(db, runId) {
   const updateDelta = db.prepare(`
     UPDATE source_run_deltas
     SET
-      hard_filtered_count = ?,
-      imported_kept_count = ?,
       imported_count = ?
     WHERE run_id = ?
       AND source_id = ?;
@@ -480,8 +513,6 @@ export function finalizeSourceRunDeltasForBatch(db, runId) {
     }
     const summary = summarizeSourceBatch.get(normalizedRunId, sourceId);
     updateDelta.run(
-      Math.max(0, Math.round(Number(summary?.hardFilteredCount) || 0)),
-      Math.max(0, Math.round(Number(summary?.importedKeptCount) || 0)),
       Math.max(0, Math.round(Number(summary?.importedCount) || 0)),
       normalizedRunId,
       sourceId
@@ -636,6 +667,33 @@ export function listSourceRunTotals(db) {
       FROM deduped_runs
       GROUP BY source_id
       ORDER BY source_id ASC;
+    `
+    )
+    .all();
+}
+
+// Distinct jobs currently persisted for each source that made it into the
+// ranked queue (passed the hard filter), deduped by normalized_hash. Unlike
+// listSourceRunTotals (a lifetime SUM of per-run funnel counters that
+// re-counts a job every time a recurring run re-captures it), this counts
+// each real job once regardless of how many times it has been re-captured,
+// and is independent of downstream applied/skipped/rejected status.
+export function listImportedJobCountsBySourceId(db) {
+  return db
+    .prepare(
+      `
+      SELECT
+        j.source_id AS sourceId,
+        COUNT(DISTINCT
+          CASE
+            WHEN j.normalized_hash IS NOT NULL AND TRIM(j.normalized_hash) != '' THEN j.normalized_hash
+            ELSE j.id
+          END
+        ) AS importedCount
+      FROM jobs j
+      LEFT JOIN evaluations e ON e.job_id = j.id
+      WHERE COALESCE(e.hard_filtered, 0) = 0
+      GROUP BY j.source_id;
     `
     )
     .all();
@@ -917,38 +975,6 @@ export function markApplicationStatusByNormalizedHash(
   for (const row of rows) {
     upsertApplicationStatus(db, row.id, status, notes);
   }
-}
-
-/**
- * Count active-queue-eligible jobs from a given run, deduplicated across sources
- * by normalizedHash. This is the number the user sees as "New" in the Jobs tab
- * queue — one per unique job even if multiple sources imported the same posting.
- *
- * Use this for the run-level "Imported" aggregate so it aligns with the queue
- * New count rather than the sum of per-source importedCount values, which
- * overcounts when the same underlying job is imported by several sources.
- */
-export function countDeduplicatedQueueJobsForRun(db, runId) {
-  const normalizedRunId = String(runId || "").trim();
-  if (!normalizedRunId) {
-    return 0;
-  }
-
-  const row = db
-    .prepare(
-      `
-      SELECT COUNT(DISTINCT COALESCE(j.normalized_hash, j.id)) AS count
-      FROM jobs j
-      LEFT JOIN applications a ON a.job_id = j.id
-      LEFT JOIN evaluations e  ON e.job_id = j.id
-      WHERE j.last_import_batch_id = ?
-        AND COALESCE(a.status, 'new') IN ('new', 'viewed')
-        AND COALESCE(e.hard_filtered, 0) = 0;
-    `
-    )
-    .get(normalizedRunId);
-
-  return Math.max(0, Math.round(Number(row?.count) || 0));
 }
 
 export function getLatestImportedRunId(db) {

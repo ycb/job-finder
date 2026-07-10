@@ -24,18 +24,28 @@ function hostLooksLikeZipRecruiter(hostname) {
   return host === "ziprecruiter.com" || host.endsWith(".ziprecruiter.com");
 }
 
-export function extractZipRecruiterDeepLinkId(rawUrl) {
+export function parseZipRecruiterDeepLink(rawUrl) {
   const parsed = parseUrlSafe(rawUrl);
   if (!parsed || !hostLooksLikeZipRecruiter(parsed.hostname)) {
-    return "";
+    return {
+      lk: "",
+      uuid: ""
+    };
   }
 
-  const lk = normalizeText(parsed.searchParams.get("lk") || "");
+  return {
+    lk: normalizeText(parsed.searchParams.get("lk") || ""),
+    uuid: normalizeText(parsed.searchParams.get("uuid") || "")
+  };
+}
+
+export function extractZipRecruiterDeepLinkId(rawUrl) {
+  const { lk, uuid } = parseZipRecruiterDeepLink(rawUrl);
   if (lk) {
     return lk;
   }
 
-  return normalizeText(parsed.searchParams.get("uuid") || "");
+  return uuid;
 }
 
 export function canonicalizeZipRecruiterSourceUrl(rawUrl) {
@@ -49,19 +59,46 @@ export function canonicalizeZipRecruiterSourceUrl(rawUrl) {
   }
 
   const canonical = new URL(parsed.toString());
-  const lk = normalizeText(parsed.searchParams.get("lk") || "");
-  const uuid = normalizeText(parsed.searchParams.get("uuid") || "");
-
   canonical.hash = "";
-  canonical.search = "";
-
-  if (lk) {
-    canonical.searchParams.set("lk", lk);
-  } else if (uuid) {
-    canonical.searchParams.set("uuid", uuid);
-  }
 
   return canonical.toString();
+}
+
+function parseZipRecruiterUrlSafe(rawUrl) {
+  const parsed = parseUrlSafe(rawUrl);
+  if (!parsed || !hostLooksLikeZipRecruiter(parsed.hostname)) {
+    return null;
+  }
+  return parsed;
+}
+
+export function selectZipRecruiterJobUrl({ primaryUrl, detailUrl } = {}) {
+  const primaryParsed = parseZipRecruiterUrlSafe(primaryUrl);
+  const detailParsed = parseZipRecruiterUrlSafe(detailUrl);
+
+  if (!primaryParsed && !detailParsed) {
+    return normalizeText(primaryUrl || detailUrl || "");
+  }
+  if (!primaryParsed) {
+    return canonicalizeZipRecruiterSourceUrl(detailParsed.toString());
+  }
+  if (!detailParsed) {
+    return canonicalizeZipRecruiterSourceUrl(primaryParsed.toString());
+  }
+
+  const primaryIdentity = parseZipRecruiterDeepLink(primaryParsed.toString());
+  const detailIdentity = parseZipRecruiterDeepLink(detailParsed.toString());
+  const samePath = primaryParsed.pathname === detailParsed.pathname;
+  const sameUuid =
+    primaryIdentity.uuid &&
+    detailIdentity.uuid &&
+    primaryIdentity.uuid === detailIdentity.uuid;
+
+  if (detailIdentity.lk && (!primaryIdentity.lk || sameUuid || samePath)) {
+    return canonicalizeZipRecruiterSourceUrl(detailParsed.toString());
+  }
+
+  return canonicalizeZipRecruiterSourceUrl(primaryParsed.toString());
 }
 
 function sanitizeZipRecruiterJob(job) {
@@ -69,12 +106,17 @@ function sanitizeZipRecruiterJob(job) {
     return job;
   }
 
-  const url = canonicalizeZipRecruiterSourceUrl(job.url || "");
+  const url = selectZipRecruiterJobUrl({
+    primaryUrl: job.url || "",
+    detailUrl: job.detailUrl || job.detail_url || ""
+  });
   const inferredExternalId = extractZipRecruiterDeepLinkId(url);
   const externalId = normalizeText(job.externalId) || inferredExternalId || null;
 
   return {
     ...job,
+    detailUrl: undefined,
+    detail_url: undefined,
     url,
     externalId
   };

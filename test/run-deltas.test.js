@@ -13,6 +13,7 @@ import {
   countSourceJobsInBatch,
   finalizeSourceRunDeltasForBatch,
   getLatestImportedRunId,
+  listImportedJobCountsBySourceId,
   listSourceRunTotals,
   listLatestSourceRunDeltas,
   recordSourceRunDeltas,
@@ -426,6 +427,116 @@ test("listSourceRunTotals returns cumulative persisted source funnel metrics", (
         duplicateCollapsedSamples: 2,
         importedKeptSamples: 2
       }
+    ]);
+  } finally {
+    cleanupTempDb(db, dir);
+  }
+});
+
+test("listImportedJobCountsBySourceId reports distinct surviving jobs, not the inflated lifetime run-total SUM", () => {
+  const { db, dir } = createTempDb();
+
+  try {
+    const sourceId = "source-a";
+
+    // Simulate the same source being re-captured across many runs, the way
+    // recordSourceRunDeltas accumulates over time. Each run reports 13, then
+    // 12 imported-kept jobs, most of which are the *same* recurring listings.
+    recordSourceRunDeltas(db, [
+      {
+        runId: "run-1",
+        sourceId,
+        foundCount: 20,
+        filteredCount: 5,
+        dedupedCount: 2,
+        rawFoundCount: 20,
+        hardFilteredCount: 5,
+        duplicateCollapsedCount: 2,
+        importedKeptCount: 13,
+        newCount: 2,
+        updatedCount: 0,
+        unchangedCount: 11,
+        importedCount: 13,
+        recordedAt: "2026-03-09T06:00:10.000Z"
+      },
+      {
+        runId: "run-2",
+        sourceId,
+        foundCount: 18,
+        filteredCount: 4,
+        dedupedCount: 2,
+        rawFoundCount: 18,
+        hardFilteredCount: 4,
+        duplicateCollapsedCount: 2,
+        importedKeptCount: 12,
+        newCount: 0,
+        updatedCount: 0,
+        unchangedCount: 12,
+        importedCount: 12,
+        recordedAt: "2026-03-09T07:00:10.000Z"
+      }
+    ]);
+
+    // The lifetime funnel SUM re-counts recurring listings on every run.
+    assert.equal(listSourceRunTotals(db)[0].importedCount, 25);
+
+    // But only 2 distinct jobs were ever actually persisted for this source:
+    // one that survived the hard filter, one that didn't.
+    upsertJobs(db, [
+      {
+        id: "job-1",
+        source: "builtin_search",
+        sourceId,
+        sourceUrl: "https://example.com/jobs/1",
+        externalId: "1",
+        title: "Senior Product Manager",
+        company: "Example",
+        location: "San Francisco, CA",
+        postedAt: null,
+        employmentType: null,
+        easyApply: false,
+        salaryText: null,
+        description: "Role",
+        normalizedHash: "hash-1",
+        structuredMeta: null,
+        metadataQualityScore: null,
+        missingRequiredFields: null,
+        createdAt: "2026-03-09T06:00:10.000Z",
+        updatedAt: "2026-03-09T07:00:10.000Z"
+      },
+      {
+        id: "job-2",
+        source: "builtin_search",
+        sourceId,
+        sourceUrl: "https://example.com/jobs/2",
+        externalId: "2",
+        title: "Staff Product Manager",
+        company: "Example",
+        location: "San Francisco, CA",
+        postedAt: null,
+        employmentType: null,
+        easyApply: false,
+        salaryText: null,
+        description: "Role",
+        normalizedHash: "hash-2",
+        structuredMeta: null,
+        metadataQualityScore: null,
+        missingRequiredFields: null,
+        createdAt: "2026-03-09T06:00:10.000Z",
+        updatedAt: "2026-03-09T07:00:10.000Z"
+      }
+    ]);
+    db.prepare(
+      `INSERT INTO evaluations (job_id, score, bucket, summary, reasons, confidence, freshness_days, hard_filtered, evaluated_at)
+       VALUES (?, ?, ?, ?, '[]', ?, ?, ?, ?)`
+    ).run("job-1", 80, "high_signal", "Role", 90, 1, 0, "2026-03-09T07:00:10.000Z");
+    db.prepare(
+      `INSERT INTO evaluations (job_id, score, bucket, summary, reasons, confidence, freshness_days, hard_filtered, evaluated_at)
+       VALUES (?, ?, ?, ?, '[]', ?, ?, ?, ?)`
+    ).run("job-2", 10, "reject", "Role", 40, 1, 1, "2026-03-09T07:00:10.000Z");
+
+    assert.deepEqual(listImportedJobCountsBySourceId(db), [
+      { sourceId, importedCount: 1 }
     ]);
   } finally {
     cleanupTempDb(db, dir);
@@ -965,7 +1076,7 @@ test("countActiveJobsByIds counts only queue-eligible imported jobs", () => {
   }
 });
 
-test("finalizeSourceRunDeltasForBatch refreshes imported counts from scored batch state", () => {
+test("finalizeSourceRunDeltasForBatch refreshes imported counts without overwriting semantic counts", () => {
   const { db, dir } = createTempDb();
 
   try {
@@ -1049,7 +1160,7 @@ test("finalizeSourceRunDeltasForBatch refreshes imported counts from scored batc
       )
       .get();
 
-    assert.equal(row.hardFilteredCount, 1);
+    assert.equal(row.hardFilteredCount, 0);
     assert.equal(row.importedKeptCount, 2);
     assert.equal(row.importedCount, 0);
   } finally {

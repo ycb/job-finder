@@ -8,7 +8,7 @@ import LZString from "lz-string";
 import { writeAshbyCaptureFile } from "../../sources/ashby-jobs.js";
 import { writeGoogleCaptureFile } from "../../sources/google-jobs.js";
 import {
-  filterIndeedCapturedJobs,
+  filterIndeedCapturedJobsWithDiagnostics,
   getIndeedNativeFilterState,
   INDEED_EXPECTED_COUNT_SELECTORS,
   writeIndeedCaptureFile
@@ -50,6 +50,10 @@ function runAppleScript(script, timeoutMs = 15_000) {
   const lines = Array.isArray(script)
     ? script
     : String(script || "").split(/\r?\n/).filter(Boolean);
+  const debugAppleScriptPath = String(process.env.JOB_FINDER_DEBUG_APPLESCRIPT_PATH || "").trim();
+  if (debugAppleScriptPath) {
+    fs.writeFileSync(debugAppleScriptPath, `${lines.join("\n")}\n`, "utf8");
+  }
   const args = [];
   for (const line of lines) {
     args.push("-e", line);
@@ -85,6 +89,12 @@ function runAppleScript(script, timeoutMs = 15_000) {
 
   if (result.status !== 0) {
     const errorText = String(result.stderr || result.stdout || "").trim();
+    const debugAppleScriptErrorPath = String(
+      process.env.JOB_FINDER_DEBUG_APPLESCRIPT_ERROR_PATH || ""
+    ).trim();
+    if (debugAppleScriptErrorPath) {
+      fs.writeFileSync(debugAppleScriptErrorPath, `${errorText}\n`, "utf8");
+    }
     if (
       /Allow JavaScript from Apple Events/i.test(errorText) ||
       /Access not allowed/i.test(errorText) ||
@@ -102,6 +112,28 @@ function runAppleScript(script, timeoutMs = 15_000) {
 }
 
 let automationWindowId = null;
+
+function isMissingChromeWindowError(error) {
+  const message = String(error?.message || error || "");
+  return (
+    /window id .*?-1728/i.test(message) ||
+    /Can.t get window id .*?-1728/i.test(message) ||
+    (/Can.t set window id/i.test(message) && /\(-10006\)/.test(message))
+  );
+}
+
+function withAutomationWindowRecovery(message, callback) {
+  try {
+    return callback(ensureAutomationWindow(message));
+  } catch (error) {
+    if (!isMissingChromeWindowError(error)) {
+      throw error;
+    }
+
+    automationWindowId = null;
+    return callback(ensureAutomationWindow(message));
+  }
+}
 
 function createChromeProbeWindow(url, timeoutMs) {
   const escapedUrl = escapeAppleScriptString(url);
@@ -264,18 +296,19 @@ function ensureAutomationWindow(message) {
 }
 
 function showAutomationMessage(message) {
-  const windowId = ensureAutomationWindow(message);
   const escapedStatusUrl = escapeAppleScriptString(
     buildAutomationStatusUrl(message)
   );
 
-  runAppleScript(
-    [
-      'tell application "Google Chrome"',
-      `set _window to window id ${windowId}`,
-      `set URL of active tab of _window to "${escapedStatusUrl}"`,
-      "end tell"
-    ].join("\n")
+  withAutomationWindowRecovery(message, (windowId) =>
+    runAppleScript(
+      [
+        'tell application "Google Chrome"',
+        `set _window to window id ${windowId}`,
+        `set URL of active tab of _window to "${escapedStatusUrl}"`,
+        "end tell"
+      ].join("\n")
+    )
   );
 }
 
@@ -301,69 +334,65 @@ function closeAutomationWindow() {
 }
 
 function navigateAutomationTab(url, message, timeoutMs) {
-  const windowId = ensureAutomationWindow(message);
   showAutomationMessage(message);
-  runAppleScript(
-    [
-      'tell application "Google Chrome"',
-      `set _window to window id ${windowId}`,
-      `set URL of active tab of _window to "${escapeAppleScriptString(url)}"`,
-      "end tell"
-    ].join("\n"),
-    timeoutMs
+  withAutomationWindowRecovery(message, (windowId) =>
+    runAppleScript(
+      [
+        'tell application "Google Chrome"',
+        `set _window to window id ${windowId}`,
+        `set URL of active tab of _window to "${escapeAppleScriptString(url)}"`,
+        "end tell"
+      ].join("\n"),
+      timeoutMs
+    )
   );
 }
 
 function executeInAutomationTab(javaScript, timeoutMs) {
-  const windowId = ensureAutomationWindow("Refreshing sources...");
-  return runAppleScript(
-    [
-      'tell application "Google Chrome"',
-      "set _previousWindow to front window",
-      `set _window to window id ${windowId}`,
-      "set index of _window to 1",
-      'tell active tab of _window',
-      `set resultText to execute javascript "${escapeAppleScriptString(javaScript)}"`,
-      "end tell",
-      "set index of _previousWindow to 1",
-      "return resultText",
-      "end tell"
-    ].join("\n"),
-    timeoutMs
+  const encoded = Buffer.from(String(javaScript || ""), "utf8").toString("base64");
+  const wrapped = `(() => { const script = atob('${encoded}'); return eval(script); })()`;
+  return withAutomationWindowRecovery("Refreshing sources...", (windowId) =>
+    runAppleScript(
+      [
+        'tell application "Google Chrome"',
+        "set _previousWindow to front window",
+        `set _window to window id ${windowId}`,
+        "set index of _window to 1",
+        'tell active tab of _window',
+        `set resultText to execute javascript "${escapeAppleScriptString(wrapped)}"`,
+        "end tell",
+        "set index of _previousWindow to 1",
+        "return resultText",
+        "end tell"
+      ].join("\n"),
+      timeoutMs
+    )
   );
 }
 
 function executeInAutomationWindowFront(javaScript, timeoutMs) {
-  const windowId = ensureAutomationWindow("Refreshing sources...");
-  return runAppleScript(
-    [
-      'tell application "Google Chrome"',
-      "activate",
-      `set _window to window id ${windowId}`,
-      "set index of _window to 1",
-      'tell active tab of _window',
-      `set resultText to execute javascript "${escapeAppleScriptString(javaScript)}"`,
-      "end tell",
-      "return resultText",
-      "end tell"
-    ].join("\n"),
-    timeoutMs
+  const encoded = Buffer.from(String(javaScript || ""), "utf8").toString("base64");
+  const wrapped = `(() => { const script = atob('${encoded}'); return eval(script); })()`;
+  return withAutomationWindowRecovery("Refreshing sources...", (windowId) =>
+    runAppleScript(
+      [
+        'tell application "Google Chrome"',
+        "activate",
+        `set _window to window id ${windowId}`,
+        "set index of _window to 1",
+        'tell active tab of _window',
+        `set resultText to execute javascript "${escapeAppleScriptString(wrapped)}"`,
+        "end tell",
+        "return resultText",
+        "end tell"
+      ].join("\n"),
+      timeoutMs
+    )
   );
 }
 
 function executeInAutomationWindowFrontEncoded(javaScript, timeoutMs) {
-  const windowId = ensureAutomationWindow("Refreshing sources...");
-  runAppleScript(
-    [
-      'tell application "Google Chrome"',
-      "activate",
-      `set _window to window id ${windowId}`,
-      "set index of _window to 1",
-      "end tell"
-    ].join("\n"),
-    timeoutMs
-  );
-  return executeInChromeWindowEncoded(windowId, javaScript, timeoutMs);
+  return executeInAutomationWindowFront(javaScript, timeoutMs);
 }
 
 function executeInFrontWindow(javaScript, timeoutMs) {
@@ -486,16 +515,17 @@ function listTabUrlsMatchingSubstring(urlSubstring, maxUrls = 12) {
 }
 
 function readAutomationTabInfo() {
-  const windowId = ensureAutomationWindow("Refreshing sources...");
-  const raw = runAppleScript(
-    [
-      'tell application "Google Chrome"',
-      `set _window to window id ${windowId}`,
-      "set tabUrl to URL of active tab of _window",
-      "set tabTitle to title of active tab of _window",
-      "return tabUrl & \"\\n\" & tabTitle",
-      "end tell"
-    ].join("\n")
+  const raw = withAutomationWindowRecovery("Refreshing sources...", (windowId) =>
+    runAppleScript(
+      [
+        'tell application "Google Chrome"',
+        `set _window to window id ${windowId}`,
+        "set tabUrl to URL of active tab of _window",
+        "set tabTitle to title of active tab of _window",
+        "return tabUrl & \"\\n\" & tabTitle",
+        "end tell"
+      ].join("\n")
+    )
   );
 
   const [url = "", title = ""] = String(raw || "").split(/\r?\n/, 2);
@@ -3176,11 +3206,13 @@ export function capturePaginatedJobsWithNavigator({ maxPages, readPage, navigate
   let lastPayload = null;
   let expectedCount = null;
   let pagesVisited = 0;
+  let stopReason = "max_pages";
 
   for (let index = 0; index < pages; index += 1) {
     if (index > 0 && typeof navigatePage === "function") {
       const navigated = navigatePage(index);
       if (navigated === false) {
+        stopReason = "navigation_stopped";
         break;
       }
     }
@@ -3198,8 +3230,10 @@ export function capturePaginatedJobsWithNavigator({ maxPages, readPage, navigate
     const jobs = Array.isArray(payload?.jobs) ? payload.jobs : [];
     if (jobs.length === 0) {
       if (index === 0) {
+        stopReason = "empty_first_page";
         break;
       }
+      stopReason = "empty_page";
       break;
     }
 
@@ -3210,11 +3244,12 @@ export function capturePaginatedJobsWithNavigator({ maxPages, readPage, navigate
     collected.push(...deduped);
 
     if (collected.length === priorCount) {
+      stopReason = "no_new_jobs";
       break;
     }
   }
 
-  return { jobs: collected, expectedCount, lastPayload, pagesVisited };
+  return { jobs: collected, expectedCount, lastPayload, pagesVisited, stopReason };
 }
 
 function capturePaginatedGenericBoardJobs({
@@ -3241,7 +3276,14 @@ function capturePaginatedGenericBoardJobs({
       pageUrl: searchUrl,
       capturedAt: new Date().toISOString(),
       jobs: result.jobs,
-      expectedCount: result.expectedCount
+      expectedCount: result.expectedCount,
+      captureDiagnostics: {
+        ...(result.lastPayload?.captureDiagnostics || {}),
+        pagesVisited: result.pagesVisited,
+        stopReason: result.stopReason,
+        cardsSeen: result.lastPayload?.debug?.cards ?? null,
+        jobsAccepted: result.jobs.length
+      }
     };
   }
 
@@ -3270,6 +3312,15 @@ function readGenericBoardJobsFromChrome(searchUrl, extractionScript, options = {
   let lastError = null;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      executeInAutomationTab(
+        `(() => { window.scrollTo(0, document.body.scrollHeight); window.dispatchEvent(new Event("scroll")); return "ok"; })()`,
+        Math.min(timeoutMs, 5_000)
+      );
+      sleepSync(500);
+    } catch {
+      // Extraction can still succeed without an explicit scroll pass.
+    }
     const raw = executeInAutomationTab(extractionScript, timeoutMs);
     lastRaw = raw;
     if (debugResultPath) {
@@ -3533,7 +3584,7 @@ function buildIndeedExtractionScript(nativeFilterState = null) {
 function readIndeedJobsFromChrome(searchUrl, options = {}) {
   const extractionScript = buildIndeedExtractionScript(options.nativeFilterState);
   const maxPages = Number(options.maxPages) > 0 ? Number(options.maxPages) : 8;
-  const payload = capturePaginatedGenericBoardJobs({
+  return capturePaginatedGenericBoardJobs({
     searchUrl,
     extractionScript,
     maxPages,
@@ -3541,8 +3592,6 @@ function readIndeedJobsFromChrome(searchUrl, options = {}) {
       buildUrlWithSearchParam(searchUrl, "start", String(index * 10)),
     options
   });
-  payload.jobs = filterIndeedCapturedJobs(payload.jobs);
-  return payload;
 }
 
 function readZipRecruiterJobsFromChrome(searchUrl, options = {}) {
@@ -3694,7 +3743,534 @@ function readZipRecruiterJobsFromChrome(searchUrl, options = {}) {
     };
   };
 
+  const extractDeepLinkParts = (rawUrl) => {
+    try {
+      const parsed = new URL(String(rawUrl || ""), location.origin);
+      return {
+        href: parsed.toString(),
+        path: String(parsed.pathname || ""),
+        lk: normalize(parsed.searchParams.get("lk") || ""),
+        uuid: normalize(parsed.searchParams.get("uuid") || "")
+      };
+    } catch {
+      return {
+        href: normalize(rawUrl),
+        path: "",
+        lk: "",
+        uuid: ""
+      };
+    }
+  };
+
+  const waitForMs = (milliseconds) => {
+    const start = Date.now();
+    while (Date.now() - start < milliseconds) {
+      // Busy wait is acceptable here; script runs inside browser automation context.
+    }
+  };
+
+  const clickElement = (element) => {
+    if (!element) {
+      return;
+    }
+    try {
+      element.scrollIntoView({ block: "center", inline: "nearest", behavior: "auto" });
+    } catch {}
+    try {
+      element.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+      element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+      element.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+    } catch {}
+    try {
+      if (typeof element.click === "function") {
+        element.click();
+      }
+    } catch {}
+  };
+
+  const readDetailTitle = () => {
+    const selectors = [
+      '[data-testid*="job-detail"] h1',
+      '[data-testid*="job-detail"] h2',
+      '[class*="jobDetail"] h1',
+      '[class*="jobDetail"] h2',
+      '[class*="job-detail"] h1',
+      '[class*="job-detail"] h2',
+      "main h1",
+      "main h2"
+    ];
+    for (const selector of selectors) {
+      const node = document.querySelector(selector);
+      const text = normalize(node?.innerText || node?.textContent || "");
+      if (text.length >= 4 && text.length <= 180) {
+        return text;
+      }
+    }
+    return "";
+  };
+
+  const collectUrlCandidatesFromText = (rawText) => {
+    const text = String(rawText || "");
+    if (!text) {
+      return [];
+    }
+    const matches = text.match(/https?:\\/\\/[^\\s"'<>]+/gi) || [];
+    return matches.map((value) => normalize(value));
+  };
+
+  const collectDetailUrlCandidates = (detailRoot) => {
+    if (!detailRoot || typeof detailRoot.querySelectorAll !== "function") {
+      return [];
+    }
+
+    const candidates = new Set();
+    const attributeSelectors = [
+      "[href]",
+      "[data-href]",
+      "[data-url]",
+      "[data-link]",
+      "[data-apply-url]",
+      "[data-apply-href]",
+      "[onclick]"
+    ].join(", ");
+
+    const nodes = [detailRoot, ...Array.from(detailRoot.querySelectorAll(attributeSelectors))];
+    for (const node of nodes) {
+      if (!node || typeof node.getAttribute !== "function") {
+        continue;
+      }
+
+      const directValues = [
+        node.getAttribute("href"),
+        node.getAttribute("data-href"),
+        node.getAttribute("data-url"),
+        node.getAttribute("data-link"),
+        node.getAttribute("data-apply-url"),
+        node.getAttribute("data-apply-href"),
+        node.getAttribute("onclick")
+      ];
+
+      for (const rawValue of directValues) {
+        for (const candidate of collectUrlCandidatesFromText(rawValue)) {
+          if (candidate.includes("ziprecruiter.com")) {
+            candidates.add(candidate);
+          }
+        }
+      }
+    }
+
+    return Array.from(candidates);
+  };
+
+  const walkStateForZipCandidates = () => {
+    const candidates = [];
+    const visited = new Set();
+    const roots = [
+      window.__NEXT_DATA__,
+      window.__INITIAL_STATE__,
+      window.__NUXT__,
+      window.__PRELOADED_STATE__,
+      window.__APOLLO_STATE__,
+      window.__STATE__
+    ].filter(Boolean);
+
+    const pushCandidate = ({ title, lk, uuid, url, source }) => {
+      const normalizedTitle = normalize(title);
+      const normalizedLk = normalize(lk);
+      const normalizedUuid = normalize(uuid);
+      const normalizedUrl = normalize(url);
+      if (!normalizedTitle && !normalizedLk && !normalizedUuid && !normalizedUrl) {
+        return;
+      }
+      candidates.push({
+        title: normalizedTitle,
+        lk: normalizedLk,
+        uuid: normalizedUuid,
+        url: normalizedUrl,
+        source: normalize(source)
+      });
+    };
+
+    const visit = (node, titleHint, depth, source) => {
+      if (!node || depth > 11) {
+        return;
+      }
+
+      if (typeof node === "string") {
+        const normalized = normalize(node);
+        if (!normalized) {
+          return;
+        }
+        if (normalized.includes("ziprecruiter.com")) {
+          const urlMatches = collectUrlCandidatesFromText(normalized);
+          for (const match of urlMatches) {
+            if (match.includes("ziprecruiter.com")) {
+              const parts = extractDeepLinkParts(match);
+              pushCandidate({
+                title: titleHint,
+                lk: parts.lk,
+                uuid: parts.uuid,
+                url: parts.href,
+                source
+              });
+            }
+          }
+        }
+        return;
+      }
+
+      if (typeof node !== "object") {
+        return;
+      }
+      if (visited.has(node)) {
+        return;
+      }
+      visited.add(node);
+
+      const nodeTitle = normalize(
+        node.title || node.jobTitle || node.positionTitle || node.position || node.name || ""
+      );
+      const nextTitle = nodeTitle || titleHint || "";
+
+      const lk = normalize(node.lk || node.linkKey || node.link_key || "");
+      const uuid = normalize(node.uuid || node.jobUuid || node.job_uuid || "");
+      const urlFields = [
+        node.url,
+        node.jobUrl,
+        node.job_url,
+        node.applyUrl,
+        node.apply_url,
+        node.href,
+        node.link
+      ];
+
+      for (const rawUrl of urlFields) {
+        const absolute = toAbsoluteUrl(rawUrl || "");
+        const parts = extractDeepLinkParts(absolute || rawUrl || "");
+        if (parts.href && parts.href.includes("ziprecruiter.com")) {
+          pushCandidate({
+            title: nextTitle,
+            lk: parts.lk || lk,
+            uuid: parts.uuid || uuid,
+            url: parts.href,
+            source
+          });
+        }
+      }
+
+      if (lk || uuid) {
+        pushCandidate({
+          title: nextTitle,
+          lk,
+          uuid,
+          url: "",
+          source
+        });
+      }
+
+      const entries = Array.isArray(node)
+        ? node.map((value, index) => [String(index), value])
+        : Object.entries(node);
+      for (const [key, value] of entries) {
+        if (key === "__proto__" || key === "prototype" || key === "constructor") {
+          continue;
+        }
+        visit(value, nextTitle, depth + 1, source);
+      }
+    };
+
+    for (const root of roots) {
+      visit(root, "", 0, "window_state");
+    }
+
+    return candidates;
+  };
+
+  const collectScriptZipCandidates = () => {
+    const candidates = [];
+    const scripts = Array.from(document.querySelectorAll("script"));
+    for (const script of scripts) {
+      const scriptText = normalize(script?.textContent || "").replace(/\\\\\\//g, "/");
+      if (!scriptText || !scriptText.includes("ziprecruiter")) {
+        continue;
+      }
+
+      const urlMatches = collectUrlCandidatesFromText(scriptText);
+      for (const match of urlMatches) {
+        if (!match.includes("ziprecruiter.com")) {
+          continue;
+        }
+        const parts = extractDeepLinkParts(match);
+        if (!parts.href) {
+          continue;
+        }
+        candidates.push({
+          title: "",
+          lk: parts.lk,
+          uuid: parts.uuid,
+          url: parts.href,
+          source: "script_url"
+        });
+      }
+
+      const tuplePattern = /"title"\\s*:\\s*"([^"]{3,180})"[\\s\\S]{0,900}?"uuid"\\s*:\\s*"([^"]{3,220})"[\\s\\S]{0,900}?"lk"\\s*:\\s*"([^"]{2,220})"/gi;
+      for (const match of scriptText.matchAll(tuplePattern)) {
+        candidates.push({
+          title: normalize(match?.[1] || ""),
+          uuid: normalize(match?.[2] || ""),
+          lk: normalize(match?.[3] || ""),
+          url: "",
+          source: "script_tuple"
+        });
+      }
+    }
+    return candidates;
+  };
+
+  const stateCandidates = [
+    ...walkStateForZipCandidates(),
+    ...collectScriptZipCandidates()
+  ];
+
+  const buildUrlFromParts = (path, uuid, lk) => {
+    const normalizedPath = normalize(path);
+    if (!normalizedPath) {
+      return "";
+    }
+    try {
+      const url = new URL(normalizedPath, location.origin);
+      if (uuid) {
+        url.searchParams.set("uuid", uuid);
+      }
+      if (lk) {
+        url.searchParams.set("lk", lk);
+      }
+      return url.toString();
+    } catch {
+      return "";
+    }
+  };
+
+  const findDetailRootForTitle = (titleText) => {
+    const target = normalize(titleText).toLowerCase();
+    if (!target) {
+      return null;
+    }
+
+    const titleNodes = Array.from(document.querySelectorAll("h1, h2, h3, [data-testid*='title']"));
+    for (const node of titleNodes) {
+      const text = normalize(node?.innerText || node?.textContent || "").toLowerCase();
+      if (!text) {
+        continue;
+      }
+      if (text.includes(target) || target.includes(text)) {
+        return (
+          node.closest("[data-testid*='job-detail']") ||
+          node.closest("[class*='jobDetail']") ||
+          node.closest("[class*='job-detail']") ||
+          node.closest("article") ||
+          node.closest("section") ||
+          node.closest("main") ||
+          null
+        );
+      }
+    }
+    return null;
+  };
+
+  const resolveDetailUrlForCard = (card, title, fallbackUrl) => {
+    const debug = {
+      detailTitle: "",
+      detailRootFound: false,
+      detailCandidateCount: 0,
+      stateDerivedCount: 0,
+      bestScore: Number.NEGATIVE_INFINITY
+    };
+    clickElement(card);
+    waitForMs(120);
+
+    const detailTitle = readDetailTitle();
+    debug.detailTitle = detailTitle;
+    const detailRoot = findDetailRootForTitle(detailTitle || title);
+    debug.detailRootFound = Boolean(detailRoot);
+    const fallbackParts = extractDeepLinkParts(fallbackUrl);
+    const titleNorm = normalize(title).toLowerCase();
+    const detailTitleNorm = normalize(detailTitle).toLowerCase();
+    const stateDerivedLinks = stateCandidates
+      .map((candidate) => {
+        const parts = extractDeepLinkParts(candidate.url);
+        const candidateUuid = candidate.uuid || parts.uuid || "";
+        const candidateLk = candidate.lk || parts.lk || "";
+        const titleHint = normalize(candidate.title).toLowerCase();
+        const url =
+          parts.href ||
+          buildUrlFromParts(
+            fallbackParts.path || location.pathname || "",
+            candidateUuid || fallbackParts.uuid || "",
+            candidateLk
+          );
+        return {
+          titleHint,
+          uuid: candidateUuid,
+          lk: candidateLk,
+          url,
+          source: candidate.source || ""
+        };
+      })
+      .filter((candidate) => candidate.url && candidate.url.includes("ziprecruiter.com"));
+    debug.stateDerivedCount = stateDerivedLinks.length;
+    const links = [
+      ...Array.from(document.querySelectorAll('a[href*="/co/"], a[href*="/job/"], a[href*="/jobs/"]'))
+        .map((anchor) => toAbsoluteUrl(anchor?.getAttribute("href") || "")),
+      ...collectDetailUrlCandidates(detailRoot),
+      ...stateDerivedLinks.map((candidate) => candidate.url),
+      toAbsoluteUrl(location.href || "")
+    ]
+      .map((href) => normalize(href))
+      .filter(Boolean);
+    debug.detailCandidateCount = links.length;
+    let bestUrl = "";
+    let bestScore = Number.NEGATIVE_INFINITY;
+
+    for (const href of links) {
+      if (!href) {
+        continue;
+      }
+
+      const parts = extractDeepLinkParts(href);
+      const hrefLower = parts.href.toLowerCase();
+      if (hrefLower.includes("/jobs-search")) {
+        continue;
+      }
+
+      let score = 0;
+      if (parts.lk) {
+        score += 500;
+      }
+      if (parts.uuid) {
+        score += 120;
+      }
+      if (fallbackParts.path && parts.path === fallbackParts.path) {
+        score += 120;
+      }
+      if (fallbackParts.uuid && parts.uuid && fallbackParts.uuid === parts.uuid) {
+        score += 220;
+      }
+
+      if (detailTitleNorm && titleNorm && (detailTitleNorm.includes(titleNorm) || titleNorm.includes(detailTitleNorm))) {
+        score += 80;
+      }
+      const matchingStateCandidate = stateDerivedLinks.find((candidate) => {
+        if (!candidate.url || candidate.url !== parts.href) {
+          return false;
+        }
+        const titleMatches =
+          candidate.titleHint &&
+          titleNorm &&
+          (candidate.titleHint.includes(titleNorm) || titleNorm.includes(candidate.titleHint));
+        if (titleMatches) {
+          return true;
+        }
+        return (
+          candidate.uuid &&
+          fallbackParts.uuid &&
+          candidate.uuid === fallbackParts.uuid &&
+          candidate.lk
+        );
+      });
+      if (matchingStateCandidate) {
+        score += 360;
+        if (matchingStateCandidate.source === "script_tuple") {
+          score += 80;
+        }
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestUrl = parts.href;
+      }
+    }
+    debug.bestScore = bestScore;
+
+    if (!bestUrl) {
+      return { url: "", debug };
+    }
+
+    const bestParts = extractDeepLinkParts(bestUrl);
+    if (bestParts.lk && (!fallbackParts.lk || bestParts.uuid === fallbackParts.uuid || bestParts.path === fallbackParts.path)) {
+      return { url: bestParts.href, debug };
+    }
+
+    return { url: "", debug };
+  };
+
+  const scoreJobAnchor = (anchor, titleText) => {
+    const href = normalize(anchor?.getAttribute("href") || "");
+    if (!href || href.startsWith("javascript:") || href.startsWith("mailto:") || href.startsWith("tel:")) {
+      return Number.NEGATIVE_INFINITY;
+    }
+
+    let parsed = null;
+    try {
+      parsed = new URL(href, location.origin);
+    } catch {
+      return Number.NEGATIVE_INFINITY;
+    }
+
+    const pathname = String(parsed.pathname || "").toLowerCase();
+    const anchorText = normalize(anchor?.innerText || anchor?.textContent || "").toLowerCase();
+    const normalizedTitle = normalize(titleText).toLowerCase();
+    let score = 0;
+
+    if (parsed.host === location.host) {
+      score += 10;
+    }
+    if (pathname.includes("/jobs-search")) {
+      score -= 500;
+    }
+    if (pathname.includes("/job/")) {
+      score += 320;
+    }
+    if (pathname.includes("/jobs/")) {
+      score += 160;
+    }
+    if (pathname.includes("/co/")) {
+      score -= 60;
+    }
+    if (normalize(parsed.searchParams.get("lk") || "") || normalize(parsed.searchParams.get("uuid") || "")) {
+      score += 220;
+    }
+    if (normalizedTitle && anchorText && (anchorText.includes(normalizedTitle) || normalizedTitle.includes(anchorText))) {
+      score += 120;
+    }
+    if (anchor?.closest("h1, h2, h3, [role='heading']")) {
+      score += 80;
+    }
+
+    return score;
+  };
+
+  const pickJobAnchor = (card, titleText) => {
+    const anchors = Array.from(card.querySelectorAll("a[href]"));
+    if (anchors.length === 0) {
+      return null;
+    }
+
+    let bestAnchor = null;
+    let bestScore = Number.NEGATIVE_INFINITY;
+    for (const anchor of anchors) {
+      const score = scoreJobAnchor(anchor, titleText);
+      if (score > bestScore) {
+        bestScore = score;
+        bestAnchor = anchor;
+      }
+    }
+
+    return bestAnchor;
+  };
+
   const jobs = [];
+  const linkDebugSample = [];
   const seen = new Set();
   const collectVisibleJobs = () => {
     const cards = getCards();
@@ -3705,10 +4281,7 @@ function readZipRecruiterJobsFromChrome(searchUrl, options = {}) {
         continue;
       }
 
-      const jobLink =
-        card.querySelector('a[href*="/jobs/"]') ||
-        card.querySelector('a[href*="/job/"]') ||
-        card.querySelector("a[href]");
+      const jobLink = pickJobAnchor(card, title);
       const companyLink = card.querySelector('a[href*="/co/"]');
       const companyNode =
         card.querySelector('[data-testid*="company"]') ||
@@ -3721,6 +4294,12 @@ function readZipRecruiterJobsFromChrome(searchUrl, options = {}) {
         ""
       ) || "Unknown company";
       const url = toAbsoluteUrl(jobLink?.getAttribute("href") || location.href);
+      const detailResolution = resolveDetailUrlForCard(card, title, url);
+      const detailUrl = detailResolution?.url || "";
+      const cardHrefs = Array.from(card.querySelectorAll("a[href]"))
+        .map((anchor) => toAbsoluteUrl(anchor?.getAttribute("href") || ""))
+        .filter(Boolean)
+        .slice(0, 10);
 
       const locationNode = card.querySelector('a[href*="jobs-search?location="]');
       const location = normalize(
@@ -3739,7 +4318,11 @@ function readZipRecruiterJobsFromChrome(searchUrl, options = {}) {
       const employmentType = detailHints.employmentType || null;
       const resolvedLocation = location || detailHints.location || null;
 
-      const externalId = normalize([company, title, location || "", url].join("|"));
+      const preferredUrl = detailUrl || url;
+      const preferredUrlParts = extractDeepLinkParts(preferredUrl);
+      const externalId =
+        preferredUrlParts.lk ||
+        normalize([company, title, location || "", preferredUrl].join("|"));
       if (seen.has(externalId)) {
         continue;
       }
@@ -3763,8 +4346,19 @@ function readZipRecruiterJobsFromChrome(searchUrl, options = {}) {
           location: location ? "card" : detailHints.location ? "detail" : "fallback_unknown",
           description: "card"
         },
-        url
+        url,
+        detailUrl: detailUrl || null
       });
+
+      if (linkDebugSample.length < 8) {
+        linkDebugSample.push({
+          title,
+          url,
+          detailUrl: detailUrl || null,
+          detailDebug: detailResolution?.debug || null,
+          cardHrefs
+        });
+      }
     }
   };
 
@@ -3820,7 +4414,23 @@ function readZipRecruiterJobsFromChrome(searchUrl, options = {}) {
     pageUrl: location.href,
     capturedAt: new Date().toISOString(),
     jobs,
-    expectedCount: parseExpectedCountFromText(document.body?.innerText || "")
+    expectedCount: parseExpectedCountFromText(document.body?.innerText || ""),
+    captureDiagnostics: {
+      detailUrlCapturedCount: jobs.filter((job) => normalize(job?.detailUrl || "")).length,
+      lkInFinalUrlCount: jobs.filter((job) => normalize(job?.url || "").includes("lk=")).length,
+      lkInDetailUrlCount: jobs.filter((job) => normalize(job?.detailUrl || "").includes("lk=")).length,
+      lkInCardHrefCount: linkDebugSample.reduce(
+        (total, sample) =>
+          total +
+          sample.cardHrefs.filter((href) => normalize(href).includes("lk=")).length,
+        0
+      ),
+      lkInStateCandidatesCount: stateCandidates.filter((candidate) => normalize(candidate?.lk || "")).length,
+      zipUrlInStateCandidatesCount: stateCandidates.filter((candidate) =>
+        normalize(candidate?.url || "").includes("ziprecruiter.com")
+      ).length,
+      sample: linkDebugSample
+    }
   });
   } catch (error) {
     return JSON.stringify({
@@ -5301,6 +5911,20 @@ export function parseLevelsFyiDomTotalsFromHtml(rawHtml) {
   };
 }
 
+function chooseLevelsExpectedCount(currentExpectedCount, domTotals, collectedCount = 0) {
+  const domTotal = Number(domTotals?.totalJobs);
+  if (Number.isFinite(domTotal) && domTotal > 0) {
+    return Math.max(Math.round(domTotal), Number(collectedCount) || 0);
+  }
+
+  const parsedExpected = Number(currentExpectedCount);
+  if (Number.isFinite(parsedExpected) && parsedExpected > 0) {
+    return Math.max(Math.round(parsedExpected), Number(collectedCount) || 0);
+  }
+
+  return Number(collectedCount) > 0 ? Math.round(Number(collectedCount)) : null;
+}
+
 export function isLevelsFyiSearchReady(probe) {
   if (!probe || typeof probe !== "object") {
     return false;
@@ -5879,11 +6503,8 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
       domProbe = parseBridgeJsonPayload(rawProbe);
       if (domProbe?.companiesContainerHtml) {
         domTotals = parseLevelsFyiDomTotalsFromHtml(domProbe.companiesContainerHtml);
-        if (
-          domTotals?.totalJobs &&
-          (!Number.isFinite(expectedCount) || !expectedCount || !apiDecoder)
-        ) {
-          expectedCount = domTotals.totalJobs;
+        if (domTotals?.totalJobs) {
+          expectedCount = chooseLevelsExpectedCount(expectedCount, domTotals, collected.length);
         }
         if (!expectsNarrowing || (domTotals?.totalJobs && domTotals.totalJobs <= 1000)) {
           break;
@@ -6285,21 +6906,31 @@ function readLevelsFyiJobsFromChrome(searchUrl, options = {}) {
           parsed?.props?.pageProps?.initialJobsData?.totalMatchingJobs ||
           parsed?.props?.pageProps?.initialJobsData?.total ||
           null;
-        if (Number.isFinite(Number(total)) && Number(total) > 0) {
+        if (
+          Number.isFinite(Number(total)) &&
+          Number(total) > 0 &&
+          (!domTotals?.totalJobs || Number(total) <= domTotals.totalJobs)
+        ) {
           expectedCount = Math.round(Number(total));
         }
       } catch {}
     }
   }
 
+  const finalExpectedCount = chooseLevelsExpectedCount(
+    expectedCount,
+    domTotals,
+    collected.length
+  );
+
   return {
     pageUrl: searchUrl,
     capturedAt: new Date().toISOString(),
-    expectedCount,
+    expectedCount: finalExpectedCount,
     jobs: collected,
     captureDiagnostics: {
       offsets,
-      expectedCount,
+      expectedCount: finalExpectedCount,
       apiFailures,
       apiFetchMode: "xhr",
       apiSample,
@@ -7045,12 +7676,8 @@ export function captureIndeedSourceWithChromeAppleScript(
     nativeFilterState,
     maxPages: Number(source.maxPages) > 0 ? Number(source.maxPages) : options.maxPages
   });
-  const enrichedJobs = filterIndeedCapturedJobs(
-    applySearchFilterInferences(
-      source,
-      runDetailEnrichment(source, payload.jobs, options)
-    )
-  );
+  const filtered = filterIndeedCapturedJobsWithDiagnostics(payload.jobs);
+  const enrichedJobs = applySearchFilterInferences(source, filtered.jobs);
   const telemetry = buildCaptureTelemetry(source, payload, {
     startedAt,
     tabInfo: readAutomationTabInfo()
@@ -7061,7 +7688,11 @@ export function captureIndeedSourceWithChromeAppleScript(
       capturedAt: payload.capturedAt,
       pageUrl: payload.pageUrl,
       expectedCount: payload.expectedCount,
-      captureDiagnostics: payload.captureDiagnostics || nativeFilterState,
+      captureDiagnostics: {
+        ...nativeFilterState,
+        ...(payload.captureDiagnostics || {}),
+        ...filtered.diagnostics
+      },
       captureTelemetry: telemetry
     }),
     provider: "chrome_applescript",
@@ -7135,6 +7766,7 @@ export function captureZipRecruiterSourceWithChromeAppleScript(
       capturedAt: payload.capturedAt,
       pageUrl: payload.pageUrl,
       expectedCount: payload.expectedCount,
+      captureDiagnostics: payload.captureDiagnostics,
       captureTelemetry: telemetry
     }),
     provider: "chrome_applescript",
@@ -7205,6 +7837,237 @@ export function captureRemoteOkSourceWithChromeAppleScript(
     provider: "chrome_applescript",
     status: "completed"
   };
+}
+
+export function resolveZipRecruiterJobUrlWithChromeAppleScript(job = {}, options = {}) {
+  const sourceUrl = String(
+    job?.reviewTargetUrl || job?.sourceUrl || job?.url || ""
+  ).trim();
+  const title = String(job?.title || "").trim();
+  const locationText = String(job?.location || "").trim();
+  const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 18_000;
+
+  if (!sourceUrl) {
+    return {
+      resolved: false,
+      url: "",
+      reason: "missing_source_url"
+    };
+  }
+
+  let parsed = null;
+  try {
+    parsed = new URL(sourceUrl);
+  } catch {
+    return {
+      resolved: false,
+      url: sourceUrl,
+      reason: "invalid_source_url"
+    };
+  }
+
+  const host = String(parsed.hostname || "").toLowerCase();
+  if (!(host === "ziprecruiter.com" || host.endsWith(".ziprecruiter.com"))) {
+    return {
+      resolved: false,
+      url: sourceUrl,
+      reason: "not_ziprecruiter"
+    };
+  }
+
+  if (String(parsed.searchParams.get("lk") || "").trim()) {
+    return {
+      resolved: true,
+      url: parsed.toString(),
+      reason: "already_job_specific"
+    };
+  }
+
+  const titleJson = JSON.stringify(title);
+  const locationJson = JSON.stringify(locationText);
+  const resolutionScript = `
+(() => {
+  const normalize = (value) => typeof value === "string" ? value.replace(/\\s+/g, " ").trim() : "";
+  const targetTitle = normalize(${titleJson}).toLowerCase();
+  const targetLocation = normalize(${locationJson}).toLowerCase();
+  const readDetailTitle = () => {
+    const selectors = [
+      '[data-testid*="job-detail"] h1',
+      '[data-testid*="job-detail"] h2',
+      '[class*="jobDetail"] h1',
+      '[class*="jobDetail"] h2',
+      '[class*="job-detail"] h1',
+      '[class*="job-detail"] h2',
+      'main h1',
+      'main h2'
+    ];
+    for (const selector of selectors) {
+      const node = document.querySelector(selector);
+      const text = normalize(node?.innerText || node?.textContent || "");
+      if (text.length >= 3 && text.length <= 220) {
+        return text;
+      }
+    }
+    return "";
+  };
+  const titlesRoughMatch = (left, right) => {
+    const l = normalize(left).toLowerCase();
+    const r = normalize(right).toLowerCase();
+    if (!l || !r) return false;
+    return l.includes(r) || r.includes(l);
+  };
+  const extractLk = (urlText) => {
+    try {
+      const parsed = new URL(String(urlText || ""), location.origin);
+      return normalize(parsed.searchParams.get("lk") || "");
+    } catch {
+      return "";
+    }
+  };
+  const clickElement = (element) => {
+    if (!element) return;
+    try { element.scrollIntoView({ block: "center", inline: "nearest", behavior: "auto" }); } catch {}
+    try { element.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window })); } catch {}
+    try { element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window })); } catch {}
+    try { element.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window })); } catch {}
+    try { if (typeof element.click === "function") element.click(); } catch {}
+  };
+  const waitForMs = (ms) => {
+    const start = Date.now();
+    while (Date.now() - start < ms) {}
+  };
+
+  const currentUrl = String(location.href || "");
+  const currentLk = extractLk(currentUrl);
+  if (currentLk && !targetTitle) {
+    return JSON.stringify({
+      resolved: true,
+      url: currentUrl,
+      reason: "already_open_with_lk",
+      diagnostics: {
+        detailTitle: readDetailTitle()
+      }
+    });
+  }
+
+  const rawNodes = Array.from(
+    document.querySelectorAll(
+      "a, h1, h2, h3, button, [role='button'], [data-testid*='job'], [class*='job']"
+    )
+  );
+  const dedupeTargets = new Set();
+  const candidates = rawNodes
+    .map((node) => {
+      const nodeText = normalize(node?.innerText || node?.textContent || "");
+      if (!nodeText || nodeText.length > 220) {
+        return null;
+      }
+      const clickTarget =
+        node.closest("a, button, [role='button']") ||
+        node.querySelector("a, button, [role='button']") ||
+        node;
+      if (!clickTarget || dedupeTargets.has(clickTarget)) {
+        return null;
+      }
+      dedupeTargets.add(clickTarget);
+      const container =
+        node.closest("li, article, section, div") ||
+        clickTarget.closest("li, article, section, div") ||
+        clickTarget;
+      const contextText = normalize(container?.innerText || container?.textContent || "");
+      const locationMatch = targetLocation && contextText.toLowerCase().includes(targetLocation);
+      const titleMatch = targetTitle ? titlesRoughMatch(nodeText, targetTitle) : false;
+      if (!titleMatch && targetTitle) {
+        return null;
+      }
+      return {
+        clickTarget,
+        rowTitle: nodeText,
+        titleMatch,
+        locationMatch,
+        score:
+          (titleMatch ? 1300 : 0) +
+          (locationMatch ? 160 : 0) +
+          (nodeText.length > 8 ? 20 : 0)
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => right.score - left.score);
+
+  const topCandidates = candidates.slice(0, 8);
+  for (const candidate of topCandidates) {
+    clickElement(candidate.clickTarget);
+    waitForMs(180);
+
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      waitForMs(90);
+      const current = String(location.href || "");
+      const lk = extractLk(current);
+      const detailTitle = readDetailTitle();
+      const detailMatch = titlesRoughMatch(detailTitle, targetTitle);
+      if (lk && (detailMatch || !targetTitle || candidate.titleMatch)) {
+        return JSON.stringify({
+          resolved: true,
+          url: current,
+          reason: "matched_after_click",
+          diagnostics: {
+            clickedTitle: candidate.rowTitle,
+            detailTitle
+          }
+        });
+      }
+    }
+  }
+
+  return JSON.stringify({
+    resolved: false,
+    url: String(location.href || ""),
+    reason: "lk_not_found_after_click",
+    diagnostics: {
+      detailTitle: readDetailTitle(),
+      candidates: topCandidates.map((entry) => ({
+        title: entry.rowTitle,
+        score: entry.score
+      }))
+    }
+  });
+})()
+  `.trim();
+
+  let probeWindowId = null;
+  try {
+    probeWindowId = createChromeProbeWindow(sourceUrl, timeoutMs);
+    sleepSync(700);
+    const raw = executeInChromeWindowEncoded(probeWindowId, resolutionScript, timeoutMs);
+    const payload = JSON.parse(String(raw || "{}"));
+    const resolvedUrl = String(payload?.url || "").trim();
+    const hasLk = (() => {
+      try {
+        return Boolean(new URL(resolvedUrl).searchParams.get("lk"));
+      } catch {
+        return false;
+      }
+    })();
+
+    return {
+      resolved: payload?.resolved === true && hasLk,
+      url: resolvedUrl || sourceUrl,
+      reason: String(payload?.reason || (hasLk ? "resolved" : "unresolved")),
+      diagnostics:
+        payload?.diagnostics && typeof payload.diagnostics === "object"
+          ? payload.diagnostics
+          : null
+    };
+  } catch (error) {
+    return {
+      resolved: false,
+      url: sourceUrl,
+      reason: "resolver_error",
+      error: String(error?.message || error || "zip resolver failed")
+    };
+  } finally {
+    closeChromeWindow(probeWindowId);
+  }
 }
 
 export function captureSourceWithChromeAppleScript(source, snapshotPath, options = {}) {

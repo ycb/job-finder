@@ -13,6 +13,7 @@ import {
   buildBridgeRouteDefinitions,
   buildBridgeRouteMap
 } from "../src/browser-bridge/server.js";
+import { capturePaginatedJobsWithNavigator } from "../src/browser-bridge/providers/chrome-applescript.js";
 
 test("bridge primitive catalog stays valid and classified", () => {
   assert.doesNotThrow(() => ensureBridgePrimitiveCatalogIntegrity());
@@ -82,4 +83,36 @@ test("bridge route registration is read-only for mcp_v1", () => {
   assert.equal(routeMap.has("GET /health"), true);
   assert.equal(routeMap.has("POST /capture-source"), true);
   assert.equal(routeMap.has("POST /capture-linkedin-source"), true);
+});
+
+test("capturePaginatedJobsWithNavigator reports pagination diagnostics and stop reason", () => {
+  const result = capturePaginatedJobsWithNavigator({
+    maxPages: 4,
+    readPage(index) {
+      if (index === 0) {
+        return {
+          expectedCount: 3,
+          jobs: [
+            { externalId: "job-1", url: "https://example.com/jobs/1" },
+            { externalId: "job-2", url: "https://example.com/jobs/2" }
+          ]
+        };
+      }
+      if (index === 1) {
+        return {
+          expectedCount: 3,
+          jobs: [
+            { externalId: "job-2", url: "https://example.com/jobs/2" },
+            { externalId: "job-3", url: "https://example.com/jobs/3" }
+          ]
+        };
+      }
+      return { expectedCount: 3, jobs: [] };
+    }
+  });
+
+  assert.equal(result.jobs.length, 3);
+  assert.equal(result.expectedCount, 3);
+  assert.equal(result.pagesVisited, 3);
+  assert.equal(result.stopReason, "empty_page");
 });

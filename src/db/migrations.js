@@ -94,6 +94,22 @@ function backfillQueueSemantics(db) {
   ).run();
 }
 
+function cleanupOrphanedJobArtifacts(db) {
+  db.prepare(
+    `
+      DELETE FROM evaluations
+      WHERE job_id NOT IN (SELECT id FROM jobs);
+    `
+  ).run();
+
+  db.prepare(
+    `
+      DELETE FROM applications
+      WHERE job_id NOT IN (SELECT id FROM jobs);
+    `
+  ).run();
+}
+
 export function runMigrations(db) {
   db.exec(
     `
@@ -202,4 +218,5 @@ export function runMigrations(db) {
   addColumnIfMissing(db, "source_run_deltas", "imported_kept_count", "INTEGER");
   backfillJobNormalization(db);
   backfillQueueSemantics(db);
+  cleanupOrphanedJobArtifacts(db);
 }
