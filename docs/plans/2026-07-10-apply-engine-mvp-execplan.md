@@ -14,7 +14,9 @@ Two explicit non-goals for this plan: no zero-click ("full auto") submission any
 
 - [x] (2026-07-10) ExecPlan authored and checked in for stakeholder review.
 - [x] (2026-07-10) Stakeholder approval obtained for enabling write primitives under a draft-and-confirm boundary (recorded in `docs/roadmap/decision-log.md` and in the Decision Log below).
-- [ ] Milestone 0: `apply_v1` bridge surface exposing write primitives, separate from read-only `mcp_v1`; consent gate.
+- [x] (2026-07-10 20:15Z) Repo stabilization: stale `index.lock` cleared; ~24 files of uncommitted drift on the QA checkout preserved on branch `wip/2026-07-10-qa-checkout-rescue` (`3c7cf86`) — needs stakeholder review; `feature/apply-engine-mvp` based on the rescue commit because committed `qa/current` fails 13 tests that the drift fixes.
+- [x] (2026-07-10 20:20Z) Green baseline on fresh checkouts (`665ccc0`): `posthog-node` added to dependencies; LinkedIn structured-payload tests skip when the gitignored fixture is absent (resolved repo-relative); `node:sqlite` null-prototype row normalization in run-deltas test. Full suite 488 pass / 0 fail.
+- [x] (2026-07-10 20:40Z) Milestone 0 (`ad0c192`): `apply_v1` surface with per-surface write allowlist; `jobs.apply_click` + `dialogs.confirm_action` never-exposable on any surface; unknown surfaces rejected; `forms.extract_schema` read primitive; `/apply/*` routes consent-gated via `src/apply/consent.js`; noop provider implements apply ops for tests. Suite 498 pass / 0 fail. Remaining from M0 scope: live chrome_applescript apply implementations (deferred to Milestone 3 where they can be verified against a real form; stubs return 501).
 - [ ] Milestone 1: Answer library schema, repository module, and seed/import CLI.
 - [ ] Milestone 2: Transport-agnostic apply engine core (schema detection contract, field mapping, draft plan) with unit tests against saved form fixtures.
 - [ ] Milestone 3a: Prepare-flow design artifact (screen states, copy, error states) approved by stakeholder before implementation.
@@ -27,13 +29,30 @@ Two explicit non-goals for this plan: no zero-click ("full auto") submission any
 
 ## Surprises & Discoveries
 
-- (none yet — populate during implementation with evidence snippets)
+- Observation: The QA checkout (`/Users/admin/job-finder`, branch `qa/current`) carried ~24 files of uncommitted code+test changes, and committed `qa/current` fails 13 tests that this drift fixes (refresh-state, cache-policy, dashboard status). The drift is real unlanded work of unclear provenance.
+  Evidence: `npm test` on committed `qa/current` = 457 pass / 16 fail; the same suites pass with drift applied. Preserved as `wip/2026-07-10-qa-checkout-rescue` (`3c7cf86`) without touching the working tree.
+- Observation: `posthog-node` is imported by `src/analytics/posthog-config.js` but was never declared in `package.json`, so every fresh install failed `test/posthog-error-tracking.test.js` with ERR_MODULE_NOT_FOUND.
+  Evidence: `ls node_modules/posthog-node` → not found on a clean install; fixed in `665ccc0`.
+- Observation: `node:sqlite` (Node ≥22) returns null-prototype row objects, which `assert.deepEqual` distinguishes from plain literals. Two assertions in `test/run-deltas.test.js` already normalized rows with `({ ...row })`; one did not and failed only on newer Node.
+  Evidence: `[Object: null prototype]` in the assertion diff for the `listImportedJobCountsBySourceId` test; fixed in `665ccc0`.
+- Observation: JavaScript injection cannot populate `<input type="file">` (browser security), so the chrome_applescript provider can never attach resumes via injected JS. File upload needs the Playwright/extension provider (CDP `DOM.setFileInputFiles`) or manual attachment by the user during the confirm step.
+  Evidence: standard browser security model — no page-context API sets a file input from a local path. MVP consequence: draft plans mark resume fields "attach manually" under chrome_applescript; `/apply/upload-file` remains on the surface for providers that can support it.
+- Observation: git worktrees created inside the agent sandbox record absolute paths that don't resolve on the host Mac, and vice versa — a prior session's `hopeful-jackson` worktree pointer broke `git status` inside the sandbox entirely.
+  Evidence: `fatal: not a git repository: /Users/admin/job-finder/.git/worktrees/hopeful-jackson`. Fix: rewrite the worktree's `.git` pointer file to a relative path (`gitdir: ../../../.git/worktrees/<name>`) and keep the reverse `gitdir` metadata file Mac-absolute.
 
 ## Decision Log
 
 - Decision: Enable browser-bridge write primitives (`forms.type_text`, `forms.upload_file`) for a new `apply_v1` surface, keeping `mcp_v1` read-only and keeping `jobs.apply_click` and `dialogs.confirm_action` unexposed.
   Rationale: The read-only `mcp_v1` boundary was an intentional policy requiring explicit stakeholder approval to change. Stakeholder (Peter Spannagle) approved on 2026-07-10, scoped strictly to draft-and-confirm: the system may type into and upload files to form fields, but the human always clicks submit. Excluding `apply_click`/`confirm_action` from the surface makes zero-click submission structurally impossible rather than merely policy-forbidden.
   Date/Author: 2026-07-10 / Peter Spannagle (approval), Claude (recording).
+
+- Decision: Consent gates every `/apply/*` route, including read-only schema extraction, and is re-read from `data/user-settings.json` on each request.
+  Rationale: Schema extraction opens a window in the user's real browser — an intrusive act even though it writes nothing. One uniform gate is simpler to reason about and to test than a split policy, and per-request reads mean consent granted from the dashboard takes effect without a bridge restart.
+  Date/Author: 2026-07-10 / Claude (autonomous, within plan scope).
+
+- Decision: chrome_applescript apply operations ship as explicit 501 stubs in Milestone 0; real implementations land in Milestone 3 alongside the Greenhouse adapter.
+  Rationale: Writing AppleScript window/tab management blind, with no way to live-verify against a real form in this milestone, violates the repo's verification-before-done rule. M0's acceptance is the policy boundary and consent gate, which unit tests fully prove via the noop provider. Failing loudly with 501 is honest; pretending to fill would not be.
+  Date/Author: 2026-07-10 / Claude (autonomous, within plan scope).
 
 - Decision: One shared apply engine with per-site adapters; adapter order is Greenhouse, then LinkedIn Easy Apply, then Lever/Ashby.
   Rationale: Greenhouse forms are the most schema-predictable and prove the engine with the least adversarial surface. Easy Apply is the highest-volume surface and stakeholder-required, but is a semi-structured multi-step modal on an automation-hostile site, so it goes second, after the engine is proven. Stakeholder wanted "both in parallel"; the compromise is a shared engine so both are in the MVP without divergent codepaths.
