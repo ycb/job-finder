@@ -17,7 +17,7 @@ Two explicit non-goals for this plan: no zero-click ("full auto") submission any
 - [x] (2026-07-10 20:15Z) Repo stabilization: stale `index.lock` cleared; ~24 files of uncommitted drift on the QA checkout preserved on branch `wip/2026-07-10-qa-checkout-rescue` (`3c7cf86`) — needs stakeholder review; `feature/apply-engine-mvp` based on the rescue commit because committed `qa/current` fails 13 tests that the drift fixes.
 - [x] (2026-07-10 20:20Z) Green baseline on fresh checkouts (`665ccc0`): `posthog-node` added to dependencies; LinkedIn structured-payload tests skip when the gitignored fixture is absent (resolved repo-relative); `node:sqlite` null-prototype row normalization in run-deltas test. Full suite 488 pass / 0 fail.
 - [x] (2026-07-10 20:40Z) Milestone 0 (`ad0c192`): `apply_v1` surface with per-surface write allowlist; `jobs.apply_click` + `dialogs.confirm_action` never-exposable on any surface; unknown surfaces rejected; `forms.extract_schema` read primitive; `/apply/*` routes consent-gated via `src/apply/consent.js`; noop provider implements apply ops for tests. Suite 498 pass / 0 fail. Remaining from M0 scope: live chrome_applescript apply implementations (deferred to Milestone 3 where they can be verified against a real form; stubs return 501).
-- [ ] Milestone 1: Answer library schema, repository module, and seed/import CLI.
+- [x] (2026-07-10 21:10Z) Milestone 1: `answer_library` + `application_drafts` migrations; `src/apply/answer-store.js` (exact-key + conservative fuzzy screener matching at 0.75 token-overlap threshold with synonym folding; approved-only visibility; upsert by key; usage tracking); CLI `jf answers` / `jf answers-seed` with profile bootstrap. 10 new tests incl. CLI subprocess smoke; suite 508 pass / 0 fail.
 - [ ] Milestone 2: Transport-agnostic apply engine core (schema detection contract, field mapping, draft plan) with unit tests against saved form fixtures.
 - [ ] Milestone 3a: Prepare-flow design artifact (screen states, copy, error states) approved by stakeholder before implementation.
 - [ ] Milestone 3: Greenhouse adapter + dashboard "Prepare application" flow, live-verified on a real Greenhouse posting; meets UX Standards section.
@@ -52,6 +52,10 @@ Two explicit non-goals for this plan: no zero-click ("full auto") submission any
 
 - Decision: chrome_applescript apply operations ship as explicit 501 stubs in Milestone 0; real implementations land in Milestone 3 alongside the Greenhouse adapter.
   Rationale: Writing AppleScript window/tab management blind, with no way to live-verify against a real form in this milestone, violates the repo's verification-before-done rule. M0's acceptance is the policy boundary and consent gate, which unit tests fully prove via the noop provider. Failing loudly with 501 is honest; pretending to fill would not be.
+  Date/Author: 2026-07-10 / Claude (autonomous, within plan scope).
+
+- Decision: `jf answers-seed` is flag-driven (plus profile bootstrap) rather than an interactive Ink wizard.
+  Rationale: The dashboard becomes the answer library's primary management UI in Milestone 3 (designed under the UX Standards section); building a second interactive surface in the CLI now would duplicate that work. Flags keep seeding scriptable and testable; the ExecPlan's original "interactive" wording is superseded by this decision.
   Date/Author: 2026-07-10 / Claude (autonomous, within plan scope).
 
 - Decision: One shared apply engine with per-site adapters; adapter order is Greenhouse, then LinkedIn Easy Apply, then Lever/Ashby.
