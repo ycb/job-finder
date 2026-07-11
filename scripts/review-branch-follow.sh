@@ -77,6 +77,7 @@ start_watch_session() {
   npm run review:react:watch &
   WATCH_SESSION_PID=$!
   WATCH_BRANCH="${branch}"
+  WATCH_SHA="$(git rev-parse HEAD)"
 }
 
 restart_watch_session() {
@@ -115,4 +116,16 @@ while true; do
   fi
 
   sync_to_upstream || true
+
+  # Restart the review server when new commits land on the followed branch.
+  # The React watch rebuilds the bundle on its own, but server-side code
+  # (src/review/server.js and everything it imports) only reloads with a
+  # process restart. Without this, the dashboard serves a fresh UI against a
+  # stale API after every qa/current update.
+  current_sha="$(git rev-parse HEAD)"
+  if [[ "${current_sha}" != "${WATCH_SHA:-}" ]]; then
+    echo "[watch] commit changed: ${WATCH_SHA:-none} -> ${current_sha}; restarting server."
+    restart_watch_session
+    continue
+  fi
 done
