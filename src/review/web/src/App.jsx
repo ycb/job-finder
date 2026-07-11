@@ -156,16 +156,16 @@ function formatSearchMetricValue(value) {
   return Number.isFinite(Number(value)) ? Math.max(0, Math.round(Number(value))) : "—";
 }
 
-function SearchMetricValue({ value, delta }) {
+// One run context per row (UX audit item 2): the primary number is the
+// LATEST completed run — never a lifetime SUM that re-counts recurring jobs
+// on every recapture — with optional secondary context beneath.
+function LastRunMetric({ value, secondary, warn }) {
   const primary = formatSearchMetricValue(value);
-  const hasDelta = Number.isFinite(Number(delta));
-  const deltaLabel = hasDelta ? `+${Math.max(0, Math.round(Number(delta)))}` : null;
-
   return (
-    <div className="flex items-center gap-2">
-      <span>{primary}</span>
-      {deltaLabel ? (
-        <span className="text-xs font-medium text-muted-foreground">{deltaLabel}</span>
+    <div className="space-y-0.5">
+      <span className={cn(warn && "font-semibold text-amber-600")}>{primary}</span>
+      {secondary ? (
+        <div className="text-xs text-muted-foreground">{secondary}</div>
       ) : null}
     </div>
   );
@@ -2312,10 +2312,22 @@ export default function App() {
                         <TableHead>Source</TableHead>
                         <TableHead>Last Run</TableHead>
                         <TableHead>Status</TableHead>
-                        <TableHead>Found</TableHead>
-                        <TableHead>Filtered</TableHead>
-                        <TableHead>Dupes</TableHead>
-                        <TableHead>Imported</TableHead>
+                        <TableHead>
+                          Found
+                          <span className="block text-[10px] font-normal normal-case text-muted-foreground">last run</span>
+                        </TableHead>
+                        <TableHead>
+                          Filtered
+                          <span className="block text-[10px] font-normal normal-case text-muted-foreground">last run</span>
+                        </TableHead>
+                        <TableHead>
+                          Dupes
+                          <span className="block text-[10px] font-normal normal-case text-muted-foreground">last run</span>
+                        </TableHead>
+                        <TableHead>
+                          Imported
+                          <span className="block text-[10px] font-normal normal-case text-muted-foreground">last run · library</span>
+                        </TableHead>
                         <TableHead>Avg Score</TableHead>
                         <TableHead className="w-[116px] pr-1">Action</TableHead>
                         <TableHead className="w-[44px] pl-1 pr-2">
@@ -2388,30 +2400,46 @@ export default function App() {
                               </div>
                             </TableCell>
                             <TableCell>
-                              <SearchMetricValue
-                                value={row.foundCount}
-                                delta={row.latestTrustedRunFoundCount}
+                              <LastRunMetric
+                                value={row.latestTrustedRunFoundCount}
+                                secondary={
+                                  Number.isFinite(Number(row.expectedFoundCount))
+                                    ? `of ~${row.expectedFoundCount} listed`
+                                    : null
+                                }
+                                warn={
+                                  Number.isFinite(Number(row.expectedFoundCount)) &&
+                                  Number.isFinite(Number(row.latestTrustedRunFoundCount)) &&
+                                  Number(row.expectedFoundCount) > 0 &&
+                                  Number(row.latestTrustedRunFoundCount) /
+                                    Number(row.expectedFoundCount) <
+                                    0.6
+                                }
                               />
                             </TableCell>
                             <TableCell>
-                              <SearchMetricValue
-                                value={row.filteredCount}
-                                delta={row.latestTrustedRunFilteredCount}
+                              <LastRunMetric value={row.latestTrustedRunFilteredCount} />
+                            </TableCell>
+                            <TableCell>
+                              <LastRunMetric value={row.latestTrustedRunDedupedCount} />
+                            </TableCell>
+                            <TableCell>
+                              <LastRunMetric
+                                value={row.latestTrustedRunImportedCount}
+                                secondary={
+                                  Number.isFinite(Number(row.importedCount))
+                                    ? `${row.importedCount} in library`
+                                    : null
+                                }
                               />
                             </TableCell>
                             <TableCell>
-                              <SearchMetricValue
-                                value={row.dedupedCount}
-                                delta={row.latestTrustedRunDedupedCount}
-                              />
+                              {row.avgScore === null ? (
+                                <span className="text-muted-foreground">n/a</span>
+                              ) : (
+                                <span className="whitespace-nowrap">{row.avgScore} / 100</span>
+                              )}
                             </TableCell>
-                            <TableCell>
-                              <SearchMetricValue
-                                value={row.importedCount}
-                                delta={row.latestTrustedRunImportedCount}
-                              />
-                            </TableCell>
-                            <TableCell>{row.avgScore === null ? "n/a" : row.avgScore}</TableCell>
                             <TableCell className="align-middle pr-1">
                               <Button
                                 size="sm"
@@ -2492,38 +2520,38 @@ export default function App() {
                         <TableCell>—</TableCell>
                         <TableCell>—</TableCell>
                         <TableCell>
-                          <SearchMetricValue
-                            value={totals.foundCount}
-                            delta={totals.latestTrustedRunFoundCount}
-                          />
+                          <LastRunMetric value={totals.latestTrustedRunFoundCount} />
                         </TableCell>
                         <TableCell>
-                          <SearchMetricValue
-                            value={totals.filtered}
-                            delta={totals.latestTrustedRunFilteredCount}
-                          />
+                          <LastRunMetric value={totals.latestTrustedRunFilteredCount} />
                         </TableCell>
                         <TableCell>
-                          <SearchMetricValue
-                            value={totals.deduped}
-                            delta={totals.latestTrustedRunDedupedCount}
-                          />
+                          <LastRunMetric value={totals.latestTrustedRunDedupedCount} />
                         </TableCell>
                         <TableCell>
-                          <SearchMetricValue
-                            value={totals.imported}
-                            delta={
-                              // Use the run-level deduplicated count from queueMeta so
-                              // this aggregate delta matches the Jobs-tab "New" count.
-                              // Per-source sum (latestTrustedRunImportedCount) overcounts
-                              // when the same job is captured by multiple sources.
+                          <LastRunMetric
+                            value={
+                              // Run-level deduplicated count from queueMeta so this
+                              // aggregate matches the Jobs-tab "New" count; per-source
+                              // sums overcount cross-source duplicates.
                               dashboard?.queueMeta?.latestRunImportedCount != null
                                 ? dashboard.queueMeta.latestRunImportedCount
                                 : totals.latestTrustedRunImportedCount
                             }
+                            secondary={
+                              Number.isFinite(Number(totals.imported))
+                                ? `${totals.imported} in library`
+                                : null
+                            }
                           />
                         </TableCell>
-                        <TableCell>{totals.avgScore}</TableCell>
+                        <TableCell>
+                          {totals.avgScore === null || totals.avgScore === "—" ? (
+                            <span className="text-muted-foreground">{totals.avgScore ?? "n/a"}</span>
+                          ) : (
+                            <span className="whitespace-nowrap">{totals.avgScore} / 100</span>
+                          )}
+                        </TableCell>
                         <TableCell>—</TableCell>
                         <TableCell>—</TableCell>
                       </TableRow>
