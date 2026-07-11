@@ -814,6 +814,25 @@ export default function App() {
     }
     return activeJobs;
   }, [activeJobs, appliedJobs, jobsView, rejectedJobs, skippedJobs]);
+  // Reconciled account of every stored job (server-computed, buckets sum to
+  // `stored`). Powers the explanatory queue empty state — the queue must
+  // never look broken when it is actually complete.
+  const queueBreakdown = dashboard?.queueMeta?.queueBreakdown || null;
+  const jobsFiltersActive =
+    jobsSourceFilter !== "all" ||
+    jobsPostedFilter !== "all" ||
+    jobsSalaryPresenceFilter !== "all" ||
+    jobsSalaryRangeFilter !== null ||
+    jobsWidgetKeywordFilter !== "" ||
+    jobsWidgetTitleFilter !== "";
+  const clearJobsFilters = useCallback(() => {
+    setJobsSourceFilter("all");
+    setJobsPostedFilter("all");
+    setJobsSalaryPresenceFilter("all");
+    setJobsSalaryRangeFilter(null);
+    setJobsWidgetKeywordFilter("");
+    setJobsWidgetTitleFilter("");
+  }, []);
   const jobSourceFilters = useMemo(() => {
     const totalsByKind = new Map();
 
@@ -2789,7 +2808,7 @@ export default function App() {
                     </div>
                   </div>
                   <div className="flex min-w-[220px] items-center justify-end gap-2">
-                    <span className="text-sm font-medium text-muted-foreground">Sort by</span>
+                    <span className="whitespace-nowrap text-sm font-medium text-muted-foreground">Sort by</span>
                     <select
                       className="h-10 min-w-[180px] rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground shadow-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
                       value={jobsSort}
@@ -2805,7 +2824,73 @@ export default function App() {
               <CardContent className="space-y-3">
                 {pagedJobs.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-border bg-secondary/20 p-4 text-sm text-muted-foreground">
-                    No jobs match the current filters.
+                    {jobsAllInSelectedView.length > 0 ? (
+                      <div className="space-y-3">
+                        <div>
+                          All {jobsAllInSelectedView.length} job
+                          {jobsAllInSelectedView.length === 1 ? "" : "s"} in this view are
+                          hidden by your filters.
+                        </div>
+                        {jobsFiltersActive ? (
+                          <Button variant="outline" size="sm" onClick={clearJobsFilters}>
+                            Clear filters
+                          </Button>
+                        ) : null}
+                      </div>
+                    ) : jobsView === "all" &&
+                      queueBreakdown &&
+                      queueBreakdown.stored > 0 &&
+                      queueBreakdown.active === 0 ? (
+                      <div className="space-y-3">
+                        <div className="text-base font-semibold text-foreground">
+                          You&apos;re through your queue.
+                        </div>
+                        <div>
+                          {queueBreakdown.stored} jobs stored: {queueBreakdown.applied} applied
+                          {queueBreakdown.skipped > 0 ? `, ${queueBreakdown.skipped} skipped` : ""}
+                          {queueBreakdown.rejectedByUser > 0
+                            ? `, ${queueBreakdown.rejectedByUser} rejected by you`
+                            : ""}
+                          {queueBreakdown.hardFiltered > 0
+                            ? `, ${queueBreakdown.hardFiltered} excluded by your hard filter`
+                            : ""}
+                          {queueBreakdown.lowSignal > 0
+                            ? `, ${queueBreakdown.lowSignal} low signal`
+                            : ""}
+                          . New matches arrive with your next search run.
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {queueBreakdown.applied > 0 ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setJobsView("applied")}
+                            >
+                              View applied ({queueBreakdown.applied})
+                            </Button>
+                          ) : null}
+                          {queueBreakdown.skipped > 0 ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setJobsView("skipped")}
+                            >
+                              View skipped ({queueBreakdown.skipped})
+                            </Button>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : jobsView === "all" && queueBreakdown && queueBreakdown.stored === 0 ? (
+                      <div>No jobs stored yet — run your first search to fill the queue.</div>
+                    ) : jobsView === "new" ? (
+                      <div>No new jobs from the latest search run.</div>
+                    ) : jobsView === "unread" ? (
+                      <div>You&apos;ve viewed everything in your queue.</div>
+                    ) : jobsView === "best_match" ? (
+                      <div>No high-signal matches in your queue right now.</div>
+                    ) : (
+                      <div>Nothing here yet.</div>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -2844,9 +2929,30 @@ export default function App() {
                                 <div className="mt-1 font-medium text-foreground">{formatJobFreshness(job)}</div>
                               </div>
                               <div>
-                                <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Score</div>
-                                <div className="mt-1 font-medium text-foreground">
-                                  {Number.isFinite(Number(job.score)) ? Math.round(Number(job.score)) : "n/a"}
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Match</div>
+                                <div className="mt-1 font-medium">
+                                  {job.bucket === "high_signal" ? (
+                                    <span className="text-emerald-600">
+                                      High signal
+                                      {Number.isFinite(Number(job.score))
+                                        ? ` · ${Math.round(Number(job.score))}`
+                                        : ""}
+                                    </span>
+                                  ) : job.bucket === "reject" ? (
+                                    <span className="text-muted-foreground">
+                                      Low signal
+                                      {Number.isFinite(Number(job.score))
+                                        ? ` · ${Math.round(Number(job.score))}`
+                                        : ""}
+                                    </span>
+                                  ) : (
+                                    <span className="text-amber-600">
+                                      Review
+                                      {Number.isFinite(Number(job.score))
+                                        ? ` · ${Math.round(Number(job.score))}`
+                                        : ""}
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -3082,7 +3188,7 @@ export default function App() {
                   </>
                 ) : (
                   <div className="rounded-lg border border-dashed border-border bg-secondary/20 p-6 text-sm text-muted-foreground">
-                    No jobs are available for the current filter.
+                    Nothing selected — choose a job from Results to see its details.
                   </div>
                 )}
               </CardContent>
