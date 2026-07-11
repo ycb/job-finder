@@ -43,6 +43,8 @@ test("mcp_v1 registration allows read primitives", () => {
 });
 
 test("mcp_v1 registration rejects write primitives", () => {
+  // apply_click is stopped by the stricter never-exposable rule, which
+  // outranks the per-surface write policy.
   assert.throws(
     () =>
       validatePrimitiveSurfaceRegistration({
@@ -50,6 +52,19 @@ test("mcp_v1 registration rejects write primitives", () => {
         primitiveIds: [
           BRIDGE_PRIMITIVE_ID.CAPTURE_SOURCE,
           BRIDGE_PRIMITIVE_ID.APPLY_CLICK
+        ]
+      }),
+    /may never be exposed on any surface/i
+  );
+
+  // Ordinary write primitives still hit the mcp_v1 read-only policy.
+  assert.throws(
+    () =>
+      validatePrimitiveSurfaceRegistration({
+        surface: "mcp_v1",
+        primitiveIds: [
+          BRIDGE_PRIMITIVE_ID.CAPTURE_SOURCE,
+          BRIDGE_PRIMITIVE_ID.FORM_TYPE_TEXT
         ]
       }),
     /cannot expose write primitives/i

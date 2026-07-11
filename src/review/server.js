@@ -42,7 +42,11 @@ import {
 import { loadRetentionPolicy } from "../config/retention-policy.js";
 import { openDatabase } from "../db/client.js";
 import { runMigrations } from "../db/migrations.js";
-import { filterActiveQueueJobs, isActiveQueueJob } from "../jobs/active-queue.js";
+import {
+  buildQueueBreakdown,
+  filterActiveQueueJobs,
+  isActiveQueueJob
+} from "../jobs/active-queue.js";
 import { normalizeJobRecord } from "../jobs/normalize.js";
 import { applyRetentionPolicyCleanup, writeRetentionCleanupAudit } from "../jobs/retention.js";
 import {
@@ -2099,12 +2103,18 @@ export function buildDashboardData(limit = 200) {
   const importedJobCountsBySourceId = new Map(
     importedJobCounts.map((row) => [row.sourceId, row.importedCount])
   );
-  const queue = filterActiveQueueJobs(statsQueue).slice(0, limit);
+  const activeQueueJobs = filterActiveQueueJobs(statsQueue);
+  const queue = activeQueueJobs.slice(0, limit);
   const appliedQueue = statsQueue.filter((job) => job.status === "applied").slice(0, limit);
   const skippedQueue = statsQueue
     .filter((job) => job.status === "skip_for_now")
     .slice(0, limit);
   const rejectedQueue = statsQueue.filter((job) => job.status === "rejected").slice(0, limit);
+  // One reconciled account of every stored job, in mutually exclusive
+  // buckets that sum to `stored`. User actions outrank scoring gates so a
+  // job the user applied to counts as "applied" even if it also scored low.
+  // This powers the queue's explanatory empty state (UX-0 trust pass).
+  const queueBreakdown = buildQueueBreakdown(statsQueue, activeQueueJobs);
 
   const countsBySourceId = new Map();
 
@@ -2448,6 +2458,7 @@ export function buildDashboardData(limit = 200) {
     skippedQueue,
     rejectedQueue,
     queueMeta: {
+      queueBreakdown,
       currentImportBatchId,
       // Deduplicated count of active-queue-eligible jobs from the latest run,
       // counted once per unique normalizedHash across all sources. Use this as

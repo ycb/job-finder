@@ -9,9 +9,14 @@ import {
   listLinkedInStructuredPayloadRequests
 } from "../src/sources/linkedin-structured-payload.js";
 
-const SAMPLE_PATH = "/Users/admin/job-finder/data/li-sample-data.html";
+const SAMPLE_PATH = new URL("../data/li-sample-data.html", import.meta.url).pathname;
 
-test("sample LinkedIn HTML exposes voyager job payload requests", () => {
+// The sample capture is a local, gitignored fixture (real LinkedIn page source).
+// Skip fixture-dependent tests on checkouts that do not have it rather than
+// hard-failing fresh clones and CI environments.
+const SAMPLE_AVAILABLE = fs.existsSync(SAMPLE_PATH);
+
+test("sample LinkedIn HTML exposes voyager job payload requests", { skip: !SAMPLE_AVAILABLE && "local fixture data/li-sample-data.html not present" }, () => {
   const html = fs.readFileSync(SAMPLE_PATH, "utf8");
   const requests = listLinkedInStructuredPayloadRequests(html);
 
@@ -25,7 +30,7 @@ test("sample LinkedIn HTML exposes voyager job payload requests", () => {
   );
 });
 
-test("extractLinkedInStructuredJobsFromHtml parses MVP job fields from hidden payloads", () => {
+test("extractLinkedInStructuredJobsFromHtml parses MVP job fields from hidden payloads", { skip: !SAMPLE_AVAILABLE && "local fixture data/li-sample-data.html not present" }, () => {
   const html = fs.readFileSync(SAMPLE_PATH, "utf8");
   const jobs = extractLinkedInStructuredJobsFromHtml(html);
 

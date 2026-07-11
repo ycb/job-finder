@@ -8,6 +8,11 @@ import path from "node:path";
 const REPO_ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const CLI_PATH = path.join(REPO_ROOT, "src/cli.js");
 
+// Never let a user-exported JOB_FINDER_DB redirect subprocess tests at a
+// real database — isolation must be explicit (see answer-store.test.js).
+const CLEAN_ENV = { ...process.env };
+delete CLEAN_ENV.JOB_FINDER_DB;
+
 test("cli help exits successfully", () => {
   const result = spawnSync("node", ["src/cli.js", "help"], {
     cwd: REPO_ROOT,
@@ -46,7 +51,7 @@ test("cli init accepts install channel and analytics flags", () => {
       ],
       {
         cwd: tempDir,
-        env: process.env,
+        env: CLEAN_ENV,
         encoding: "utf8"
       }
     );
@@ -79,7 +84,7 @@ test("cli init rejects invalid install channel", () => {
       ],
       {
         cwd: tempDir,
-        env: process.env,
+        env: CLEAN_ENV,
         encoding: "utf8"
       }
     );
@@ -101,7 +106,7 @@ test("cli init non-interactive works without legal consent flags", () => {
       [CLI_PATH, "init", "--channel", "npm", "--non-interactive"],
       {
         cwd: tempDir,
-        env: process.env,
+        env: CLEAN_ENV,
         encoding: "utf8"
       }
     );
@@ -125,7 +130,7 @@ test("cli init non-interactive repeat run succeeds without consent flags", () =>
       ],
       {
         cwd: tempDir,
-        env: process.env,
+        env: CLEAN_ENV,
         encoding: "utf8"
       }
     );
@@ -133,7 +138,7 @@ test("cli init non-interactive repeat run succeeds without consent flags", () =>
 
     const second = spawnSync("node", [CLI_PATH, "init", "--channel", "npm", "--non-interactive"], {
       cwd: tempDir,
-      env: process.env,
+      env: CLEAN_ENV,
       encoding: "utf8"
     });
     assert.equal(second.status, 0, second.stderr || "Expected repeat non-interactive init to succeed.");
@@ -157,7 +162,7 @@ test("cli init rejects removed legacy --accept-tos-risk flag", () => {
       ],
       {
         cwd: tempDir,
-        env: process.env,
+        env: CLEAN_ENV,
         encoding: "utf8"
       }
     );
@@ -185,7 +190,7 @@ test("cli init rejects conflicting analytics flags", () => {
       ],
       {
         cwd: tempDir,
-        env: process.env,
+        env: CLEAN_ENV,
         encoding: "utf8"
       }
     );
@@ -213,7 +218,7 @@ test("cli init supports --json output in non-interactive mode", () => {
       ],
       {
         cwd: tempDir,
-        env: process.env,
+        env: CLEAN_ENV,
         encoding: "utf8"
       }
     );

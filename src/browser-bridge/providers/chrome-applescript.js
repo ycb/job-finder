@@ -8111,3 +8111,30 @@ export function captureSourceWithChromeAppleScript(source, snapshotPath, options
     `Chrome AppleScript provider currently supports linkedin_capture_file, wellfound_search, ashby_search, google_search, indeed_search, ziprecruiter_search, levelsfyi_search, yc_jobs, and remoteok_search. "${source?.name || "unknown"}" is ${source?.type || "unknown"}.`
   );
 }
+
+// --- Apply surface (apply_v1) ---------------------------------------------
+// Live AppleScript implementations land with the Greenhouse adapter
+// (Milestone 3 of docs/plans/2026-07-10-apply-engine-mvp-execplan.md), where
+// they can be verified against a real form. Until then these fail loudly and
+// honestly instead of pretending to fill anything. Hard requirements for the
+// real implementation: operate only on a window/tab this provider opened
+// itself (never the user's active window), and never click submit.
+function applyNotImplementedError(operation) {
+  const error = new Error(
+    `chrome_applescript ${operation} is not implemented yet: live apply support ships with the Greenhouse adapter (Milestone 3). Use provider=noop for surface-level tests.`
+  );
+  error.statusCode = 501;
+  return error;
+}
+
+export function extractApplyFormSchemaWithChromeAppleScript() {
+  throw applyNotImplementedError("extract-form-schema");
+}
+
+export function applyTypeTextWithChromeAppleScript() {
+  throw applyNotImplementedError("type-text");
+}
+
+export function applyUploadFileWithChromeAppleScript() {
+  throw applyNotImplementedError("upload-file");
+}

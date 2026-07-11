@@ -156,16 +156,16 @@ function formatSearchMetricValue(value) {
   return Number.isFinite(Number(value)) ? Math.max(0, Math.round(Number(value))) : "—";
 }
 
-function SearchMetricValue({ value, delta }) {
+// One run context per row (UX audit item 2): the primary number is the
+// LATEST completed run — never a lifetime SUM that re-counts recurring jobs
+// on every recapture — with optional secondary context beneath.
+function LastRunMetric({ value, secondary, warn }) {
   const primary = formatSearchMetricValue(value);
-  const hasDelta = Number.isFinite(Number(delta));
-  const deltaLabel = hasDelta ? `+${Math.max(0, Math.round(Number(delta)))}` : null;
-
   return (
-    <div className="flex items-center gap-2">
-      <span>{primary}</span>
-      {deltaLabel ? (
-        <span className="text-xs font-medium text-muted-foreground">{deltaLabel}</span>
+    <div className="space-y-0.5">
+      <span className={cn(warn && "font-semibold text-amber-600")}>{primary}</span>
+      {secondary ? (
+        <div className="text-xs text-muted-foreground">{secondary}</div>
       ) : null}
     </div>
   );
@@ -814,6 +814,25 @@ export default function App() {
     }
     return activeJobs;
   }, [activeJobs, appliedJobs, jobsView, rejectedJobs, skippedJobs]);
+  // Reconciled account of every stored job (server-computed, buckets sum to
+  // `stored`). Powers the explanatory queue empty state — the queue must
+  // never look broken when it is actually complete.
+  const queueBreakdown = dashboard?.queueMeta?.queueBreakdown || null;
+  const jobsFiltersActive =
+    jobsSourceFilter !== "all" ||
+    jobsPostedFilter !== "all" ||
+    jobsSalaryPresenceFilter !== "all" ||
+    jobsSalaryRangeFilter !== null ||
+    jobsWidgetKeywordFilter !== "" ||
+    jobsWidgetTitleFilter !== "";
+  const clearJobsFilters = useCallback(() => {
+    setJobsSourceFilter("all");
+    setJobsPostedFilter("all");
+    setJobsSalaryPresenceFilter("all");
+    setJobsSalaryRangeFilter(null);
+    setJobsWidgetKeywordFilter("");
+    setJobsWidgetTitleFilter("");
+  }, []);
   const jobSourceFilters = useMemo(() => {
     const totalsByKind = new Map();
 
@@ -2293,10 +2312,22 @@ export default function App() {
                         <TableHead>Source</TableHead>
                         <TableHead>Last Run</TableHead>
                         <TableHead>Status</TableHead>
-                        <TableHead>Found</TableHead>
-                        <TableHead>Filtered</TableHead>
-                        <TableHead>Dupes</TableHead>
-                        <TableHead>Imported</TableHead>
+                        <TableHead>
+                          Found
+                          <span className="block text-[10px] font-normal normal-case text-muted-foreground">last run</span>
+                        </TableHead>
+                        <TableHead>
+                          Filtered
+                          <span className="block text-[10px] font-normal normal-case text-muted-foreground">last run</span>
+                        </TableHead>
+                        <TableHead>
+                          Dupes
+                          <span className="block text-[10px] font-normal normal-case text-muted-foreground">last run</span>
+                        </TableHead>
+                        <TableHead>
+                          Imported
+                          <span className="block text-[10px] font-normal normal-case text-muted-foreground">last run · library</span>
+                        </TableHead>
                         <TableHead>Avg Score</TableHead>
                         <TableHead className="w-[116px] pr-1">Action</TableHead>
                         <TableHead className="w-[44px] pl-1 pr-2">
@@ -2369,30 +2400,46 @@ export default function App() {
                               </div>
                             </TableCell>
                             <TableCell>
-                              <SearchMetricValue
-                                value={row.foundCount}
-                                delta={row.latestTrustedRunFoundCount}
+                              <LastRunMetric
+                                value={row.latestTrustedRunFoundCount}
+                                secondary={
+                                  Number.isFinite(Number(row.expectedFoundCount))
+                                    ? `of ~${row.expectedFoundCount} listed`
+                                    : null
+                                }
+                                warn={
+                                  Number.isFinite(Number(row.expectedFoundCount)) &&
+                                  Number.isFinite(Number(row.latestTrustedRunFoundCount)) &&
+                                  Number(row.expectedFoundCount) > 0 &&
+                                  Number(row.latestTrustedRunFoundCount) /
+                                    Number(row.expectedFoundCount) <
+                                    0.6
+                                }
                               />
                             </TableCell>
                             <TableCell>
-                              <SearchMetricValue
-                                value={row.filteredCount}
-                                delta={row.latestTrustedRunFilteredCount}
+                              <LastRunMetric value={row.latestTrustedRunFilteredCount} />
+                            </TableCell>
+                            <TableCell>
+                              <LastRunMetric value={row.latestTrustedRunDedupedCount} />
+                            </TableCell>
+                            <TableCell>
+                              <LastRunMetric
+                                value={row.latestTrustedRunImportedCount}
+                                secondary={
+                                  Number.isFinite(Number(row.importedCount))
+                                    ? `${row.importedCount} in library`
+                                    : null
+                                }
                               />
                             </TableCell>
                             <TableCell>
-                              <SearchMetricValue
-                                value={row.dedupedCount}
-                                delta={row.latestTrustedRunDedupedCount}
-                              />
+                              {row.avgScore === null ? (
+                                <span className="text-muted-foreground">n/a</span>
+                              ) : (
+                                <span className="whitespace-nowrap">{row.avgScore} / 100</span>
+                              )}
                             </TableCell>
-                            <TableCell>
-                              <SearchMetricValue
-                                value={row.importedCount}
-                                delta={row.latestTrustedRunImportedCount}
-                              />
-                            </TableCell>
-                            <TableCell>{row.avgScore === null ? "n/a" : row.avgScore}</TableCell>
                             <TableCell className="align-middle pr-1">
                               <Button
                                 size="sm"
@@ -2473,38 +2520,38 @@ export default function App() {
                         <TableCell>—</TableCell>
                         <TableCell>—</TableCell>
                         <TableCell>
-                          <SearchMetricValue
-                            value={totals.foundCount}
-                            delta={totals.latestTrustedRunFoundCount}
-                          />
+                          <LastRunMetric value={totals.latestTrustedRunFoundCount} />
                         </TableCell>
                         <TableCell>
-                          <SearchMetricValue
-                            value={totals.filtered}
-                            delta={totals.latestTrustedRunFilteredCount}
-                          />
+                          <LastRunMetric value={totals.latestTrustedRunFilteredCount} />
                         </TableCell>
                         <TableCell>
-                          <SearchMetricValue
-                            value={totals.deduped}
-                            delta={totals.latestTrustedRunDedupedCount}
-                          />
+                          <LastRunMetric value={totals.latestTrustedRunDedupedCount} />
                         </TableCell>
                         <TableCell>
-                          <SearchMetricValue
-                            value={totals.imported}
-                            delta={
-                              // Use the run-level deduplicated count from queueMeta so
-                              // this aggregate delta matches the Jobs-tab "New" count.
-                              // Per-source sum (latestTrustedRunImportedCount) overcounts
-                              // when the same job is captured by multiple sources.
+                          <LastRunMetric
+                            value={
+                              // Run-level deduplicated count from queueMeta so this
+                              // aggregate matches the Jobs-tab "New" count; per-source
+                              // sums overcount cross-source duplicates.
                               dashboard?.queueMeta?.latestRunImportedCount != null
                                 ? dashboard.queueMeta.latestRunImportedCount
                                 : totals.latestTrustedRunImportedCount
                             }
+                            secondary={
+                              Number.isFinite(Number(totals.imported))
+                                ? `${totals.imported} in library`
+                                : null
+                            }
                           />
                         </TableCell>
-                        <TableCell>{totals.avgScore}</TableCell>
+                        <TableCell>
+                          {totals.avgScore === null || totals.avgScore === "—" ? (
+                            <span className="text-muted-foreground">{totals.avgScore ?? "n/a"}</span>
+                          ) : (
+                            <span className="whitespace-nowrap">{totals.avgScore} / 100</span>
+                          )}
+                        </TableCell>
                         <TableCell>—</TableCell>
                         <TableCell>—</TableCell>
                       </TableRow>
@@ -2789,7 +2836,7 @@ export default function App() {
                     </div>
                   </div>
                   <div className="flex min-w-[220px] items-center justify-end gap-2">
-                    <span className="text-sm font-medium text-muted-foreground">Sort by</span>
+                    <span className="whitespace-nowrap text-sm font-medium text-muted-foreground">Sort by</span>
                     <select
                       className="h-10 min-w-[180px] rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground shadow-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
                       value={jobsSort}
@@ -2805,7 +2852,73 @@ export default function App() {
               <CardContent className="space-y-3">
                 {pagedJobs.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-border bg-secondary/20 p-4 text-sm text-muted-foreground">
-                    No jobs match the current filters.
+                    {jobsAllInSelectedView.length > 0 ? (
+                      <div className="space-y-3">
+                        <div>
+                          All {jobsAllInSelectedView.length} job
+                          {jobsAllInSelectedView.length === 1 ? "" : "s"} in this view are
+                          hidden by your filters.
+                        </div>
+                        {jobsFiltersActive ? (
+                          <Button variant="outline" size="sm" onClick={clearJobsFilters}>
+                            Clear filters
+                          </Button>
+                        ) : null}
+                      </div>
+                    ) : jobsView === "all" &&
+                      queueBreakdown &&
+                      queueBreakdown.stored > 0 &&
+                      queueBreakdown.active === 0 ? (
+                      <div className="space-y-3">
+                        <div className="text-base font-semibold text-foreground">
+                          You&apos;re through your queue.
+                        </div>
+                        <div>
+                          {queueBreakdown.stored} jobs stored: {queueBreakdown.applied} applied
+                          {queueBreakdown.skipped > 0 ? `, ${queueBreakdown.skipped} skipped` : ""}
+                          {queueBreakdown.rejectedByUser > 0
+                            ? `, ${queueBreakdown.rejectedByUser} rejected by you`
+                            : ""}
+                          {queueBreakdown.hardFiltered > 0
+                            ? `, ${queueBreakdown.hardFiltered} excluded by your hard filter`
+                            : ""}
+                          {queueBreakdown.lowSignal > 0
+                            ? `, ${queueBreakdown.lowSignal} low signal`
+                            : ""}
+                          . New matches arrive with your next search run.
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {queueBreakdown.applied > 0 ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setJobsView("applied")}
+                            >
+                              View applied ({queueBreakdown.applied})
+                            </Button>
+                          ) : null}
+                          {queueBreakdown.skipped > 0 ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setJobsView("skipped")}
+                            >
+                              View skipped ({queueBreakdown.skipped})
+                            </Button>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : jobsView === "all" && queueBreakdown && queueBreakdown.stored === 0 ? (
+                      <div>No jobs stored yet — run your first search to fill the queue.</div>
+                    ) : jobsView === "new" ? (
+                      <div>No new jobs from the latest search run.</div>
+                    ) : jobsView === "unread" ? (
+                      <div>You&apos;ve viewed everything in your queue.</div>
+                    ) : jobsView === "best_match" ? (
+                      <div>No high-signal matches in your queue right now.</div>
+                    ) : (
+                      <div>Nothing here yet.</div>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -2844,9 +2957,30 @@ export default function App() {
                                 <div className="mt-1 font-medium text-foreground">{formatJobFreshness(job)}</div>
                               </div>
                               <div>
-                                <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Score</div>
-                                <div className="mt-1 font-medium text-foreground">
-                                  {Number.isFinite(Number(job.score)) ? Math.round(Number(job.score)) : "n/a"}
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Match</div>
+                                <div className="mt-1 font-medium">
+                                  {job.bucket === "high_signal" ? (
+                                    <span className="text-emerald-600">
+                                      High signal
+                                      {Number.isFinite(Number(job.score))
+                                        ? ` · ${Math.round(Number(job.score))}`
+                                        : ""}
+                                    </span>
+                                  ) : job.bucket === "reject" ? (
+                                    <span className="text-muted-foreground">
+                                      Low signal
+                                      {Number.isFinite(Number(job.score))
+                                        ? ` · ${Math.round(Number(job.score))}`
+                                        : ""}
+                                    </span>
+                                  ) : (
+                                    <span className="text-amber-600">
+                                      Review
+                                      {Number.isFinite(Number(job.score))
+                                        ? ` · ${Math.round(Number(job.score))}`
+                                        : ""}
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -3082,7 +3216,7 @@ export default function App() {
                   </>
                 ) : (
                   <div className="rounded-lg border border-dashed border-border bg-secondary/20 p-6 text-sm text-muted-foreground">
-                    No jobs are available for the current filter.
+                    Nothing selected — choose a job from Results to see its details.
                   </div>
                 )}
               </CardContent>

@@ -1,0 +1,26 @@
+{
+  "_provenance": "Field inventory transcribed from the live Greenhouse application form at https://job-boards.greenhouse.io/gitlab/jobs/8620720002 (Backend Engineer Ruby, AI Engineering: Agent Observability), fetched 2026-07-10. Raw HTML is not committed; this schema mirrors the real labels, types, required flags, and section structure, including the voluntary self-identification (EEO) block.",
+  "url": "https://job-boards.greenhouse.io/gitlab/jobs/8620720002",
+  "adapter": "greenhouse",
+  "fields": [
+    { "fieldId": "first_name", "label": "First Name", "type": "text", "required": true, "options": null, "sectionLabel": "Apply for this job" },
+    { "fieldId": "last_name", "label": "Last Name", "type": "text", "required": true, "options": null, "sectionLabel": "Apply for this job" },
+    { "fieldId": "email", "label": "Email", "type": "text", "required": true, "options": null, "sectionLabel": "Apply for this job" },
+    { "fieldId": "phone", "label": "Phone", "type": "text", "required": false, "options": null, "sectionLabel": "Apply for this job" },
+    { "fieldId": "resume", "label": "Resume/CV", "type": "file", "required": true, "options": null, "sectionLabel": "Apply for this job" },
+    { "fieldId": "cover_letter", "label": "Cover Letter", "type": "file", "required": false, "options": null, "sectionLabel": "Apply for this job" },
+    { "fieldId": "question_linkedin", "label": "LinkedIn Profile", "type": "text", "required": false, "options": null, "sectionLabel": "Apply for this job" },
+    { "fieldId": "question_preferred_name", "label": "What's the name you'd prefer us to use throughout the interview process?", "type": "text", "required": false, "options": null, "sectionLabel": "Apply for this job" },
+    { "fieldId": "question_country_residence", "label": "What is your current country of residence?", "type": "select", "required": true, "options": [ { "value": "ca", "label": "Canada" }, { "value": "us", "label": "United States" }, { "value": "uk", "label": "United Kingdom" } ], "sectionLabel": "Apply for this job" },
+    { "fieldId": "question_located_canada", "label": "Are you currently located in Canada?", "type": "select", "required": true, "options": [ { "value": "yes", "label": "Yes" }, { "value": "no", "label": "No" } ], "sectionLabel": "Apply for this job" },
+    { "fieldId": "question_employment_restrictions", "label": "Are you subject to any employment agreements and/or post-employment restrictions with your current employer or a past employer?", "type": "select", "required": true, "options": [ { "value": "yes", "label": "Yes" }, { "value": "no", "label": "No" } ], "sectionLabel": "Apply for this job" },
+    { "fieldId": "question_accessibility", "label": "It is important to us to create an accessible and inclusive interview experience. Please let us know if there are any adjustments we can make to assist you during the hiring and interview process.", "type": "textarea", "required": false, "options": null, "sectionLabel": "Apply for this job" },
+    { "fieldId": "question_gitlab_username", "label": "What is your GitLab username?", "type": "text", "required": false, "options": null, "sectionLabel": "Apply for this job" },
+    { "fieldId": "question_sponsorship", "label": "Will you now or in the future require sponsorship for a visa to remain in your current location?", "type": "select", "required": true, "options": [ { "value": "yes", "label": "Yes" }, { "value": "no", "label": "No" } ], "sectionLabel": "Apply for this job" },
+    { "fieldId": "question_previously_worked", "label": "Have you previously worked at or consulted for GitLab?", "type": "select", "required": true, "options": [ { "value": "yes", "label": "Yes" }, { "value": "no", "label": "No" } ], "sectionLabel": "Apply for this job" },
+    { "fieldId": "eeo_gender", "label": "Gender", "type": "select", "required": false, "options": [ { "value": "m", "label": "Male" }, { "value": "f", "label": "Female" }, { "value": "d", "label": "Decline To Self Identify" } ], "sectionLabel": "Voluntary Self-Identification" },
+    { "fieldId": "eeo_hispanic", "label": "Are you Hispanic/Latino?", "type": "select", "required": false, "options": [ { "value": "yes", "label": "Yes" }, { "value": "no", "label": "No" }, { "value": "d", "label": "Decline To Self Identify" } ], "sectionLabel": "Voluntary Self-Identification" },
+    { "fieldId": "eeo_veteran", "label": "Veteran Status", "type": "select", "required": false, "options": [ { "value": "v", "label": "I am a protected veteran" }, { "value": "nv", "label": "I am not a protected veteran" }, { "value": "d", "label": "I don't wish to answer" } ], "sectionLabel": "Voluntary Self-Identification" },
+    { "fieldId": "eeo_disability", "label": "Disability Status", "type": "select", "required": false, "options": [ { "value": "y", "label": "Yes, I have a disability, or have had one in the past" }, { "value": "n", "label": "No, I do not have a disability and have not had one in the past" }, { "value": "d", "label": "I do not want to answer" } ], "sectionLabel": "Voluntary Self-Identification of Disability" }
+  ]
+}

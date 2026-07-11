@@ -14,10 +14,15 @@ Two explicit non-goals for this plan: no zero-click ("full auto") submission any
 
 - [x] (2026-07-10) ExecPlan authored and checked in for stakeholder review.
 - [x] (2026-07-10) Stakeholder approval obtained for enabling write primitives under a draft-and-confirm boundary (recorded in `docs/roadmap/decision-log.md` and in the Decision Log below).
-- [ ] Milestone 0: `apply_v1` bridge surface exposing write primitives, separate from read-only `mcp_v1`; consent gate.
-- [ ] Milestone 1: Answer library schema, repository module, and seed/import CLI.
-- [ ] Milestone 2: Transport-agnostic apply engine core (schema detection contract, field mapping, draft plan) with unit tests against saved form fixtures.
-- [ ] Milestone 3a: Prepare-flow design artifact (screen states, copy, error states) approved by stakeholder before implementation.
+- [x] (2026-07-10 20:15Z) Repo stabilization: stale `index.lock` cleared; ~24 files of uncommitted drift on the QA checkout preserved on branch `wip/2026-07-10-qa-checkout-rescue` (`3c7cf86`) — needs stakeholder review; `feature/apply-engine-mvp` based on the rescue commit because committed `qa/current` fails 13 tests that the drift fixes.
+- [x] (2026-07-10 20:20Z) Green baseline on fresh checkouts (`665ccc0`): `posthog-node` added to dependencies; LinkedIn structured-payload tests skip when the gitignored fixture is absent (resolved repo-relative); `node:sqlite` null-prototype row normalization in run-deltas test. Full suite 488 pass / 0 fail.
+- [x] (2026-07-10 20:40Z) Milestone 0 (`ad0c192`): `apply_v1` surface with per-surface write allowlist; `jobs.apply_click` + `dialogs.confirm_action` never-exposable on any surface; unknown surfaces rejected; `forms.extract_schema` read primitive; `/apply/*` routes consent-gated via `src/apply/consent.js`; noop provider implements apply ops for tests. Suite 498 pass / 0 fail. Remaining from M0 scope: live chrome_applescript apply implementations (deferred to Milestone 3 where they can be verified against a real form; stubs return 501).
+- [x] (2026-07-10 21:10Z) Milestone 1: `answer_library` + `application_drafts` migrations; `src/apply/answer-store.js` (exact-key + conservative fuzzy screener matching at 0.75 token-overlap threshold with synonym folding; approved-only visibility; upsert by key; usage tracking); CLI `jf answers` / `jf answers-seed` with profile bootstrap. 10 new tests incl. CLI subprocess smoke; suite 508 pass / 0 fail.
+- [x] (2026-07-10 21:55Z) Milestone 2: `src/apply/form-schema.js` (contract + validator), `src/apply/field-mapping.js` (canonical label map, EEO detection, exact-only `demographic.*` opt-in), `src/apply/engine.js` (`buildDraftPlan` → plan/unanswered/skipped; no fabrication; option-safe coercion). Fixtures: Greenhouse schema transcribed from live GitLab posting 8620720002, Easy Apply modal model. 9 tests incl. no-guess near-miss and transport-agnosticism import scan; suite 517 pass / 0 fail.
+- [x] (2026-07-10 22:40Z) Milestone 2.5 — answer policies: `src/apply/answer-policies.js` (decline-option preference matcher; salary strategy: library > "Let's discuss" for free text > top-of-listed-range for numeric > location default $225k SF / $200k elsewhere; website→github fallback chain; full_name composition from first+last). Engine resolution order now library → fallback chain → policy → unanswered; plan entries carry `source: "policy"`, `policyId`, `note`. Required-vs-optional demographic branching (optional skipped, required declined, no-decline-option routed to user). Conservative select-option containment matching. `number` field type added to the schema contract. `--github` seed flag. 12 new tests; suite 531 pass / 0 fail.
+- [x] (2026-07-10 23:30Z) Dashboard UX audit against the live product (`docs/analysis/2026-07-10-dashboard-ux-audit.md`): P0 trust-legibility failures (empty-queue contradiction, non-reconciling funnel rows, illegible scores), P1 IA issues (mixed-mode tabs, oversized zero-widgets, monetization stats leading, queue below fold). Stakeholder to confirm priorities and IA scope.
+- [ ] Milestone UX-0: trust + legibility pass (audit items 1–3 + copy fixes), merged with Milestone 5 funnel-semantics work. Precedes apply UI.
+- [ ] Milestone 3a (revised): clickable HTML prototype of the proposed Jobs workspace with the Prepare-application flow embedded, approved by stakeholder before M3 implementation. Supersedes the markdown-only design gate; the state map in docs/plans/2026-07-10-apply-flow-design.md remains the copy/state source.
 - [ ] Milestone 3: Greenhouse adapter + dashboard "Prepare application" flow, live-verified on a real Greenhouse posting; meets UX Standards section.
 - [ ] Milestone 4: LinkedIn Easy Apply adapter with multi-step modal support and strict no-submit guardrails, live-verified.
 - [ ] Milestone 5: Import-count trust: expected-versus-imported surfaced per source row in the Sources table for every run.
@@ -27,13 +32,54 @@ Two explicit non-goals for this plan: no zero-click ("full auto") submission any
 
 ## Surprises & Discoveries
 
-- (none yet — populate during implementation with evidence snippets)
+- Observation: The QA checkout (`/Users/admin/job-finder`, branch `qa/current`) carried ~24 files of uncommitted code+test changes, and committed `qa/current` fails 13 tests that this drift fixes (refresh-state, cache-policy, dashboard status). The drift is real unlanded work of unclear provenance.
+  Evidence: `npm test` on committed `qa/current` = 457 pass / 16 fail; the same suites pass with drift applied. Preserved as `wip/2026-07-10-qa-checkout-rescue` (`3c7cf86`) without touching the working tree.
+- Observation: `posthog-node` is imported by `src/analytics/posthog-config.js` but was never declared in `package.json`, so every fresh install failed `test/posthog-error-tracking.test.js` with ERR_MODULE_NOT_FOUND.
+  Evidence: `ls node_modules/posthog-node` → not found on a clean install; fixed in `665ccc0`.
+- Observation: `node:sqlite` (Node ≥22) returns null-prototype row objects, which `assert.deepEqual` distinguishes from plain literals. Two assertions in `test/run-deltas.test.js` already normalized rows with `({ ...row })`; one did not and failed only on newer Node.
+  Evidence: `[Object: null prototype]` in the assertion diff for the `listImportedJobCountsBySourceId` test; fixed in `665ccc0`.
+- Observation: JavaScript injection cannot populate `<input type="file">` (browser security), so the chrome_applescript provider can never attach resumes via injected JS. File upload needs the Playwright/extension provider (CDP `DOM.setFileInputFiles`) or manual attachment by the user during the confirm step.
+  Evidence: standard browser security model — no page-context API sets a file input from a local path. MVP consequence: draft plans mark resume fields "attach manually" under chrome_applescript; `/apply/upload-file` remains on the surface for providers that can support it.
+- Observation: A live fetch of a real Greenhouse form (GitLab posting 8620720002) shows modern `job-boards.greenhouse.io` forms carry substantial per-company custom questions (country of residence, employment restrictions, accessibility adjustments, company username) alongside the standard block, plus a four-field EEO section and a phone country-code select. Raw HTML is not retrievable through the permitted fetch tooling (it returns extracted text), so M2 fixtures are faithful schema transcriptions with provenance noted in the fixture file; a real DOM capture happens in Milestone 3 via the bridge.
+  Evidence: fetched page inventory in `test/fixtures/apply/greenhouse-gitlab-schema.json` `_provenance`.
+- Observation: Real-world screener rewordings can score below the 0.75 fuzzy threshold — GitLab's "sponsorship for a visa to remain in your current location" scores 0.667 against the canonical "sponsorship for employment visa status". This is the designed behavior, not a defect: the near-miss routes to the user once, is saved with the site's wording, and matches thereafter. Watch the corrections-per-application metric; if the first-week correction load is dominated by near-misses in the 0.65–0.75 band, revisit with better synonym folding rather than a lower threshold.
+  Evidence: `questionSimilarity` = 0.667 for the pair above; test "near-miss screener must not be auto-filled".
+- Observation: git worktrees created inside the agent sandbox record absolute paths that don't resolve on the host Mac, and vice versa — a prior session's `hopeful-jackson` worktree pointer broke `git status` inside the sandbox entirely.
+  Evidence: `fatal: not a git repository: /Users/admin/job-finder/.git/worktrees/hopeful-jackson`. Fix: rewrite the worktree's `.git` pointer file to a relative path (`gitdir: ../../../.git/worktrees/<name>`) and keep the reverse `gitdir` metadata file Mac-absolute.
 
 ## Decision Log
 
 - Decision: Enable browser-bridge write primitives (`forms.type_text`, `forms.upload_file`) for a new `apply_v1` surface, keeping `mcp_v1` read-only and keeping `jobs.apply_click` and `dialogs.confirm_action` unexposed.
   Rationale: The read-only `mcp_v1` boundary was an intentional policy requiring explicit stakeholder approval to change. Stakeholder (Peter Spannagle) approved on 2026-07-10, scoped strictly to draft-and-confirm: the system may type into and upload files to form fields, but the human always clicks submit. Excluding `apply_click`/`confirm_action` from the surface makes zero-click submission structurally impossible rather than merely policy-forbidden.
   Date/Author: 2026-07-10 / Peter Spannagle (approval), Claude (recording).
+
+- Decision: Consent gates every `/apply/*` route, including read-only schema extraction, and is re-read from `data/user-settings.json` on each request.
+  Rationale: Schema extraction opens a window in the user's real browser — an intrusive act even though it writes nothing. One uniform gate is simpler to reason about and to test than a split policy, and per-request reads mean consent granted from the dashboard takes effect without a bridge restart.
+  Date/Author: 2026-07-10 / Claude (autonomous, within plan scope).
+
+- Decision: chrome_applescript apply operations ship as explicit 501 stubs in Milestone 0; real implementations land in Milestone 3 alongside the Greenhouse adapter.
+  Rationale: Writing AppleScript window/tab management blind, with no way to live-verify against a real form in this milestone, violates the repo's verification-before-done rule. M0's acceptance is the policy boundary and consent gate, which unit tests fully prove via the noop provider. Failing loudly with 501 is honest; pretending to fill would not be.
+  Date/Author: 2026-07-10 / Claude (autonomous, within plan scope).
+
+- Decision: `jf answers-seed` is flag-driven (plus profile bootstrap) rather than an interactive Ink wizard.
+  Rationale: The dashboard becomes the answer library's primary management UI in Milestone 3 (designed under the UX Standards section); building a second interactive surface in the CLI now would duplicate that work. Flags keep seeding scriptable and testable; the ExecPlan's original "interactive" wording is superseded by this decision.
+  Date/Author: 2026-07-10 / Claude (autonomous, within plan scope).
+
+- Decision: The answer library lives in the stable database at `/Users/admin/job-finder/data/jobs.db`, never in a worktree copy. `openDatabase()` now honors a `JOB_FINDER_DB` environment variable so any checkout/worktree operates on that one database (`071e993`).
+  Rationale: Stakeholder correctly flagged worktree-local storage as fragile — worktrees are disposable, real answers are not. This also aligns with the known checkout-relative-storage architectural bug in docs/learnings.md and with Milestone 3, whose dashboard flow reads the same stable DB. The full canonical machine-local data-dir migration stays a separate backlog item.
+  Date/Author: 2026-07-10 / Peter Spannagle (direction), Claude (implementation).
+
+- Decision: Added an answer-policies layer (M2.5) encoding the stakeholder's stated application strategies: required demographic questions get a decline-to-state option (optional ones stay blank); salary fields get "Let's discuss" when free-text, top of the job's advertised range when numeric, and location-based defaults ($225,000 San Francisco / $200,000 remote or elsewhere) when no range is listed; portfolio/website fields fall back to the saved GitHub URL. Policies never outrank library answers and every policy value is labeled `source: "policy"` with a `policyId` and human-readable note for the confirm UI.
+  Rationale: Stakeholder specified these behaviors on 2026-07-10 (superseding an earlier "1" numeric sentinel with realistic location-based defaults). Policies are user strategies, not fabricated facts, so truth fidelity holds; provenance labeling keeps every proposed value explainable at confirm time.
+  Date/Author: 2026-07-10 / Peter Spannagle (direction), Claude (implementation).
+
+- Decision: The answer-library editor moves from Milestone 6 into Milestone 3 dashboard scope. Answers remain in SQLite (not a user-editable file) because usage tracking, upserts, and the future Supabase sync need a database as the single source of truth.
+  Rationale: Stakeholder does not want to manage answers via Terminal; a first-class Answers view in the dashboard is the right no-terminal surface and shares the M3 flow's save-to-library plumbing.
+  Date/Author: 2026-07-10 / Peter Spannagle (direction), Claude (recording).
+
+- Decision: Revised milestone order after the live UX audit: (1) Milestone UX-0 + Milestone 5 merged as one "trust + legibility" pass (reconciled count vocabulary, explanatory empty states with escape hatch, shared funnel semantics with expected counts, legible score presentation); (2) Milestone 3a as a clickable HTML prototype of the fully restructured Jobs workspace (two areas: Jobs and Sources; queue above the fold; compact stat rail; caps demoted) with the Prepare-application flow embedded; (3) Milestone 3 implements the approved prototype — IA restructure and apply flow built once together.
+  Rationale: Stakeholder confirmed on 2026-07-10: trust pass first ("Trust pass first"), full IA restructure in M3 ("Full restructure"). The audit (docs/analysis/2026-07-10-dashboard-ux-audit.md) showed the surface contradicts itself (357 stored vs 1745 imported vs queue 0; non-reconciling funnel rows), and an apply flow on an untrusted queue is worthless.
+  Date/Author: 2026-07-10 / Peter Spannagle (decisions), Claude (recording).
 
 - Decision: One shared apply engine with per-site adapters; adapter order is Greenhouse, then LinkedIn Easy Apply, then Lever/Ashby.
   Rationale: Greenhouse forms are the most schema-predictable and prove the engine with the least adversarial surface. Easy Apply is the highest-volume surface and stakeholder-required, but is a semi-structured multi-step modal on an automation-hostile site, so it goes second, after the engine is proven. Stakeholder wanted "both in parallel"; the compromise is a shared engine so both are in the MVP without divergent codepaths.
