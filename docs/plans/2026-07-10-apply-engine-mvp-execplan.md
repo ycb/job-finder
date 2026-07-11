@@ -77,6 +77,10 @@ Two explicit non-goals for this plan: no zero-click ("full auto") submission any
   Rationale: Stakeholder does not want to manage answers via Terminal; a first-class Answers view in the dashboard is the right no-terminal surface and shares the M3 flow's save-to-library plumbing.
   Date/Author: 2026-07-10 / Peter Spannagle (direction), Claude (recording).
 
+- Decision: Revised milestone order after the live UX audit: (1) Milestone UX-0 + Milestone 5 merged as one "trust + legibility" pass (reconciled count vocabulary, explanatory empty states with escape hatch, shared funnel semantics with expected counts, legible score presentation); (2) Milestone 3a as a clickable HTML prototype of the fully restructured Jobs workspace (two areas: Jobs and Sources; queue above the fold; compact stat rail; caps demoted) with the Prepare-application flow embedded; (3) Milestone 3 implements the approved prototype — IA restructure and apply flow built once together.
+  Rationale: Stakeholder confirmed on 2026-07-10: trust pass first ("Trust pass first"), full IA restructure in M3 ("Full restructure"). The audit (docs/analysis/2026-07-10-dashboard-ux-audit.md) showed the surface contradicts itself (357 stored vs 1745 imported vs queue 0; non-reconciling funnel rows), and an apply flow on an untrusted queue is worthless.
+  Date/Author: 2026-07-10 / Peter Spannagle (decisions), Claude (recording).
+
 - Decision: One shared apply engine with per-site adapters; adapter order is Greenhouse, then LinkedIn Easy Apply, then Lever/Ashby.
   Rationale: Greenhouse forms are the most schema-predictable and prove the engine with the least adversarial surface. Easy Apply is the highest-volume surface and stakeholder-required, but is a semi-structured multi-step modal on an automation-hostile site, so it goes second, after the engine is proven. Stakeholder wanted "both in parallel"; the compromise is a shared engine so both are in the MVP without divergent codepaths.
   Date/Author: 2026-07-10 / agreed in stakeholder session.
