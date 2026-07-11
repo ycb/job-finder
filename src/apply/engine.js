@@ -4,6 +4,12 @@ import {
   isDemographicField,
   mapLabelToQuestionKey
 } from "./field-mapping.js";
+import {
+  applyRequiredDemographicPolicy,
+  applySalaryPolicy,
+  findFallbackAnswer,
+  isSalaryField
+} from "./answer-policies.js";
 
 // The apply engine turns a form schema (from a site adapter) plus the user's
 // answer library into a draft plan: what to fill, with what value, and why.
@@ -20,11 +26,18 @@ import {
 //
 // Output shape:
 //   {
-//     plan: [{ fieldId, label, fieldType, proposedValue, source: "library",
-//              questionKey, answerId, confidence: "exact" | "fuzzy" }],
-//     unanswered: [{ fieldId, label, fieldType, required, options }],
+//     plan: [{ fieldId, label, fieldType, proposedValue,
+//              source: "library" | "policy",
+//              questionKey, answerId, policyId?, note?,
+//              confidence: "exact" | "fuzzy" | "fallback" | "policy" }],
+//     unanswered: [{ fieldId, label, fieldType, required, options, note? }],
 //     skipped: [{ fieldId, label, reason: "demographic" }]
 //   }
+//
+// Resolution order per field: explicit library answer (exact, then fuzzy) →
+// library fallback chain (e.g. website → github) → answer policies (salary
+// strategy, required-demographic decline) → unanswered. Policies encode the
+// user's stated strategies (see answer-policies.js), not invented facts.
 
 function coerceValueForField(field, entry) {
   // Boolean library answers meet select/radio inputs constantly
@@ -48,15 +61,37 @@ function coerceValueForField(field, entry) {
     return entry.answerValue === "true" ? "Yes" : "No";
   }
 
-  // Select fields with non-boolean answers: only propose when the saved
-  // answer matches one of the field's options (case-insensitive), because
-  // typing free text into a dropdown is meaningless.
+  // Select fields with non-boolean answers: propose when the saved answer
+  // matches an option exactly (case-insensitive), or — conservatively — when
+  // one meaningfully contains the other ("United States" vs "United States
+  // of America", "San Francisco, CA" vs "San Francisco"). Containment only
+  // counts for strings longer than 3 chars to keep "No"/"None" style labels
+  // from cross-matching.
   if (field.type === "select" || field.type === "radio") {
     const saved = String(entry.answerValue).trim().toLowerCase();
-    const match = (field.options || []).find(
+    const options = field.options || [];
+
+    const exact = options.find(
       (option) => String(option.label || "").trim().toLowerCase() === saved
     );
-    return match ? String(match.label) : null;
+    if (exact) {
+      return String(exact.label);
+    }
+
+    if (saved.length > 3) {
+      const contained = options.filter((option) => {
+        const optionLabel = String(option.label || "").trim().toLowerCase();
+        return (
+          optionLabel.length > 3 &&
+          (optionLabel.includes(saved) || saved.includes(optionLabel))
+        );
+      });
+      if (contained.length === 1) {
+        return String(contained[0].label);
+      }
+    }
+
+    return null;
   }
 
   return String(entry.answerValue);
@@ -77,7 +112,9 @@ export function buildDraftPlan({ formSchema, answerStore, job } = {}) {
       continue;
     }
 
-    // Demographic fields: exact demographic.* opt-in or blank. Never fuzzy.
+    // Demographic fields: exact demographic.* opt-in first; never fuzzy.
+    // Optional -> blank ("skipped"). Required -> decline-to-state option per
+    // policy; if the form offers no decline option, route to the user.
     if (isDemographicField(field)) {
       const explicit = answerStore.getAnswer(demographicQuestionKey(field.label));
       if (explicit) {
@@ -96,6 +133,36 @@ export function buildDraftPlan({ formSchema, answerStore, job } = {}) {
           continue;
         }
       }
+
+      if (field.required) {
+        const policy = applyRequiredDemographicPolicy({ field });
+        if (policy) {
+          plan.push({
+            fieldId: field.fieldId,
+            label: field.label,
+            fieldType: field.type,
+            proposedValue: policy.value,
+            source: "policy",
+            policyId: policy.policyId,
+            note: policy.note,
+            questionKey: null,
+            answerId: null,
+            confidence: "policy"
+          });
+          continue;
+        }
+
+        unanswered.push({
+          fieldId: field.fieldId,
+          label: field.label,
+          fieldType: field.type,
+          required: true,
+          options: field.options || null,
+          note: "Required demographic question with no decline option — needs your call."
+        });
+        continue;
+      }
+
       skipped.push({
         fieldId: field.fieldId,
         label: field.label,
@@ -122,6 +189,50 @@ export function buildDraftPlan({ formSchema, answerStore, job } = {}) {
           questionKey: match.entry.questionKey,
           answerId: match.entry.id,
           confidence: match.confidence
+        });
+        continue;
+      }
+    }
+
+    // Library fallback chains: e.g. portfolio/website fields fall back to a
+    // saved GitHub URL when no dedicated website answer exists.
+    if (questionKey) {
+      const fallback = findFallbackAnswer(answerStore, questionKey);
+      if (fallback) {
+        const value = coerceValueForField(field, fallback);
+        if (value !== null) {
+          plan.push({
+            fieldId: field.fieldId,
+            label: field.label,
+            fieldType: field.type,
+            proposedValue: value,
+            source: "library",
+            questionKey: fallback.questionKey,
+            answerId: fallback.id,
+            confidence: "fallback"
+          });
+          continue;
+        }
+      }
+    }
+
+    // Salary policy: free-text -> "Let's discuss"; numeric-required -> top of
+    // the job's advertised range, else sentinel. Library answers (handled
+    // above) always outrank the policy.
+    if (isSalaryField(field)) {
+      const policy = applySalaryPolicy({ field, job });
+      if (policy) {
+        plan.push({
+          fieldId: field.fieldId,
+          label: field.label,
+          fieldType: field.type,
+          proposedValue: policy.value,
+          source: "policy",
+          policyId: policy.policyId,
+          note: policy.note,
+          questionKey: null,
+          answerId: null,
+          confidence: "policy"
         });
         continue;
       }

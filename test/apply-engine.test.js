@@ -222,7 +222,11 @@ test("easy-apply fixture: multistep markers ignored, radios coerced from boolean
     // Experience/salary questions unanswered (salary saved? not in this seed) — never guessed.
     const unansweredIds = new Set(unanswered.map((entry) => entry.fieldId));
     assert.ok(unansweredIds.has("q_years_pm"));
-    assert.ok(unansweredIds.has("q_salary"));
+    // Since the answer-policies layer (M2.5), free-text salary fields are
+    // answered by policy ("Let's discuss") rather than left unanswered.
+    const salaryEntry = plan.find((item) => item.fieldId === "q_salary");
+    assert.equal(salaryEntry?.proposedValue, "Let's discuss");
+    assert.equal(salaryEntry?.source, "policy");
   } finally {
     cleanup(db, dir);
   }

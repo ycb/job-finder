@@ -304,6 +304,7 @@ export const IDENTITY_QUESTION_KEYS = Object.freeze({
   LOCATION: "identity.location",
   LINKEDIN_URL: "link.linkedin",
   WEBSITE_URL: "link.website",
+  GITHUB_URL: "link.github",
   RESUME_PATH: "document.resume",
   WORK_AUTHORIZATION_US: "screener.work_authorization_us",
   REQUIRES_SPONSORSHIP: "screener.requires_sponsorship",

@@ -13,7 +13,7 @@
 //       {
 //         fieldId: string,               // adapter-stable handle for the input
 //         label: string,                 // visible label text
-//         type: "text" | "textarea" | "select" | "radio" | "checkbox"
+//         type: "text" | "textarea" | "select" | "radio" | "checkbox" | "number"
 //               | "file" | "multistep_marker",
 //         required: boolean,
 //         options: [{ value, label }] | null,   // for select/radio
@@ -28,6 +28,7 @@ export const FORM_FIELD_TYPES = Object.freeze([
   "select",
   "radio",
   "checkbox",
+  "number",
   "file",
   "multistep_marker"
 ]);

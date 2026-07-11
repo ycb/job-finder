@@ -860,6 +860,7 @@ const ANSWER_SEED_FLAGS = [
   { flag: "--location", key: IDENTITY_QUESTION_KEYS.LOCATION, kind: "identity", type: "text" },
   { flag: "--linkedin", key: IDENTITY_QUESTION_KEYS.LINKEDIN_URL, kind: "link", type: "url" },
   { flag: "--website", key: IDENTITY_QUESTION_KEYS.WEBSITE_URL, kind: "link", type: "url" },
+  { flag: "--github", key: IDENTITY_QUESTION_KEYS.GITHUB_URL, kind: "link", type: "url" },
   { flag: "--resume", key: IDENTITY_QUESTION_KEYS.RESUME_PATH, kind: "document", type: "file_path" },
   {
     flag: "--work-auth-us",
@@ -2145,7 +2146,7 @@ PROFILE CONFIGURATION:
 ANSWER LIBRARY (apply automation):
   jf answers                               List saved application answers
   jf answers-seed [--full-name ... --email ... --phone ... --location ...
-                   --linkedin ... --website ... --resume ...
+                   --linkedin ... --website ... --github ... --resume ...
                    --work-auth-us yes|no --sponsorship yes|no --salary ...]
                                            Seed identity basics (profile-aware)
 
