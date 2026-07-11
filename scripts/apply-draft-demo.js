@@ -21,7 +21,7 @@ import { createAnswerStore } from "../src/apply/answer-store.js";
 import { buildDraftPlan } from "../src/apply/engine.js";
 
 const args = process.argv.slice(2);
-let dbPath = "data/jobs.db";
+let dbPath = process.env.JOB_FINDER_DB || "data/jobs.db";
 let fixturePath = "test/fixtures/apply/greenhouse-gitlab-schema.json";
 
 for (let i = 0; i < args.length; i += 1) {
