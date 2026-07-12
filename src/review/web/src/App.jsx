@@ -2851,75 +2851,80 @@ export default function App() {
               </CardHeader>
               <CardContent className="space-y-3">
                 {pagedJobs.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-border bg-secondary/20 p-4 text-sm text-muted-foreground">
-                    {jobsAllInSelectedView.length > 0 ? (
-                      <div className="space-y-3">
-                        <div>
-                          All {jobsAllInSelectedView.length} job
-                          {jobsAllInSelectedView.length === 1 ? "" : "s"} in this view are
-                          hidden by your filters.
-                        </div>
-                        {jobsFiltersActive ? (
-                          <Button variant="outline" size="sm" onClick={clearJobsFilters}>
-                            Clear filters
-                          </Button>
-                        ) : null}
+                  jobsAllInSelectedView.length > 0 ? (
+                    <div className="space-y-3 rounded-lg border border-border bg-card p-5">
+                      <div className="text-sm font-semibold text-foreground">
+                        {jobsAllInSelectedView.length} job
+                        {jobsAllInSelectedView.length === 1 ? "" : "s"} hidden by filters
                       </div>
-                    ) : jobsView === "all" &&
-                      queueBreakdown &&
-                      queueBreakdown.stored > 0 &&
-                      queueBreakdown.active === 0 ? (
-                      <div className="space-y-3">
+                      {jobsFiltersActive ? (
+                        <Button variant="outline" size="sm" onClick={clearJobsFilters}>
+                          Clear filters
+                        </Button>
+                      ) : null}
+                    </div>
+                  ) : jobsView === "all" &&
+                    queueBreakdown &&
+                    queueBreakdown.stored > 0 &&
+                    queueBreakdown.active === 0 ? (
+                    <div className="rounded-lg border border-border bg-card p-5">
+                      <div className="space-y-1">
                         <div className="text-base font-semibold text-foreground">
-                          You&apos;re through your queue.
+                          Queue complete
                         </div>
-                        <div>
-                          {queueBreakdown.stored} jobs stored: {queueBreakdown.applied} applied
-                          {queueBreakdown.skipped > 0 ? `, ${queueBreakdown.skipped} skipped` : ""}
-                          {queueBreakdown.rejectedByUser > 0
-                            ? `, ${queueBreakdown.rejectedByUser} rejected by you`
-                            : ""}
-                          {queueBreakdown.hardFiltered > 0
-                            ? `, ${queueBreakdown.hardFiltered} excluded by your hard filter`
-                            : ""}
-                          {queueBreakdown.lowSignal > 0
-                            ? `, ${queueBreakdown.lowSignal} low signal`
-                            : ""}
-                          . New matches arrive with your next search run.
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {queueBreakdown.applied > 0 ? (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setJobsView("applied")}
-                            >
-                              View applied ({queueBreakdown.applied})
-                            </Button>
-                          ) : null}
-                          {queueBreakdown.skipped > 0 ? (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setJobsView("skipped")}
-                            >
-                              View skipped ({queueBreakdown.skipped})
-                            </Button>
-                          ) : null}
+                        <div className="text-sm text-muted-foreground">
+                          All {queueBreakdown.stored} stored jobs are triaged.
                         </div>
                       </div>
-                    ) : jobsView === "all" && queueBreakdown && queueBreakdown.stored === 0 ? (
-                      <div>No jobs stored yet — run your first search to fill the queue.</div>
-                    ) : jobsView === "new" ? (
-                      <div>No new jobs from the latest search run.</div>
-                    ) : jobsView === "unread" ? (
-                      <div>You&apos;ve viewed everything in your queue.</div>
-                    ) : jobsView === "best_match" ? (
-                      <div>No high-signal matches in your queue right now.</div>
-                    ) : (
-                      <div>Nothing here yet.</div>
-                    )}
-                  </div>
+                      <div className="mt-4 grid grid-cols-2 gap-2">
+                        {[
+                          { label: "Applied", value: queueBreakdown.applied, view: "applied" },
+                          { label: "Skipped", value: queueBreakdown.skipped, view: "skipped" },
+                          { label: "Rejected by you", value: queueBreakdown.rejectedByUser, view: "rejected" },
+                          { label: "Filtered out", value: queueBreakdown.hardFiltered + queueBreakdown.lowSignal, view: null }
+                        ]
+                          .filter((stat) => stat.value > 0)
+                          .map((stat) =>
+                            stat.view ? (
+                              <button
+                                key={stat.label}
+                                type="button"
+                                onClick={() => setJobsView(stat.view)}
+                                className="rounded-lg border border-border/70 px-3 py-2.5 text-left transition hover:bg-secondary/25"
+                              >
+                                <div className="text-xl font-semibold text-foreground">{stat.value}</div>
+                                <div className="text-xs text-muted-foreground">{stat.label} →</div>
+                              </button>
+                            ) : (
+                              <div
+                                key={stat.label}
+                                className="rounded-lg border border-border/40 px-3 py-2.5"
+                              >
+                                <div className="text-xl font-semibold text-muted-foreground">{stat.value}</div>
+                                <div className="text-xs text-muted-foreground">{stat.label}</div>
+                              </div>
+                            )
+                          )}
+                      </div>
+                      <div className="mt-4 text-xs text-muted-foreground">
+                        New matches arrive with your next search run.
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-border bg-secondary/20 p-4 text-sm text-muted-foreground">
+                      {jobsView === "all" && queueBreakdown && queueBreakdown.stored === 0 ? (
+                        <div>No jobs stored yet — run your first search to fill the queue.</div>
+                      ) : jobsView === "new" ? (
+                        <div>No new jobs from the latest search run.</div>
+                      ) : jobsView === "unread" ? (
+                        <div>You&apos;ve viewed everything in your queue.</div>
+                      ) : jobsView === "best_match" ? (
+                        <div>No high-signal matches in your queue right now.</div>
+                      ) : (
+                        <div>Nothing here yet.</div>
+                      )}
+                    </div>
+                  )
                 ) : (
                   <div className="space-y-3">
                     {pagedJobs.map((job) => {
