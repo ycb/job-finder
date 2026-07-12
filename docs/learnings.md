@@ -517,3 +517,8 @@ As of 2026-03-06.
 
 - When adding an environment-variable override for a config default (for example `JOB_FINDER_DB`), audit every subprocess-spawning test in the same change. Tests that isolate via `cwd` alone silently lose isolation the moment an env override outranks the cwd-relative default, and an exported user value can redirect test writes into real user data.
 - Subprocess tests must make isolation explicit: pin the override to the temp path or scrub it from the child env. Verify with a canary run (`JOB_FINDER_DB=/tmp/canary.db npm test`) that asserts user-facing tables stay empty.
+
+## Information Is Not Design
+
+- Rendering correct data as prose inside an empty-state box is not a UX improvement; the stakeholder read the comma-run breakdown sentence as *worse* than the vague copy it replaced. Multi-metric states must be laid out as scannable structures (stat cells: big number + short label, interactive where a destination exists), never as sentences with embedded numbers.
+- Before declaring a UI change complete, judge the screenshot against the design bar (hierarchy, scannability, one primary value per element) — not merely against "the information is now present." The verification step for UI work is a design review of the rendered result, not a data audit.
