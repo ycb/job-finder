@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Job Finder — M3a Prototype</title>
+<style>
+  :root{
+    --bg:#f2efe6; --card:#fffdf9; --card-2:#faf8f0; --border:#e5e0d4; --border-soft:#ece8db;
+    --fg:#26281f; --muted:#8a8677; --primary:#24422e; --primary-fg:#f5f3ea;
+    --green:#047857; --amber:#b45309; --chip:#eceadd;
+  }
+  *{box-sizing:border-box; margin:0}
+  body{background:var(--bg); color:var(--fg); font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; padding-bottom:80px}
+  button{font:inherit; cursor:pointer; border:none; background:none; color:inherit}
+  .wrap{max-width:1240px; margin:0 auto; padding:20px 24px}
+
+  /* top bar */
+  .topbar{display:flex; align-items:center; gap:28px; padding:14px 0 18px}
+  .brand{font-size:19px; font-weight:700}
+  .nav{display:flex; gap:4px}
+  .nav button{padding:7px 16px; border-radius:9px; font-weight:600; color:var(--muted)}
+  .nav button.on{background:var(--primary); color:var(--primary-fg)}
+  .nav button:not(.on):hover{background:var(--chip)}
+  .caps{margin-left:auto; font-size:12.5px; color:var(--muted)}
+
+  .card{background:var(--card); border:1px solid var(--border); border-radius:14px}
+  .btn{border:1px solid var(--border); background:var(--card); border-radius:9px; padding:8px 14px; font-weight:600; font-size:13.5px}
+  .btn:hover{background:var(--card-2)}
+  .btn.primary{background:var(--primary); color:var(--primary-fg); border-color:var(--primary)}
+  .btn.primary:hover{opacity:.93}
+  .btn.sm{padding:5px 11px; font-size:12.5px}
+  .btn[disabled]{opacity:.45; cursor:default}
+
+  /* composer rail */
+  .composer{display:flex; align-items:center; gap:10px; padding:12px 16px; flex-wrap:wrap}
+  .crit{display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-weight:600; font-size:14px}
+  .crit .sep{color:var(--border); font-weight:400}
+  .chips{display:flex; gap:6px; flex-wrap:wrap}
+  .chip{background:var(--chip); border-radius:99px; padding:3px 10px; font-size:12px; font-weight:600; color:#5d5a4c}
+  .chip.neg{color:#8a4b3d}
+  .composer .spacer{flex:1}
+
+  /* view rail */
+  .viewrail{display:flex; align-items:center; gap:6px; margin:14px 0 10px}
+  .vtab{padding:7px 14px; border-radius:9px; font-weight:600; font-size:13.5px; color:var(--muted); border:1px solid transparent}
+  .vtab.on{background:var(--primary); color:var(--primary-fg)}
+  .vtab:not(.on):hover{background:var(--chip)}
+  .viewrail .right{margin-left:auto; display:flex; gap:8px; align-items:center}
+  select.plain{border:1px solid var(--border); background:var(--card); border-radius:9px; padding:7px 10px; font:inherit; font-size:13px; font-weight:600; color:var(--fg)}
+
+  /* insight strip */
+  .insights{display:flex; gap:18px; align-items:center; padding:9px 16px; font-size:12.5px; color:var(--muted); border:1px solid var(--border-soft); border-radius:11px; background:var(--card-2); margin-bottom:14px}
+  .insights b{color:var(--fg); font-weight:650}
+  .insights .dot{width:3px;height:3px;border-radius:99px;background:var(--border)}
+
+  /* split pane */
+  .split{display:grid; grid-template-columns:minmax(320px,2fr) minmax(0,3fr); gap:14px; align-items:start}
+  .list{display:flex; flex-direction:column}
+  .listhead{display:flex; align-items:baseline; justify-content:space-between; padding:14px 16px 8px}
+  .listhead h3{font-size:15px}
+  .listhead .n{font-size:12.5px; color:var(--muted)}
+  .rows{display:flex; flex-direction:column; gap:8px; padding:8px 12px 12px}
+  .row{border:1px solid var(--border-soft); border-radius:12px; padding:12px 14px; text-align:left; width:100%}
+  .row:hover{background:var(--card-2)}
+  .row.on{background:#f1efe3; border-color:var(--border)}
+  .row .t{font-weight:650; font-size:14.5px}
+  .row .m{font-size:12.5px; color:var(--muted); margin-top:2px}
+  .row .b{display:flex; gap:12px; margin-top:8px; font-size:12.5px}
+  .match{font-weight:650}
+  .match.hi{color:var(--green)} .match.rev{color:var(--amber)} .match.lo{color:var(--muted)}
+
+  /* detail */
+  .detail{padding:20px 22px}
+  .detail .head{display:flex; align-items:flex-start; gap:14px}
+  .detail h2{font-size:21px; line-height:1.25}
+  .detail .sub{color:var(--muted); font-size:14px; margin-top:3px}
+  .detail .head .actions{margin-left:auto; display:flex; gap:8px; flex-shrink:0}
+  .metacards{display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin:16px 0}
+  .metacard{border:1px solid var(--border-soft); border-radius:11px; padding:10px 13px}
+  .metacard .k{font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); font-weight:650}
+  .metacard .v{font-weight:650; margin-top:3px; font-size:14.5px}
+  .statusline{display:flex; gap:6px; margin-top:10px}
+  .desc{font-size:13.5px; color:#55524a; margin-top:6px}
+  .rowactions{display:flex; gap:8px; margin-top:18px}
+
+  /* apply flow */
+  .flow{border-top:1px solid var(--border-soft); margin-top:20px; padding-top:18px}
+  .flow h4{font-size:15px; margin-bottom:2px}
+  .flow .sub{font-size:12.5px; color:var(--muted); margin-bottom:12px}
+  .consent{max-width:520px}
+  .consent p{font-size:13.5px; color:#55524a; margin:8px 0 14px}
+  .consent label{display:flex; gap:9px; font-size:13.5px; align-items:flex-start; margin-bottom:14px}
+  .consent input{margin-top:3px}
+  .progressline{display:flex; align-items:center; gap:10px; font-size:13.5px; color:var(--muted); padding:14px 0}
+  .spinner{width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--primary);border-radius:99px;animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .section{margin-top:14px}
+  .sectionhead{display:flex; align-items:baseline; gap:8px; font-size:12px; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); font-weight:700; margin-bottom:8px}
+  .fieldrow{display:flex; align-items:center; gap:10px; padding:8px 12px; border:1px solid var(--border-soft); border-radius:10px; margin-bottom:6px; font-size:13.5px}
+  .fieldrow .lab{width:38%; color:#55524a; flex-shrink:0}
+  .fieldrow .val{font-weight:600; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .fieldrow .val input, .fieldrow .val select, .fieldrow .val textarea{width:100%; border:1px solid var(--border); border-radius:8px; padding:6px 9px; font:inherit; font-size:13px; background:#fff}
+  .prov{font-size:11px; font-weight:650; border-radius:99px; padding:2.5px 9px; flex-shrink:0}
+  .prov.lib{background:#e2efe7; color:var(--green)}
+  .prov.fuzzy{background:#fdf0dc; color:var(--amber)}
+  .prov.policy{background:#e8e6f5; color:#5b4fa8}
+  .prov.manual{background:var(--chip); color:#6b6754}
+  .prov.req{background:#f7e3dd; color:#a04226}
+  .prov.opt{background:var(--chip); color:#8a8677}
+  .savelabel{display:flex; gap:6px; align-items:center; font-size:11.5px; color:var(--muted); margin-left:8px; flex-shrink:0}
+  .note{font-size:12px; color:var(--muted); margin-top:4px}
+  .flowactions{display:flex; gap:8px; margin-top:16px; align-items:center}
+  .flowactions .hint{font-size:12.5px; color:var(--muted)}
+  .banner{border:1px solid var(--border); border-radius:11px; padding:13px 16px; background:var(--card-2); font-size:13.5px; margin-top:12px}
+  .banner b{font-weight:650}
+  .banner.ok{border-color:#cfe4d8; background:#f0f7f2}
+
+  /* sources */
+  .srcwrap{padding:18px 20px}
+  .srcwrap h3{font-size:16px}
+  .srcwrap .sub{font-size:13px; color:var(--muted); margin:3px 0 14px}
+  table{width:100%; border-collapse:collapse; font-size:13.5px}
+  th{font-size:11px; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); text-align:left; padding:8px 10px; border-bottom:1px solid var(--border); font-weight:700}
+  th .u{display:block; font-size:9.5px; letter-spacing:0; text-transform:none; font-weight:500}
+  td{padding:11px 10px; border-bottom:1px solid var(--border-soft); vertical-align:middle}
+  td .id{font-size:11.5px; color:var(--muted)}
+  td .sec{font-size:11.5px; color:var(--muted); margin-top:1px}
+  .pill{display:inline-flex; align-items:center; gap:6px; background:var(--chip); border-radius:99px; padding:3px 11px; font-weight:600; font-size:12.5px}
+  .pdot{width:8px;height:8px;border-radius:99px}
+  .pdot.g{background:#2e9e6b} .pdot.y{background:#d9a13c} .pdot.gr{background:#b8b4a5}
+  .warnval{color:var(--amber); font-weight:650}
+  .grouplabel{font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; padding:16px 10px 6px}
+
+  /* reviewer palette */
+  .palette{position:fixed; bottom:14px; right:14px; background:#26281f; color:#d8d5c8; border-radius:12px; padding:10px 12px; font-size:11.5px; box-shadow:0 6px 24px rgba(0,0,0,.25); z-index:50; max-width:280px}
+  .palette .t{font-weight:700; color:#fff; margin-bottom:6px}
+  .palette .grp{display:flex; flex-wrap:wrap; gap:4px; margin-bottom:5px}
+  .palette button{background:#3a3d31; border-radius:7px; padding:3px 9px; font-size:11px; color:#e8e5d8}
+  .palette button:hover{background:#4a4d3f}
+  .hidden{display:none !important}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ============ TOP BAR: two real areas, caps demoted ============ -->
+  <div class="topbar">
+    <div class="brand">Job Finder</div>
+    <div class="nav">
+      <button id="nav-jobs" class="on" onclick="go('jobs')">Jobs</button>
+      <button id="nav-sources" onclick="go('sources')">Sources</button>
+    </div>
+    <div class="caps">3 of 10 searches this month · 357 jobs stored</div>
+  </div>
+
+  <!-- ==================== JOBS AREA ==================== -->
+  <div id="area-jobs">
+
+    <!-- collapsed composer: one rail, intent + chips + actions -->
+    <div class="card composer">
+      <div class="crit">
+        Product manager <span class="sep">·</span> San Francisco <span class="sep">·</span> $200,000+ <span class="sep">·</span> Past 3 days
+      </div>
+      <div class="chips">
+        <span class="chip">must: ai</span>
+        <span class="chip neg">not: defense, gaming, fintech +3</span>
+        <span class="chip">kw: growth, energy, cleantech</span>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn sm">Edit search</button>
+      <button class="btn sm primary">Run search</button>
+    </div>
+
+    <!-- view rail: tabs + dataset + filters -->
+    <div class="viewrail">
+      <button class="vtab on">All (12)</button>
+      <button class="vtab">New (5)</button>
+      <button class="vtab">Unread (7)</button>
+      <button class="vtab">Best match (3)</button>
+      <div class="right">
+        <select class="plain"><option>Active queue</option><option>Applied (167)</option><option>Skipped (30)</option><option>Rejected (2)</option></select>
+        <button class="btn sm">Filters</button>
+      </div>
+    </div>
+
+    <!-- compact insight strip replaces the two-screen widget zone -->
+    <div class="insights">
+      <span><b>12</b> matches</span><span class="dot"></span>
+      <span>avg score <b>63</b></span><span class="dot"></span>
+      <span>salary <b>$165k – $260k</b></span><span class="dot"></span>
+      <span>top title <b>AI Product Manager (4)</b></span><span class="dot"></span>
+      <span>keywords: growth <b>6</b> · energy <b>2</b></span>
+    </div>
+
+    <!-- split pane leads: queue + detail above the fold -->
+    <div class="split">
+      <div class="card list">
+        <div class="listhead"><h3>Results</h3><span class="n">1–12 of 12 · by score</span></div>
+        <div class="rows" id="rows"></div>
+      </div>
+
+      <div class="card detail" id="detail">
+        <!-- detail + apply flow rendered by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== SOURCES AREA ==================== -->
+  <div id="area-sources" class="hidden">
+    <div class="card srcwrap">
+      <h3>Sources</h3>
+      <div class="sub">Where your searches run. Counts describe the last completed run; library is your stored total.</div>
+      <table>
+        <thead><tr>
+          <th>Source</th><th>Last run</th><th>Status</th>
+          <th>Found <span class="u">last run</span></th>
+          <th>Filtered <span class="u">last run</span></th>
+          <th>Imported <span class="u">last run · library</span></th>
+          <th>Avg score</th><th></th>
+        </tr></thead>
+        <tbody>
+          <tr>
+            <td><b>LinkedIn</b><div class="id">linkedin-live-capture</div></td>
+            <td>3d ago</td><td><span class="pill"><span class="pdot g"></span>ready</span></td>
+            <td><span class="warnval">100</span><div class="sec">of ~1,356 listed</div></td>
+            <td>84</td><td>13<div class="sec">680 in library</div></td>
+            <td>17 / 100</td><td><button class="btn sm">Run now</button></td>
+          </tr>
+          <tr>
+            <td><b>Built In</b><div class="id">builtin-sf-ai-pm</div></td>
+            <td>3d ago</td><td><span class="pill"><span class="pdot g"></span>ready</span></td>
+            <td><span class="warnval">0</span><div class="sec">of ~94 listed</div></td>
+            <td>0</td><td>0<div class="sec">94 in library</div></td>
+            <td>49 / 100</td><td><button class="btn sm">Run now</button></td>
+          </tr>
+          <tr>
+            <td><b>Indeed</b><div class="id">indeed-ai-pm</div></td>
+            <td>3d ago</td><td><span class="pill"><span class="pdot g"></span>ready</span></td>
+            <td>2<div class="sec">of ~547 listed</div></td>
+            <td>2</td><td>0<div class="sec">153 in library</div></td>
+            <td>40 / 100</td><td><button class="btn sm">Run now</button></td>
+          </tr>
+          <tr>
+            <td><b>ZipRecruiter</b><div class="id">zip-ai-pm</div></td>
+            <td>3d ago</td><td><span class="pill"><span class="pdot g"></span>ready</span></td>
+            <td>57<div class="sec">of ~1,102 listed</div></td>
+            <td>36</td><td>6<div class="sec">676 in library</div></td>
+            <td>33 / 100</td><td><button class="btn sm">Run now</button></td>
+          </tr>
+          <tr>
+            <td><b>Levels.fyi</b><div class="id">levelsfyi-ai-pm</div></td>
+            <td>3d ago</td><td><span class="pill"><span class="pdot g"></span>ready</span></td>
+            <td>42<div class="sec">of ~341 listed</div></td>
+            <td>37</td><td>4<div class="sec">142 in library</div></td>
+            <td>23 / 100</td><td><button class="btn sm">Run now</button></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="grouplabel">Needs attention</div>
+      <table>
+        <tbody>
+          <tr>
+            <td style="width:26%"><b>YC Jobs</b><div class="id">yc-product-jobs</div></td>
+            <td>95d ago</td>
+            <td><span class="pill"><span class="pdot y"></span>sign-in required</span></td>
+            <td colspan="3"><span class="sec">Runs resume after you sign in to Work at a Startup.</span></td>
+            <td></td>
+            <td><button class="btn sm primary">Enable</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<!-- reviewer palette -->
+<div class="palette">
+  <div class="t">M3a prototype — reviewer jumps</div>
+  <div class="grp">
+    <button onclick="go('jobs')">Jobs</button>
+    <button onclick="go('sources')">Sources</button>
+  </div>
+  <div class="grp">
+    <button onclick="setFlow('idle')">Detail</button>
+    <button onclick="setFlow('consent')">Consent</button>
+    <button onclick="setFlow('drafting')">Drafting</button>
+    <button onclick="setFlow('review')">Review</button>
+    <button onclick="setFlow('filled')">Filled</button>
+    <button onclick="setFlow('done')">Confirmed</button>
+  </div>
+  <div style="opacity:.7">Nothing here is live. Click anything.</div>
+</div>
+
+<script>
+/* ------------------------ data ------------------------ */
+const jobs = [
+  {id:1, title:"AI Product Manager", co:"Rime.Ai (Unusual Ventures)", loc:"San Francisco, CA", sal:"$185K – $220K/yr", posted:"2d ago", score:85, bucket:"hi", src:"ZipRecruiter", status:"new", greenhouse:true},
+  {id:2, title:"Senior Product Manager, AI Platform", co:"Harvey", loc:"San Francisco, CA", sal:"$210K – $260K/yr", posted:"1d ago", score:81, bucket:"hi", src:"LinkedIn", status:"new", greenhouse:true},
+  {id:3, title:"Product Manager, Growth", co:"Perplexity", loc:"San Francisco, CA", sal:"$190K – $240K/yr", posted:"3d ago", score:78, bucket:"hi", src:"LinkedIn", status:"viewed", greenhouse:false},
+  {id:4, title:"Founding Product Manager", co:"Sierra AI", loc:"San Francisco, CA", sal:"$200K – $250K/yr", posted:"2d ago", score:66, bucket:"rev", src:"Built In", status:"new", greenhouse:true},
+  {id:5, title:"Senior PM, Energy Analytics", co:"Arcadia", loc:"Remote (US)", sal:"$175K – $205K/yr", posted:"1d ago", score:62, bucket:"rev", src:"Indeed", status:"new", greenhouse:false},
+  {id:6, title:"AI Product Manager, Observability", co:"Chronosphere", loc:"Remote (US)", sal:"$165K – $195K/yr", posted:"4d ago", score:58, bucket:"rev", src:"Levels.fyi", status:"viewed", greenhouse:true}
+];
+let selected = jobs[0];
+let flow = "idle"; // idle | consent | drafting | review | filled | done
+let consentGiven = false;
+
+/* draft plan built from the real answer library + real GitLab-style form */
+const plan = {
+  filled:[
+    {lab:"First Name", val:"Peter", prov:"lib", tag:"Library · exact"},
+    {lab:"Last Name", val:"Spannagle", prov:"lib", tag:"Library · exact"},
+    {lab:"Email", val:"peter.spannagle@gmail.com", prov:"lib", tag:"Library · exact"},
+    {lab:"Phone", val:"510-599-2551", prov:"lib", tag:"Library · exact"},
+    {lab:"LinkedIn Profile", val:"linkedin.com/in/pspan", prov:"lib", tag:"Library · exact"},
+    {lab:"Visa sponsorship required?", val:"No", prov:"fuzzy", tag:"Library · close match", note:"Matched your saved sponsorship answer to this site's wording — confirm once and it's exact next time."}
+  ],
+  manual:[
+    {lab:"Resume/CV", val:"Resume-Peter-Spannagle.pdf", note:"Browsers block auto-attaching files — one click in the form window."}
+  ],
+  ask:[
+    {lab:"Current country of residence", type:"select", req:true, opts:["United States of America","Canada","United Kingdom"]},
+    {lab:"Are you currently located in Canada?", type:"select", req:true, opts:["No","Yes"]},
+    {lab:"Subject to employment restrictions with a current/past employer?", type:"select", req:true, opts:["No","Yes"]},
+    {lab:"Have you previously worked at or consulted for GitLab?", type:"select", req:true, opts:["No","Yes"]},
+    {lab:"Preferred name for the interview process", type:"text", req:false},
+    {lab:"Accessibility adjustments we should know about", type:"textarea", req:false},
+    {lab:"Cover letter", type:"file", req:false}
+  ],
+  skipped:["Gender","Are you Hispanic/Latino?","Veteran Status","Disability Status"]
+};
+
+/* ------------------------ render ------------------------ */
+function go(area){
+  document.getElementById("area-jobs").classList.toggle("hidden", area!=="jobs");
+  document.getElementById("area-sources").classList.toggle("hidden", area!=="sources");
+  document.getElementById("nav-jobs").classList.toggle("on", area==="jobs");
+  document.getElementById("nav-sources").classList.toggle("on", area==="sources");
+}
+
+function matchLabel(j){
+  if(j.bucket==="hi") return '<span class="match hi">High signal · '+j.score+'</span>';
+  if(j.bucket==="rev") return '<span class="match rev">Review · '+j.score+'</span>';
+  return '<span class="match lo">Low signal · '+j.score+'</span>';
+}
+
+function renderRows(){
+  document.getElementById("rows").innerHTML = jobs.map(j=>`
+    <button class="row ${j.id===selected.id?"on":""}" onclick="pick(${j.id})">
+      <div class="t">${j.title}</div>
+      <div class="m">${j.co} · ${j.loc}</div>
+      <div class="b"><span>${j.sal}</span><span style="color:var(--muted)">${j.posted}</span>${matchLabel(j)}</div>
+    </button>`).join("");
+}
+
+function pick(id){ selected = jobs.find(j=>j.id===id); flow="idle"; render(); }
+function setFlow(f){ flow=f; if(f==="drafting"){ setTimeout(()=>{ if(flow==="drafting"){flow="review"; render();} }, 2200);} render(); }
+function agreeConsent(){ consentGiven=true; setFlow("drafting"); }
+
+function fieldRowFilled(f){
+  return `<div class="fieldrow">
+    <div class="lab">${f.lab}</div>
+    <div class="val">${f.val}</div>
+    <span class="prov ${f.prov}">${f.tag}</span>
+  </div>${f.note?`<div class="note" style="margin:-2px 0 8px 12px">${f.note}</div>`:""}`;
+}
+
+function fieldRowAsk(f, i){
+  let input = f.type==="select"
+    ? `<select onchange="this.closest('.fieldrow').dataset.answered='1'"><option value="">Choose…</option>${f.opts.map(o=>`<option>${o}</option>`).join("")}</select>`
+    : f.type==="textarea" ? `<textarea rows="2" placeholder="Optional"></textarea>`
+    : f.type==="file" ? `<button class="btn sm">Attach file…</button>`
+    : `<input placeholder="${f.req?"Required":"Optional"}">`;
+  return `<div class="fieldrow" data-ask="${i}">
+    <div class="lab">${f.lab}</div>
+    <div class="val">${input}</div>
+    <span class="prov ${f.req?"req":"opt"}">${f.req?"required":"optional"}</span>
+    ${f.type!=="file"?`<label class="savelabel"><input type="checkbox" checked> save</label>`:""}
+  </div>`;
+}
+
+function render(){
+  renderRows();
+  const j = selected;
+  const d = document.getElementById("detail");
+
+  let head = `
+    <div class="head">
+      <div>
+        <h2>${j.title}</h2>
+        <div class="sub">${j.co} · ${j.loc}</div>
+        <div class="statusline">
+          <span class="chip">${j.status}</span><span class="chip">${j.src}</span>
+          ${j.bucket==="hi"?'<span class="chip" style="background:#e2efe7;color:var(--green)">best match</span>':""}
+        </div>
+      </div>
+      <div class="actions"><button class="btn sm">View posting ↗</button></div>
+    </div>
+    <div class="metacards">
+      <div class="metacard"><div class="k">Salary</div><div class="v">${j.sal}</div></div>
+      <div class="metacard"><div class="k">Posted</div><div class="v">${j.posted}</div></div>
+      <div class="metacard"><div class="k">Match</div><div class="v">${matchLabel(j)}</div></div>
+    </div>`;
+
+  let body = "";
+
+  if(flow==="idle"){
+    body = `
+      <div class="desc">Rime builds real-time voice AI. You'd own the developer platform roadmap… <button style="color:var(--green);font-weight:600" onclick="void(0)">more</button></div>
+      <div class="rowactions">
+        ${j.greenhouse
+          ? `<button class="btn primary" onclick="${consentGiven?'setFlow(\'drafting\')':'setFlow(\'consent\')'}">Prepare application</button>`
+          : `<button class="btn primary">Apply on site ↗</button>`}
+        <button class="btn">Skip</button>
+        <button class="btn">I applied elsewhere</button>
+      </div>
+      ${j.greenhouse?'':'<div class="note" style="margin-top:8px">Autofill isn’t available for this site yet — Greenhouse and LinkedIn Easy Apply are supported first.</div>'}`;
+  }
+
+  if(flow==="consent"){
+    body = `<div class="flow consent">
+      <h4>Autofill applications from your answer library</h4>
+      <p>Job Finder opens the application form in your Chrome browser and fills in answers you've saved. It never submits — you always review the form and click submit yourself. Automating forms may be against some sites' terms of service; you're responsible for how you use it.</p>
+      <label><input type="checkbox" id="ck"> I understand and want to use application autofill.</label>
+      <div class="flowactions">
+        <button class="btn primary" onclick="if(document.getElementById('ck').checked)agreeConsent()">Agree and continue</button>
+        <button class="btn" onclick="setFlow('idle')">Not now</button>
+      </div>
+    </div>`;
+  }
+
+  if(flow==="drafting"){
+    body = `<div class="flow">
+      <h4>Preparing your application</h4>
+      <div class="progressline"><div class="spinner"></div><span>Opening the form in Chrome… reading fields… matching your answers — <b>6 of 19</b> so far</span></div>
+    </div>`;
+  }
+
+  if(flow==="review"){
+    body = `<div class="flow">
+      <h4>Review your draft</h4>
+      <div class="sub">6 filled from your library · 1 manual attach · 7 questions for you (4 required) · 4 left blank</div>
+
+      <div class="section">
+        <div class="sectionhead">Filled from your library (6)</div>
+        ${plan.filled.map(fieldRowFilled).join("")}
+      </div>
+
+      <div class="section">
+        <div class="sectionhead">Attach in the form window (1)</div>
+        ${plan.manual.map(f=>`<div class="fieldrow"><div class="lab">${f.lab}</div><div class="val">${f.val}</div><span class="prov manual">manual · 1 click</span></div><div class="note" style="margin:-2px 0 8px 12px">${f.note}</div>`).join("")}
+      </div>
+
+      <div class="section">
+        <div class="sectionhead">Needs you (7 · answers save to your library)</div>
+        ${plan.ask.map(fieldRowAsk).join("")}
+      </div>
+
+      <div class="section">
+        <div class="sectionhead">Left blank — voluntary self-identification (4)</div>
+        <div class="note">${plan.skipped.join(" · ")} — never auto-filled. This form marks them optional; if a form requires them, your decline-to-state policy applies.</div>
+      </div>
+
+      <div class="flowactions">
+        <button class="btn primary" onclick="setFlow('filled')">Fill form in Chrome</button>
+        <button class="btn" onclick="setFlow('idle')">Cancel</button>
+        <span class="hint">Nothing is submitted — you review the real form next.</span>
+      </div>
+    </div>`;
+  }
+
+  if(flow==="filled"){
+    body = `<div class="flow">
+      <h4>Form filled — your turn</h4>
+      <div class="banner">
+        <b>10 fields filled in the Chrome window.</b> Attach your resume there (1 click), give it a once-over, and press the site's <b>Submit application</b> button. Job Finder never presses it for you.
+      </div>
+      <div class="flowactions">
+        <button class="btn primary" onclick="setFlow('done')">I submitted it</button>
+        <button class="btn" onclick="setFlow('review')">Something looks wrong</button>
+        <span class="hint">Window closed by accident? <u>Reopen the filled form</u>.</span>
+      </div>
+    </div>`;
+  }
+
+  if(flow==="done"){
+    body = `<div class="flow">
+      <div class="banner ok">
+        <b>Marked applied.</b> 4 new answers saved to your library — the next Greenhouse application starts 10-of-19 complete instead of 6.
+      </div>
+      <div class="flowactions">
+        <button class="btn primary" onclick="pick(2)">Next best match: Harvey — Senior PM, AI Platform</button>
+        <button class="btn" onclick="setFlow('idle')">Stay here</button>
+      </div>
+    </div>`;
+  }
+
+  d.innerHTML = head + body;
+}
+
+render();
+</script>
+</body>
+</html>

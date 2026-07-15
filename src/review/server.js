@@ -2529,6 +2529,9 @@ function getStaticContentType(filePath) {
   if (extension === ".map") {
     return "application/json; charset=utf-8";
   }
+  if (extension === ".html") {
+    return "text/html; charset=utf-8";
+  }
   return "application/octet-stream";
 }
 
