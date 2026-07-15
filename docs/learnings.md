@@ -522,3 +522,9 @@ As of 2026-03-06.
 
 - Rendering correct data as prose inside an empty-state box is not a UX improvement; the stakeholder read the comma-run breakdown sentence as *worse* than the vague copy it replaced. Multi-metric states must be laid out as scannable structures (stat cells: big number + short label, interactive where a destination exists), never as sentences with embedded numbers.
 - Before declaring a UI change complete, judge the screenshot against the design bar (hierarchy, scannability, one primary value per element) — not merely against "the information is now present." The verification step for UI work is a design review of the rendered result, not a data audit.
+
+## UI Change Freeze Outside Approved Designs
+
+- Incremental UI additions to a surface that is already slated for restructure are reactive design and produce duplicate affordances: the queue-complete stat grid duplicated the dataset selector rendered directly above it in the same viewport, because the change was judged as an isolated panel instead of within the page's existing control system (view tabs -> widgets -> filters -> split pane).
+- Rule: while a design gate (prototype/mockup approval) is pending for a surface, UI changes to that surface are limited to copy and single-line states. Anything structural ships only through the approved design.
+- Pre-ship checklist for any UI diff: (1) does an existing control already provide this affordance? (2) does it respect the documented IA ordering? (3) screenshot the change in FULL page context — not the panel in isolation — and judge against the design bar.
