@@ -8,6 +8,9 @@ cleanup() {
   if [[ -n "${BRIDGE_PID:-}" ]]; then
     kill "${BRIDGE_PID}" >/dev/null 2>&1 || true
   fi
+  if [[ -n "${SERVER_PID:-}" ]]; then
+    kill "${SERVER_PID}" >/dev/null 2>&1 || true
+  fi
 }
 
 trap cleanup EXIT INT TERM
@@ -62,6 +65,34 @@ until [[ -f "${DIST_INDEX_PRIMARY}" || -f "${DIST_INDEX_LEGACY}" ]]; do
   sleep 0.2
 done
 
+start_review_server() {
+  JOB_FINDER_DASHBOARD_UI=react JOB_FINDER_BROWSER_BRIDGE_URL="${BRIDGE_URL}" \
+    node src/cli.js review "${REVIEW_PORT}" &
+  SERVER_PID=$!
+  SERVER_SHA="$(git rev-parse HEAD)"
+}
+
 echo "Starting review server in React mode on port ${REVIEW_PORT}..."
 echo "Open Job Finder: http://127.0.0.1:${REVIEW_PORT}"
-JOB_FINDER_DASHBOARD_UI=react JOB_FINDER_BROWSER_BRIDGE_URL="${BRIDGE_URL}" node src/cli.js review "${REVIEW_PORT}"
+start_review_server
+
+# Supervise: restart the server when new commits land (server-side code only
+# reloads with a process restart; the Vite watcher above already handles the
+# React bundle) or when the server process dies.
+while true; do
+  sleep 3
+
+  if ! kill -0 "${SERVER_PID}" >/dev/null 2>&1; then
+    echo "[server] review server exited; restarting."
+    start_review_server
+    continue
+  fi
+
+  CURRENT_SHA="$(git rev-parse HEAD)"
+  if [[ "${CURRENT_SHA}" != "${SERVER_SHA}" ]]; then
+    echo "[server] commit changed: ${SERVER_SHA:0:8} -> ${CURRENT_SHA:0:8}; restarting server."
+    kill "${SERVER_PID}" >/dev/null 2>&1 || true
+    wait "${SERVER_PID}" >/dev/null 2>&1 || true
+    start_review_server
+  fi
+done
